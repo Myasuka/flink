@@ -20,12 +20,13 @@ package org.apache.flink.runtime.client;
 
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.runtime.testutils.CommonTestUtils;
-import org.apache.flink.runtime.util.SerializedValue;
+import org.apache.flink.core.testutils.CommonTestUtils;
+import org.apache.flink.util.SerializedValue;
 import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -53,6 +54,7 @@ public class SerializedJobExecutionResultTest {
 
 			assertEquals(origJobId, cloned.getJobId());
 			assertEquals(origTime, cloned.getNetRuntime());
+			assertEquals(origTime, cloned.getNetRuntime(TimeUnit.MILLISECONDS));
 			assertEquals(origMap, cloned.getSerializedAccumulatorResults());
 
 			// convert to deserialized result
@@ -62,7 +64,9 @@ public class SerializedJobExecutionResultTest {
 			assertEquals(origJobId, jResult.getJobID());
 			assertEquals(origJobId, jResultCopied.getJobID());
 			assertEquals(origTime, jResult.getNetRuntime());
+			assertEquals(origTime, jResult.getNetRuntime(TimeUnit.MILLISECONDS));
 			assertEquals(origTime, jResultCopied.getNetRuntime());
+			assertEquals(origTime, jResultCopied.getNetRuntime(TimeUnit.MILLISECONDS));
 
 			for (Map.Entry<String, SerializedValue<Object>> entry : origMap.entrySet()) {
 				String name = entry.getKey();
@@ -89,7 +93,7 @@ public class SerializedJobExecutionResultTest {
 
 			JobExecutionResult jResult = result.toJobExecutionResult(getClass().getClassLoader());
 			assertNull(jResult.getJobID());
-			assertNull(jResult.getAllAccumulatorResults());
+			assertTrue(jResult.getAllAccumulatorResults().isEmpty());
 		}
 		catch (Exception e) {
 			e.printStackTrace();

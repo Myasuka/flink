@@ -17,6 +17,7 @@
 # limitations under the License.
 ################################################################################
 
+STREAMING_MODE=$1
 
 bin=`dirname "$0"`
 bin=`cd "$bin"; pwd`

@@ -23,8 +23,10 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import org.apache.flink.runtime.io.network.TaskEventDispatcher;
 import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
+import org.apache.flink.runtime.io.network.netty.NettyMessage.CancelPartitionRequest;
+import org.apache.flink.runtime.io.network.netty.NettyMessage.CloseRequest;
+import org.apache.flink.runtime.io.network.partition.PartitionNotFoundException;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionProvider;
-import org.apache.flink.runtime.io.network.partition.ResultSubpartitionView;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,9 @@ import org.slf4j.LoggerFactory;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.PartitionRequest;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.TaskEventRequest;
 
+/**
+ * Channel handler to initiate data transfers and dispatch backwards flowing task events.
+ */
 class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMessage> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(PartitionRequestServerHandler.class);
@@ -47,10 +52,10 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
 	private BufferPool bufferPool;
 
 	PartitionRequestServerHandler(
-			ResultPartitionProvider partitionProvider,
-			TaskEventDispatcher taskEventDispatcher,
-			PartitionRequestQueue outboundQueue,
-			NetworkBufferPool networkBufferPool) {
+		ResultPartitionProvider partitionProvider,
+		TaskEventDispatcher taskEventDispatcher,
+		PartitionRequestQueue outboundQueue,
+		NetworkBufferPool networkBufferPool) {
 
 		this.partitionProvider = partitionProvider;
 		this.taskEventDispatcher = taskEventDispatcher;
@@ -85,19 +90,20 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
 			if (msgClazz == PartitionRequest.class) {
 				PartitionRequest request = (PartitionRequest) msg;
 
-				LOG.debug("Read channel on {}: {}.",ctx.channel().localAddress(), request);
+				LOG.debug("Read channel on {}: {}.", ctx.channel().localAddress(), request);
 
-				ResultSubpartitionView queueIterator =
-						partitionProvider.createSubpartitionView(
-								request.partitionId,
-								request.queueIndex,
-								bufferPool);
+				try {
+					SequenceNumberingViewReader reader = new SequenceNumberingViewReader(
+						request.receiverId,
+						outboundQueue);
 
-				if (queueIterator != null) {
-					outboundQueue.enqueue(queueIterator, request.receiverId);
-				}
-				else {
-					respondWithError(ctx, new IllegalArgumentException("Partition not found"), request.receiverId);
+					reader.requestSubpartitionView(
+						partitionProvider,
+						request.partitionId,
+						request.queueIndex,
+						bufferPool);
+				} catch (PartitionNotFoundException notFound) {
+					respondWithError(ctx, notFound, request.receiverId);
 				}
 			}
 			// ----------------------------------------------------------------
@@ -109,12 +115,16 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
 				if (!taskEventDispatcher.publish(request.partitionId, request.event)) {
 					respondWithError(ctx, new IllegalArgumentException("Task event receiver not found."), request.receiverId);
 				}
-			}
-			else {
+			} else if (msgClazz == CancelPartitionRequest.class) {
+				CancelPartitionRequest request = (CancelPartitionRequest) msg;
+
+				outboundQueue.cancel(request.receiverId);
+			} else if (msgClazz == CloseRequest.class) {
+				outboundQueue.close();
+			} else {
 				LOG.warn("Received unexpected client request: {}", msg);
 			}
-		}
-		catch (Throwable t) {
+		} catch (Throwable t) {
 			respondWithError(ctx, t);
 		}
 	}
@@ -124,6 +134,8 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
 	}
 
 	private void respondWithError(ChannelHandlerContext ctx, Throwable error, InputChannelID sourceId) {
+		LOG.debug("Responding with error: {}.", error.getClass());
+
 		ctx.writeAndFlush(new NettyMessage.ErrorResponse(error, sourceId));
 	}
 }

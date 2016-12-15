@@ -20,8 +20,6 @@
 package org.apache.flink.types.parser;
 
 import org.apache.flink.types.LongValue;
-import org.apache.flink.types.parser.LongValueParser;
-import org.apache.flink.types.parser.FieldParser;
 
 
 public class LongValueParserTest extends ParserTestBase<LongValue> {
@@ -47,8 +45,13 @@ public class LongValueParserTest extends ParserTestBase<LongValue> {
 	public String[] getInvalidTestValues() {
 		return new String[] {
 			"a", "1569a86", "-57-6", "7-877678", String.valueOf(Long.MAX_VALUE) + "0", String.valueOf(Long.MIN_VALUE) + "0",
-			"9223372036854775808", "-9223372036854775809"
+			"9223372036854775808", "-9223372036854775809", " 1", "2 ", " ", "\t"
 		};
+	}
+
+	@Override
+	public boolean allowsEmptyField() {
+		return false;
 	}
 
 	@Override

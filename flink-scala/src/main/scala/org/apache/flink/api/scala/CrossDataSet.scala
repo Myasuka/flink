@@ -17,16 +17,12 @@
  */
 package org.apache.flink.api.scala
 
-import org.apache.commons.lang3.Validate
-import org.apache.flink.api.common.ExecutionConfig
-import org.apache.flink.api.common.functions.{RichCrossFunction, CrossFunction}
-import org.apache.flink.api.common.typeutils.{TypeComparator, TypeSerializer}
-import org.apache.flink.api.java.operators._
-import org.apache.flink.api.java.{DataSet => JavaDataSet}
-import org.apache.flink.api.scala.typeutils.{CaseClassSerializer, CaseClassTypeInfo}
-import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.util.Collector
+import org.apache.flink.annotation.{Internal, Public}
+import org.apache.flink.api.common.functions.{CrossFunction, RichCrossFunction}
 import org.apache.flink.api.common.operators.base.CrossOperatorBase.CrossHint
+import org.apache.flink.api.common.typeinfo.TypeInformation
+import org.apache.flink.api.java.operators._
+import org.apache.flink.util.Collector
 
 import scala.reflect.ClassTag
 
@@ -48,6 +44,7 @@ import scala.reflect.ClassTag
  * @tparam L Type of the left input of the cross.
  * @tparam R Type of the right input of the cross.
  */
+@Public
 class CrossDataSet[L, R](
     defaultCross: CrossOperator[L, R, (L, R)],
     leftInput: DataSet[L],
@@ -59,7 +56,7 @@ class CrossDataSet[L, R](
    * of the given function.
    */
   def apply[O: TypeInformation: ClassTag](fun: (L, R) => O): DataSet[O] = {
-    Validate.notNull(fun, "Cross function must not be null.")
+    require(fun != null, "Cross function must not be null.")
     val crosser = new CrossFunction[L, R, O] {
       val cleanFun = clean(fun)
       def cross(left: L, right: R): O = {
@@ -85,7 +82,7 @@ class CrossDataSet[L, R](
    * broadcast variables and the [[org.apache.flink.api.common.functions.RuntimeContext]].
    */
   def apply[O: TypeInformation: ClassTag](crosser: CrossFunction[L, R, O]): DataSet[O] = {
-    Validate.notNull(crosser, "Cross function must not be null.")
+    require(crosser != null, "Cross function must not be null.")
     val crossOperator = new CrossOperator[L, R, O](
       leftInput.javaSet,
       rightInput.javaSet,
@@ -97,6 +94,7 @@ class CrossDataSet[L, R](
   }
 }
 
+@Internal
 private[flink] object CrossDataSet {
 
   /**
@@ -112,25 +110,7 @@ private[flink] object CrossDataSet {
         (left, right)
       }
     }
-    val returnType = new CaseClassTypeInfo[(L, R)](
-      classOf[(L, R)],
-      Array(leftInput.getType, rightInput.getType),
-      Seq(leftInput.getType, rightInput.getType),
-      Array("_1", "_2")) {
-
-      override def createSerializer(executionConfig: ExecutionConfig): TypeSerializer[(L, R)] = {
-        val fieldSerializers: Array[TypeSerializer[_]] = new Array[TypeSerializer[_]](getArity)
-        for (i <- 0 until getArity) {
-          fieldSerializers(i) = types(i).createSerializer(executionConfig)
-        }
-
-        new CaseClassSerializer[(L, R)](classOf[(L, R)], fieldSerializers) {
-          override def createInstance(fields: Array[AnyRef]) = {
-            (fields(0).asInstanceOf[L], fields(1).asInstanceOf[R])
-          }
-        }
-      }
-    }
+    val returnType = createTuple2TypeInformation[L, R](leftInput.getType(), rightInput.getType())
     val crossOperator = new CrossOperator[L, R, (L, R)](
       leftInput.javaSet,
       rightInput.javaSet,

@@ -19,9 +19,6 @@
 
 package org.apache.flink.types.parser;
 
-import org.apache.flink.types.parser.StringParser;
-import org.apache.flink.types.parser.FieldParser;
-
 
 public class UnquotedStringParserTest extends ParserTestBase<String> {
 
@@ -38,6 +35,11 @@ public class UnquotedStringParserTest extends ParserTestBase<String> {
                 "abcdefgh", "i", "jklmno", "\"abc\"defgh\"", "\"i\"", "Hello9"
         };
     }
+
+	@Override
+	public boolean allowsEmptyField() {
+		return true;
+	}
 
     @Override
     public String[] getInvalidTestValues() {

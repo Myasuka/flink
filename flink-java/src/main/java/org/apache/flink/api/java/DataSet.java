@@ -18,17 +18,14 @@
 
 package org.apache.flink.api.java;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.apache.commons.lang3.Validate;
+import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.Public;
 import org.apache.flink.api.common.InvalidProgramException;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.accumulators.SerializedListAccumulator;
 import org.apache.flink.api.common.functions.FilterFunction;
-import org.apache.flink.api.common.functions.GroupCombineFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.GroupCombineFunction;
 import org.apache.flink.api.common.functions.GroupReduceFunction;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -38,10 +35,10 @@ import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.io.FileOutputFormat;
 import org.apache.flink.api.common.io.OutputFormat;
 import org.apache.flink.api.common.operators.Order;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.operators.base.CrossOperatorBase.CrossHint;
 import org.apache.flink.api.common.operators.base.JoinOperatorBase.JoinHint;
 import org.apache.flink.api.common.operators.base.PartitionOperatorBase.PartitionMethod;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.aggregation.Aggregations;
 import org.apache.flink.api.java.functions.FirstReducer;
@@ -50,7 +47,6 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.functions.SelectByMaxFunction;
 import org.apache.flink.api.java.functions.SelectByMinFunction;
 import org.apache.flink.api.java.io.CsvOutputFormat;
-import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.io.PrintingOutputFormat;
 import org.apache.flink.api.java.io.TextOutputFormat;
 import org.apache.flink.api.java.io.TextOutputFormat.TextFormatter;
@@ -64,36 +60,40 @@ import org.apache.flink.api.java.operators.DeltaIteration;
 import org.apache.flink.api.java.operators.DistinctOperator;
 import org.apache.flink.api.java.operators.FilterOperator;
 import org.apache.flink.api.java.operators.FlatMapOperator;
-import org.apache.flink.api.java.operators.GroupReduceOperator;
 import org.apache.flink.api.java.operators.GroupCombineOperator;
+import org.apache.flink.api.java.operators.GroupReduceOperator;
 import org.apache.flink.api.java.operators.IterativeDataSet;
 import org.apache.flink.api.java.operators.JoinOperator.JoinOperatorSets;
-import org.apache.flink.api.java.operators.Keys;
+import org.apache.flink.api.common.operators.Keys;
 import org.apache.flink.api.java.operators.MapOperator;
 import org.apache.flink.api.java.operators.MapPartitionOperator;
 import org.apache.flink.api.java.operators.PartitionOperator;
 import org.apache.flink.api.java.operators.ProjectOperator;
 import org.apache.flink.api.java.operators.ProjectOperator.Projection;
 import org.apache.flink.api.java.operators.ReduceOperator;
+import org.apache.flink.api.java.operators.SortPartitionOperator;
 import org.apache.flink.api.java.operators.SortedGrouping;
 import org.apache.flink.api.java.operators.UnionOperator;
 import org.apache.flink.api.java.operators.UnsortedGrouping;
+import org.apache.flink.api.java.operators.join.JoinOperatorSetsBase;
+import org.apache.flink.api.java.operators.join.JoinType;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.api.java.typeutils.GenericTypeInfo;
 import org.apache.flink.api.java.typeutils.InputTypeConfigurable;
 import org.apache.flink.api.java.typeutils.MissingTypeInfo;
-import org.apache.flink.api.java.typeutils.PojoTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.core.fs.FileSystem.WriteMode;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.util.AbstractID;
+import org.apache.flink.util.Preconditions;
 
-import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * A DataSet represents a collection of elements of the same type.<br/>
+ * A DataSet represents a collection of elements of the same type.<br>
  * A DataSet can be transformed into another DataSet by applying a transformation as for example 
  * <ul>
  *   <li>{@link DataSet#map(org.apache.flink.api.common.functions.MapFunction)},</li>
@@ -104,6 +104,7 @@ import com.google.common.base.Preconditions;
  *
  * @param <T> The type of the DataSet, i.e., the type of the elements of the DataSet.
  */
+@Public
 public abstract class DataSet<T> {
 	
 	protected final ExecutionEnvironment context;
@@ -123,11 +124,7 @@ public abstract class DataSet<T> {
 		}
 
 		this.context = context;
-		if (typeInfo instanceof PojoTypeInfo && context.getConfig().isForceKryoEnabled()) {
-			this.type = new GenericTypeInfo<T>(typeInfo.getTypeClass());
-		} else {
-			this.type = typeInfo;
-		}
+		this.type = typeInfo;
 	}
 
 	/**
@@ -198,7 +195,7 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	/**
-	 * Applies a Map transformation on this DataSet.<br/>
+	 * Applies a Map transformation on this DataSet.<br>
 	 * The transformation calls a {@link org.apache.flink.api.common.functions.MapFunction} for each element of the DataSet.
 	 * Each MapFunction call returns exactly one element.
 	 * 
@@ -216,7 +213,7 @@ public abstract class DataSet<T> {
 
 		String callLocation = Utils.getCallLocationName();
 		TypeInformation<R> resultType = TypeExtractor.getMapReturnTypes(mapper, getType(), callLocation, true);
-		return new MapOperator<T, R>(this, resultType, clean(mapper), callLocation);
+		return new MapOperator<>(this, resultType, clean(mapper), callLocation);
 	}
 
 
@@ -245,11 +242,11 @@ public abstract class DataSet<T> {
 		
 		String callLocation = Utils.getCallLocationName();
 		TypeInformation<R> resultType = TypeExtractor.getMapPartitionReturnTypes(mapPartition, getType(), callLocation, true);
-		return new MapPartitionOperator<T, R>(this, resultType, clean(mapPartition), callLocation);
+		return new MapPartitionOperator<>(this, resultType, clean(mapPartition), callLocation);
 	}
 	
 	/**
-	 * Applies a FlatMap transformation on a {@link DataSet}.<br/>
+	 * Applies a FlatMap transformation on a {@link DataSet}.<br>
 	 * The transformation calls a {@link org.apache.flink.api.common.functions.RichFlatMapFunction} for each element of the DataSet.
 	 * Each FlatMapFunction call can return any number of elements including none.
 	 * 
@@ -267,11 +264,11 @@ public abstract class DataSet<T> {
 
 		String callLocation = Utils.getCallLocationName();
 		TypeInformation<R> resultType = TypeExtractor.getFlatMapReturnTypes(flatMapper, getType(), callLocation, true);
-		return new FlatMapOperator<T, R>(this, resultType, clean(flatMapper), callLocation);
+		return new FlatMapOperator<>(this, resultType, clean(flatMapper), callLocation);
 	}
 	
 	/**
-	 * Applies a Filter transformation on a {@link DataSet}.<br/>
+	 * Applies a Filter transformation on a {@link DataSet}.<br>
 	 * The transformation calls a {@link org.apache.flink.api.common.functions.RichFilterFunction} for each element of the DataSet
 	 * and retains only those element for which the function returns true. Elements for 
 	 * which the function returns false are filtered. 
@@ -287,7 +284,7 @@ public abstract class DataSet<T> {
 		if (filter == null) {
 			throw new NullPointerException("Filter function must not be null.");
 		}
-		return new FilterOperator<T>(this, clean(filter), Utils.getCallLocationName());
+		return new FilterOperator<>(this, clean(filter), Utils.getCallLocationName());
 	}
 
 	
@@ -296,9 +293,9 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	/**
-	 * Applies a Project transformation on a {@link Tuple} {@link DataSet}.<br/>
-	 * <b>Note: Only Tuple DataSets can be projected using field indexes.</b></br>
-	 * The transformation projects each Tuple of the DataSet onto a (sub)set of fields.</br>
+	 * Applies a Project transformation on a {@link Tuple} {@link DataSet}.<br>
+	 * <b>Note: Only Tuple DataSets can be projected using field indexes.</b><br>
+	 * The transformation projects each Tuple of the DataSet onto a (sub)set of fields.<br>
 	 * Additional fields can be added to the projection by calling {@link ProjectOperator#project(int[])}.
 	 *
 	 * <b>Note: With the current implementation, the Project transformation looses type information.</b>
@@ -312,7 +309,7 @@ public abstract class DataSet<T> {
 	 * @see ProjectOperator
 	 */
 	public <OUT extends Tuple> ProjectOperator<?, OUT> project(int... fieldIndexes) {
-		return new Projection<T>(this, fieldIndexes).projectTupleX();
+		return new Projection<>(this, fieldIndexes).projectTupleX();
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -320,7 +317,7 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	/**
-	 * Applies an Aggregate transformation on a non-grouped {@link Tuple} {@link DataSet}.<br/>
+	 * Applies an Aggregate transformation on a non-grouped {@link Tuple} {@link DataSet}.<br>
 	 * <b>Note: Only Tuple DataSets can be aggregated.</b>
 	 * The transformation applies a built-in {@link Aggregations Aggregation} on a specified field 
 	 *   of a Tuple DataSet. Additional aggregation functions can be added to the resulting 
@@ -336,7 +333,7 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public AggregateOperator<T> aggregate(Aggregations agg, int field) {
-		return new AggregateOperator<T>(this, agg, field, Utils.getCallLocationName());
+		return new AggregateOperator<>(this, agg, field, Utils.getCallLocationName());
 	}
 
 	/**
@@ -346,7 +343,7 @@ public abstract class DataSet<T> {
 	 *
 	 * @see org.apache.flink.api.java.operators.AggregateOperator
 	 */
-	public AggregateOperator<T> sum (int field) {
+	public AggregateOperator<T> sum(int field) {
 		return aggregate(Aggregations.SUM, field);
 	}
 
@@ -385,18 +382,14 @@ public abstract class DataSet<T> {
 	}
 
 	/**
-	 * Convenience method to get the count (number of elements) of a DataSet
+	 * Convenience method to get the count (number of elements) of a DataSet.
 	 *
-	 * @return A long integer that represents the number of elements in the set
-	 *
-	 * @see org.apache.flink.api.java.Utils.CountHelper
+	 * @return A long integer that represents the number of elements in the data set.
 	 */
 	public long count() throws Exception {
-
 		final String id = new AbstractID().toString();
 
-		flatMap(new Utils.CountHelper<T>(id)).output(
-				new DiscardingOutputFormat<Long>());
+		output(new Utils.CountHelper<T>(id)).name("count()");
 
 		JobExecutionResult res = getExecutionEnvironment().execute();
 		return res.<Long> getAccumulatorResult(id);
@@ -404,34 +397,34 @@ public abstract class DataSet<T> {
 
 
 	/**
-	 * Convenience method to get the elements of a DataSet as a List
+	 * Convenience method to get the elements of a DataSet as a List.
 	 * As DataSet can contain a lot of data, this method should be used with caution.
 	 *
 	 * @return A List containing the elements of the DataSet
-	 *
-	 * @see org.apache.flink.api.java.Utils.CollectHelper
 	 */
 	public List<T> collect() throws Exception {
 		final String id = new AbstractID().toString();
 		final TypeSerializer<T> serializer = getType().createSerializer(getExecutionEnvironment().getConfig());
 		
-		this.flatMap(new Utils.CollectHelper<T>(id, serializer)).output(new DiscardingOutputFormat<T>());
+		this.output(new Utils.CollectHelper<>(id, serializer)).name("collect()");
 		JobExecutionResult res = getExecutionEnvironment().execute();
 
 		ArrayList<byte[]> accResult = res.getAccumulatorResult(id);
-		try {
-			return SerializedListAccumulator.deserializeList(accResult, serializer);
-		}
-		catch (ClassNotFoundException e) {
-			throw new RuntimeException("Cannot find type class of collected data type.", e);
-		}
-		catch (IOException e) {
-			throw new RuntimeException("Serialization error while deserializing collected data", e);
+		if (accResult != null) {
+			try {
+				return SerializedListAccumulator.deserializeList(accResult, serializer);
+			} catch (ClassNotFoundException e) {
+				throw new RuntimeException("Cannot find type class of collected data type.", e);
+			} catch (IOException e) {
+				throw new RuntimeException("Serialization error while deserializing collected data", e);
+			}
+		} else {
+			throw new RuntimeException("The call to collect() could not retrieve the DataSet.");
 		}
 	}
 
 	/**
-	 * Applies a Reduce transformation on a non-grouped {@link DataSet}.<br/>
+	 * Applies a Reduce transformation on a non-grouped {@link DataSet}.<br>
 	 * The transformation consecutively calls a {@link org.apache.flink.api.common.functions.RichReduceFunction}
 	 *   until only a single element remains which is the result of the transformation.
 	 * A ReduceFunction combines two elements into one new element of the same type.
@@ -447,11 +440,11 @@ public abstract class DataSet<T> {
 		if (reducer == null) {
 			throw new NullPointerException("Reduce function must not be null.");
 		}
-		return new ReduceOperator<T>(this, clean(reducer), Utils.getCallLocationName());
+		return new ReduceOperator<>(this, clean(reducer), Utils.getCallLocationName());
 	}
 	
 	/**
-	 * Applies a GroupReduce transformation on a non-grouped {@link DataSet}.<br/>
+	 * Applies a GroupReduce transformation on a non-grouped {@link DataSet}.<br>
 	 * The transformation calls a {@link org.apache.flink.api.common.functions.RichGroupReduceFunction} once with the full DataSet.
 	 * The GroupReduceFunction can iterate over all elements of the DataSet and emit any
 	 *   number of output elements including none.
@@ -470,11 +463,11 @@ public abstract class DataSet<T> {
 		
 		String callLocation = Utils.getCallLocationName();
 		TypeInformation<R> resultType = TypeExtractor.getGroupReduceReturnTypes(reducer, getType(), callLocation, true);
-		return new GroupReduceOperator<T, R>(this, resultType, clean(reducer), callLocation);
+		return new GroupReduceOperator<>(this, resultType, clean(reducer), callLocation);
 	}
 
 	/**
-	 * Applies a CombineFunction on a non-grouped {@link DataSet}.
+	 * Applies a GroupCombineFunction on a non-grouped {@link DataSet}.
 	 * A CombineFunction is similar to a GroupReduceFunction but does not perform a full data exchange. Instead, the
 	 * CombineFunction calls the combine method once per partition for combining a group of results. This
 	 * operator is suitable for combining values into an intermediate format before doing a proper groupReduce where
@@ -482,17 +475,17 @@ public abstract class DataSet<T> {
 	 * a combiner by implementing the RichGroupReduce function. The combine method of the RichGroupReduce function
 	 * demands input and output type to be the same. The CombineFunction, on the other side, can have an arbitrary
 	 * output type.
-	 * @param combiner The CombineFunction that is applied on the DataSet.
+	 * @param combiner The GroupCombineFunction that is applied on the DataSet.
 	 * @return A GroupCombineOperator which represents the combined DataSet.
 	 */
 	public <R> GroupCombineOperator<T, R> combineGroup(GroupCombineFunction<T, R> combiner) {
 		if (combiner == null) {
-			throw new NullPointerException("GroupReduce function must not be null.");
+			throw new NullPointerException("GroupCombine function must not be null.");
 		}
 
 		String callLocation = Utils.getCallLocationName();
 		TypeInformation<R> resultType = TypeExtractor.getGroupCombineReturnTypes(combiner, getType(), callLocation, true);
-		return new GroupCombineOperator<T, R>(this, resultType, clean(combiner), callLocation);
+		return new GroupCombineOperator<>(this, resultType, clean(combiner), callLocation);
 	}
 
 	/**
@@ -527,7 +520,7 @@ public abstract class DataSet<T> {
 			throw new InvalidProgramException("DataSet#minBy(int...) only works on Tuple types.");
 		}
 
-		return new ReduceOperator<T>(this, new SelectByMinFunction(
+		return new ReduceOperator<>(this, new SelectByMinFunction(
 				(TupleTypeInfo) getType(), fields), Utils.getCallLocationName());
 	}
 	
@@ -563,12 +556,12 @@ public abstract class DataSet<T> {
 			throw new InvalidProgramException("DataSet#maxBy(int...) only works on Tuple types.");
 		}
 
-		return new ReduceOperator<T>(this, new SelectByMaxFunction(
+		return new ReduceOperator<>(this, new SelectByMaxFunction(
 				(TupleTypeInfo) getType(), fields), Utils.getCallLocationName());
 	}
 
 	/**
-	 * Returns a new set containing the first n elements in this {@link DataSet}.<br/>
+	 * Returns a new set containing the first n elements in this {@link DataSet}.<br>
 	 * @param n The desired number of elements.
 	 * @return A ReduceGroupOperator that represents the DataSet containing the elements.
 	*/
@@ -596,7 +589,7 @@ public abstract class DataSet<T> {
 	 */
 	public <K> DistinctOperator<T> distinct(KeySelector<T, K> keyExtractor) {
 		TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
-		return new DistinctOperator<T>(this, new Keys.SelectorFunctionKeys<T, K>(keyExtractor, getType(), keyType), Utils.getCallLocationName());
+		return new DistinctOperator<>(this, new Keys.SelectorFunctionKeys<>(keyExtractor, getType(), keyType), Utils.getCallLocationName());
 	}
 	
 	/**
@@ -611,32 +604,33 @@ public abstract class DataSet<T> {
 	 * @return A DistinctOperator that represents the distinct DataSet.
 	 */
 	public DistinctOperator<T> distinct(int... fields) {
-		return new DistinctOperator<T>(this, new Keys.ExpressionKeys<T>(fields, getType(), true), Utils.getCallLocationName());
+		return new DistinctOperator<>(this, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
 	}
 	
 	/**
-	 * Returns a distinct set of a {@link Tuple} {@link DataSet} using expression keys.
+	 * Returns a distinct set of a {@link DataSet} using expression keys.
 	 * <p>
-	 * The field position keys specify the fields of Tuples or Pojos on which the decision is made if two elements are distinct or
-	 * not.
-	 * <p>
+	 * The field expression keys specify the fields of a {@link org.apache.flink.api.common.typeutils.CompositeType}
+	 * (e.g., Tuple or Pojo type) on which the decision is made if two elements are distinct or not.
+	 * In case of a {@link org.apache.flink.api.common.typeinfo.AtomicType}, only the wildcard expression ("*") is valid.
 	 *
-	 * @param fields One or more field positions on which the distinction of the DataSet is decided. 
+	 * @param fields One or more field expressions on which the distinction of the DataSet is decided.
 	 * @return A DistinctOperator that represents the distinct DataSet.
 	 */
 	public DistinctOperator<T> distinct(String... fields) {
-		return new DistinctOperator<T>(this, new Keys.ExpressionKeys<T>(fields, getType()), Utils.getCallLocationName());
+		return new DistinctOperator<>(this, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
 	}
 	
 	/**
-	 * Returns a distinct set of a {@link Tuple} {@link DataSet} using all fields of the tuple.
+	 * Returns a distinct set of a {@link DataSet}.
 	 * <p>
-	 * Note: This operator can only be applied to Tuple DataSets.
+	 * If the input is a {@link org.apache.flink.api.common.typeutils.CompositeType} (Tuple or Pojo type),
+	 * distinct is performed on all fields and each field must be a key type
 	 * 
 	 * @return A DistinctOperator that represents the distinct DataSet.
 	 */
 	public DistinctOperator<T> distinct() {
-		return new DistinctOperator<T>(this, null, Utils.getCallLocationName());
+		return new DistinctOperator<>(this, null, Utils.getCallLocationName());
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -646,7 +640,7 @@ public abstract class DataSet<T> {
 	/**
 	 * Groups a {@link DataSet} using a {@link KeySelector} function. 
 	 * The KeySelector function is called for each element of the DataSet and extracts a single 
-	 *   key value on which the DataSet is grouped. </br>
+	 *   key value on which the DataSet is grouped. <br>
 	 * This method returns an {@link UnsortedGrouping} on which one of the following grouping transformation 
 	 *   can be applied. 
 	 * <ul>
@@ -668,12 +662,12 @@ public abstract class DataSet<T> {
 	 */
 	public <K> UnsortedGrouping<T> groupBy(KeySelector<T, K> keyExtractor) {
 		TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
-		return new UnsortedGrouping<T>(this, new Keys.SelectorFunctionKeys<T, K>(clean(keyExtractor), getType(), keyType));
+		return new UnsortedGrouping<>(this, new Keys.SelectorFunctionKeys<>(clean(keyExtractor), getType(), keyType));
 	}
 	
 	/**
-	 * Groups a {@link Tuple} {@link DataSet} using field position keys.<br/> 
-	 * <b>Note: Field position keys only be specified for Tuple DataSets.</b></br>
+	 * Groups a {@link Tuple} {@link DataSet} using field position keys.<br> 
+	 * <b>Note: Field position keys only be specified for Tuple DataSets.</b><br>
 	 * The field position keys specify the fields of Tuples on which the DataSet is grouped.
 	 * This method returns an {@link UnsortedGrouping} on which one of the following grouping transformation 
 	 *   can be applied. 
@@ -695,7 +689,7 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public UnsortedGrouping<T> groupBy(int... fields) {
-		return new UnsortedGrouping<T>(this, new Keys.ExpressionKeys<T>(fields, getType(), false));
+		return new UnsortedGrouping<>(this, new Keys.ExpressionKeys<>(fields, getType()));
 	}
 
 	/**
@@ -722,7 +716,7 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public UnsortedGrouping<T> groupBy(String... fields) {
-		return new UnsortedGrouping<T>(this, new Keys.ExpressionKeys<T>(fields, getType()));
+		return new UnsortedGrouping<>(this, new Keys.ExpressionKeys<>(fields, getType()));
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -730,10 +724,10 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	/**
-	 * Initiates a Join transformation. <br/>
+	 * Initiates a Join transformation. <br>
 	 * A Join transformation joins the elements of two 
 	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine 
-	 *   joining elements into one DataSet.</br>
+	 *   joining elements into one DataSet.<br>
 	 * 
 	 * This method returns a {@link JoinOperatorSets} on which one of the {@code where} methods
 	 * can be called to define the join key of the first joining (i.e., this) DataSet.
@@ -745,20 +739,20 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public <R> JoinOperatorSets<T, R> join(DataSet<R> other) {
-		return new JoinOperatorSets<T, R>(this, other);
+		return new JoinOperatorSets<>(this, other);
 	}
 	
 	/**
-	 * Initiates a Join transformation. <br/>
+	 * Initiates a Join transformation. <br>
 	 * A Join transformation joins the elements of two 
 	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine 
-	 *   joining elements into one DataSet.</br>
+	 *   joining elements into one DataSet.<br>
 	 * 
 	 * This method returns a {@link JoinOperatorSets} on which one of the {@code where} methods
 	 * can be called to define the join key of the first joining (i.e., this) DataSet.
 	 *  
 	 * @param other The other DataSet with which this DataSet is joined.
-	 * @param strategy The strategy that should be used execute the join. If {@code null} is give, then the
+	 * @param strategy The strategy that should be used execute the join. If {@code null} is given, then the
 	 *                 optimizer will pick the join strategy.
 	 * @return A JoinOperatorSets to continue the definition of the Join transformation.
 	 * 
@@ -766,18 +760,18 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public <R> JoinOperatorSets<T, R> join(DataSet<R> other, JoinHint strategy) {
-		return new JoinOperatorSets<T, R>(this, other, strategy);
+		return new JoinOperatorSets<>(this, other, strategy);
 	}
 
 	/**
-	 * Initiates a Join transformation. <br/>
+	 * Initiates a Join transformation. <br>
 	 * A Join transformation joins the elements of two 
 	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine 
-	 *   joining elements into one DataSet.</br>
+	 *   joining elements into one DataSet.<br>
 	 * This method also gives the hint to the optimizer that the second DataSet to join is much
-	 *   smaller than the first one.</br>
-	 * This method returns a {@link JoinOperatorSets} on which 
-	 *   {@link JoinOperatorSets#where(String...)} needs to be called to define the join key of the first 
+	 *   smaller than the first one.<br>
+	 * This method returns a {@link JoinOperatorSets} on which
+	 *   {@link JoinOperatorSets#where(String...)} needs to be called to define the join key of the first
 	 *   joining (i.e., this) DataSet.
 	 *  
 	 * @param other The other DataSet with which this DataSet is joined.
@@ -787,16 +781,16 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public <R> JoinOperatorSets<T, R> joinWithTiny(DataSet<R> other) {
-		return new JoinOperatorSets<T, R>(this, other, JoinHint.BROADCAST_HASH_SECOND);
+		return new JoinOperatorSets<>(this, other, JoinHint.BROADCAST_HASH_SECOND);
 	}
 	
 	/**
-	 * Initiates a Join transformation.<br/>
+	 * Initiates a Join transformation.<br>
 	 * A Join transformation joins the elements of two 
 	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine 
-	 *   joining elements into one DataSet.</br>
+	 *   joining elements into one DataSet.<br>
 	 * This method also gives the hint to the optimizer that the second DataSet to join is much
-	 *   larger than the first one.</br>
+	 *   larger than the first one.<br>
 	 * This method returns a {@link JoinOperatorSets} on which one of the {@code where} methods
 	 * can be called to define the join key of the first joining (i.e., this) DataSet.
 	 *  
@@ -807,22 +801,170 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public <R> JoinOperatorSets<T, R> joinWithHuge(DataSet<R> other) {
-		return new JoinOperatorSets<T, R>(this, other, JoinHint.BROADCAST_HASH_FIRST);
+		return new JoinOperatorSets<>(this, other, JoinHint.BROADCAST_HASH_FIRST);
 	}
-	
+
+	/**
+	 * Initiates a Left Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of the <b>left</b> DataSet (i.e. {@code this}) that do not have a matching
+	 *   element on the other side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> leftOuterJoin(DataSet<R> other) {
+		return new JoinOperatorSetsBase<>(this, other, JoinHint.OPTIMIZER_CHOOSES, JoinType.LEFT_OUTER);
+	}
+
+	/**
+	 * Initiates a Left Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of the <b>left</b> DataSet (i.e. {@code this}) that do not have a matching
+	 *   element on the other side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @param strategy The strategy that should be used execute the join. If {@code null} is given, then the
+	 *                 optimizer will pick the join strategy.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> leftOuterJoin(DataSet<R> other, JoinHint strategy) {
+		switch(strategy) {
+			case OPTIMIZER_CHOOSES:
+			case REPARTITION_SORT_MERGE:
+			case REPARTITION_HASH_FIRST:
+			case REPARTITION_HASH_SECOND:
+			case BROADCAST_HASH_SECOND:
+				return new JoinOperatorSetsBase<>(this, other, strategy, JoinType.LEFT_OUTER);
+			default:
+				throw new InvalidProgramException("Invalid JoinHint for LeftOuterJoin: "+strategy);
+		}
+
+	}
+
+	/**
+	 * Initiates a Right Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of the <b>right</b> DataSet (i.e. {@code other}) that do not have a matching
+	 *   element on {@code this} side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> rightOuterJoin(DataSet<R> other) {
+		return new JoinOperatorSetsBase<>(this, other, JoinHint.OPTIMIZER_CHOOSES, JoinType.RIGHT_OUTER);
+	}
+
+	/**
+	 * Initiates a Right Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of the <b>right</b> DataSet (i.e. {@code other}) that do not have a matching
+	 *   element on {@code this} side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @param strategy The strategy that should be used execute the join. If {@code null} is given, then the
+	 *                 optimizer will pick the join strategy.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> rightOuterJoin(DataSet<R> other, JoinHint strategy) {
+		switch(strategy) {
+			case OPTIMIZER_CHOOSES:
+			case REPARTITION_SORT_MERGE:
+			case REPARTITION_HASH_FIRST:
+			case REPARTITION_HASH_SECOND:
+			case BROADCAST_HASH_FIRST:
+				return new JoinOperatorSetsBase<>(this, other, strategy, JoinType.RIGHT_OUTER);
+			default:
+			throw new InvalidProgramException("Invalid JoinHint for RightOuterJoin: "+strategy);
+		}
+	}
+
+	/**
+	 * Initiates a Full Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of <b>both</b> DataSets that do not have a matching
+	 *   element on the opposing side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> fullOuterJoin(DataSet<R> other) {
+		return new JoinOperatorSetsBase<>(this, other, JoinHint.OPTIMIZER_CHOOSES, JoinType.FULL_OUTER);
+	}
+
+	/**
+	 * Initiates a Full Outer Join transformation.<br>
+	 * An Outer Join transformation joins two elements of two
+	 *   {@link DataSet DataSets} on key equality and provides multiple ways to combine
+	 *   joining elements into one DataSet.<br>
+	 * Elements of <b>both</b> DataSets that do not have a matching
+	 *   element on the opposing side are joined with {@code null} and emitted to the
+	 *   resulting DataSet.
+	 *
+	 * @param other The other DataSet with which this DataSet is joined.
+	 * @param strategy The strategy that should be used execute the join. If {@code null} is given, then the
+	 *                 optimizer will pick the join strategy.
+	 * @return A JoinOperatorSet to continue the definition of the Join transformation.
+	 *
+	 * @see org.apache.flink.api.java.operators.join.JoinOperatorSetsBase
+	 * @see DataSet
+	 */
+	public <R> JoinOperatorSetsBase<T, R> fullOuterJoin(DataSet<R> other, JoinHint strategy) {
+		switch(strategy) {
+			case OPTIMIZER_CHOOSES:
+			case REPARTITION_SORT_MERGE:
+			case REPARTITION_HASH_FIRST:
+			case REPARTITION_HASH_SECOND:
+				return new JoinOperatorSetsBase<>(this, other, strategy, JoinType.FULL_OUTER);
+			default:
+			throw new InvalidProgramException("Invalid JoinHint for FullOuterJoin: "+strategy);
+		}
+	}
+
+
 	// --------------------------------------------------------------------------------------------
 	//  Co-Grouping
 	// --------------------------------------------------------------------------------------------
 
 	/**
-	 * Initiates a CoGroup transformation.<br/>
+	 * Initiates a CoGroup transformation.<br>
 	 * A CoGroup transformation combines the elements of
 	 *   two {@link DataSet DataSets} into one DataSet. It groups each DataSet individually on a key and 
 	 *   gives groups of both DataSets with equal keys together into a {@link org.apache.flink.api.common.functions.RichCoGroupFunction}.
 	 *   If a DataSet has a group with no matching key in the other DataSet, the CoGroupFunction
-	 *   is called with an empty group for the non-existing group.</br>
+	 *   is called with an empty group for the non-existing group.<br>
 	 * The CoGroupFunction can iterate over the elements of both groups and return any number 
-	 *   of elements including none.</br>
+	 *   of elements including none.<br>
 	 * This method returns a {@link CoGroupOperatorSets} on which one of the {@code where} methods
 	 * can be called to define the join key of the first joining (i.e., this) DataSet.
 	 * 
@@ -834,7 +976,7 @@ public abstract class DataSet<T> {
 	 * @see DataSet
 	 */
 	public <R> CoGroupOperator.CoGroupOperatorSets<T, R> coGroup(DataSet<R> other) {
-		return new CoGroupOperator.CoGroupOperatorSets<T, R>(this, other);
+		return new CoGroupOperator.CoGroupOperatorSets<>(this, other);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -843,8 +985,8 @@ public abstract class DataSet<T> {
 
 	/**
 	 * Continues a Join transformation and defines the {@link Tuple} fields of the second join 
-	 * {@link DataSet} that should be used as join keys.<br/>
-	 * <b>Note: Fields can only be selected as join keys on Tuple DataSets.</b><br/>
+	 * {@link DataSet} that should be used as join keys.<br>
+	 * <b>Note: Fields can only be selected as join keys on Tuple DataSets.</b><br>
 	 * 
 	 * The resulting {@link DefaultJoin} wraps each pair of joining elements into a {@link Tuple2}, with 
 	 * the element of the first input being the first field of the tuple and the element of the 
@@ -855,7 +997,7 @@ public abstract class DataSet<T> {
 	 */
 	
 	/**
-	 * Initiates a Cross transformation.<br/>
+	 * Initiates a Cross transformation.<br>
 	 * A Cross transformation combines the elements of two 
 	 *   {@link DataSet DataSets} into one DataSet. It builds all pair combinations of elements of 
 	 *   both DataSets, i.e., it builds a Cartesian product.
@@ -868,7 +1010,7 @@ public abstract class DataSet<T> {
 	 * <p>
 	 * Call {@link org.apache.flink.api.java.operators.CrossOperator.DefaultCross#with(org.apache.flink.api.common.functions.CrossFunction)} to define a
 	 * {@link org.apache.flink.api.common.functions.CrossFunction} which is called for
-	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.</br>
+	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.<br>
 	 * 
 	 * @param other The other DataSet with which this DataSet is crossed. 
 	 * @return A DefaultCross that returns a Tuple2 for each pair of crossed elements.
@@ -879,11 +1021,11 @@ public abstract class DataSet<T> {
 	 * @see Tuple2
 	 */
 	public <R> CrossOperator.DefaultCross<T, R> cross(DataSet<R> other) {
-		return new CrossOperator.DefaultCross<T, R>(this, other, CrossHint.OPTIMIZER_CHOOSES, Utils.getCallLocationName());
+		return new CrossOperator.DefaultCross<>(this, other, CrossHint.OPTIMIZER_CHOOSES, Utils.getCallLocationName());
 	}
 	
 	/**
-	 * Initiates a Cross transformation.<br/>
+	 * Initiates a Cross transformation.<br>
 	 * A Cross transformation combines the elements of two 
 	 *   {@link DataSet DataSets} into one DataSet. It builds all pair combinations of elements of 
 	 *   both DataSets, i.e., it builds a Cartesian product.
@@ -898,7 +1040,7 @@ public abstract class DataSet<T> {
 	 * <p>
 	 * Call {@link org.apache.flink.api.java.operators.CrossOperator.DefaultCross#with(org.apache.flink.api.common.functions.CrossFunction)} to define a
 	 * {@link org.apache.flink.api.common.functions.CrossFunction} which is called for
-	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.</br>
+	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.<br>
 	 * 
 	 * @param other The other DataSet with which this DataSet is crossed. 
 	 * @return A DefaultCross that returns a Tuple2 for each pair of crossed elements.
@@ -909,11 +1051,11 @@ public abstract class DataSet<T> {
 	 * @see Tuple2
 	 */
 	public <R> CrossOperator.DefaultCross<T, R> crossWithTiny(DataSet<R> other) {
-		return new CrossOperator.DefaultCross<T, R>(this, other, CrossHint.SECOND_IS_SMALL, Utils.getCallLocationName());
+		return new CrossOperator.DefaultCross<>(this, other, CrossHint.SECOND_IS_SMALL, Utils.getCallLocationName());
 	}
 	
 	/**
-	 * Initiates a Cross transformation.<br/>
+	 * Initiates a Cross transformation.<br>
 	 * A Cross transformation combines the elements of two 
 	 *   {@link DataSet DataSets} into one DataSet. It builds all pair combinations of elements of 
 	 *   both DataSets, i.e., it builds a Cartesian product.
@@ -928,7 +1070,7 @@ public abstract class DataSet<T> {
 	 * <p>
 	 * Call {@link org.apache.flink.api.java.operators.CrossOperator.DefaultCross#with(org.apache.flink.api.common.functions.CrossFunction)} to define a
 	 * {@link org.apache.flink.api.common.functions.CrossFunction} which is called for
-	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.</br>
+	 * each pair of crossed elements. The CrossFunction returns a exactly one element for each pair of input elements.<br>
 	 * 
 	 * @param other The other DataSet with which this DataSet is crossed. 
 	 * @return A DefaultCross that returns a Tuple2 for each pair of crossed elements.
@@ -939,7 +1081,7 @@ public abstract class DataSet<T> {
 	 * @see Tuple2
 	 */
 	public <R> CrossOperator.DefaultCross<T, R> crossWithHuge(DataSet<R> other) {
-		return new CrossOperator.DefaultCross<T, R>(this, other, CrossHint.FIRST_IS_SMALL, Utils.getCallLocationName());
+		return new CrossOperator.DefaultCross<>(this, other, CrossHint.FIRST_IS_SMALL, Utils.getCallLocationName());
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -977,7 +1119,7 @@ public abstract class DataSet<T> {
 	 * @see org.apache.flink.api.java.operators.IterativeDataSet
 	 */
 	public IterativeDataSet<T> iterate(int maxIterations) {
-		return new IterativeDataSet<T>(getExecutionEnvironment(), getType(), this, maxIterations);
+		return new IterativeDataSet<>(getExecutionEnvironment(), getType(), this, maxIterations);
 	}
 	
 	/**
@@ -1005,7 +1147,7 @@ public abstract class DataSet<T> {
 	 * <pre>
 	 * {@code
 	 * DeltaIteration<Tuple2<Long, Long>, Tuple2<Long, Long>> iteration =
-	 *                                                  initialState.iterateDelta(initialFeedbakSet, 100, 0);
+	 *                                                  initialState.iterateDelta(initialFeedbackSet, 100, 0);
 	 * 
 	 * DataSet<Tuple2<Long, Long>> delta = iteration.groupBy(0).aggregate(Aggregations.AVG, 1)
 	 *                                              .join(iteration.getSolutionSet()).where(0).equalTo(0)
@@ -1030,8 +1172,8 @@ public abstract class DataSet<T> {
 		Preconditions.checkNotNull(workset);
 		Preconditions.checkNotNull(keyPositions);
 		
-		Keys.ExpressionKeys<T> keys = new Keys.ExpressionKeys<T>(keyPositions, getType(), false);
-		return new DeltaIteration<T, R>(getExecutionEnvironment(), getType(), this, workset, keys, maxIterations);
+		Keys.ExpressionKeys<T> keys = new Keys.ExpressionKeys<>(keyPositions, getType());
+		return new DeltaIteration<>(getExecutionEnvironment(), getType(), this, workset, keys, maxIterations);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -1047,7 +1189,7 @@ public abstract class DataSet<T> {
 	 * @return The data set produced by the operation.
 	 */
 	public <X> DataSet<X> runOperation(CustomUnaryOperation<T, X> operation) {
-		Validate.notNull(operation, "The custom operator must not be null.");
+		Preconditions.checkNotNull(operation, "The custom operator must not be null.");
 		operation.setInput(this);
 		return operation.createResult();
 	}
@@ -1063,9 +1205,9 @@ public abstract class DataSet<T> {
 	 * @return The resulting DataSet.
 	 */
 	public UnionOperator<T> union(DataSet<T> other){
-		return new UnionOperator<T>(this, other, Utils.getCallLocationName());
+		return new UnionOperator<>(this, other, Utils.getCallLocationName());
 	}
-	
+
 	// --------------------------------------------------------------------------------------------
 	//  Partitioning
 	// --------------------------------------------------------------------------------------------
@@ -1079,7 +1221,7 @@ public abstract class DataSet<T> {
 	 * @return The partitioned DataSet.
 	 */
 	public PartitionOperator<T> partitionByHash(int... fields) {
-		return new PartitionOperator<T>(this, PartitionMethod.HASH, new Keys.ExpressionKeys<T>(fields, getType(), false), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, PartitionMethod.HASH, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
 	}
 	
 	/**
@@ -1091,7 +1233,7 @@ public abstract class DataSet<T> {
 	 * @return The partitioned DataSet.
 	 */
 	public PartitionOperator<T> partitionByHash(String... fields) {
-		return new PartitionOperator<T>(this, PartitionMethod.HASH, new Keys.ExpressionKeys<T>(fields, getType()), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, PartitionMethod.HASH, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
 	}
 	
 	/**
@@ -1106,9 +1248,51 @@ public abstract class DataSet<T> {
 	 */
 	public <K extends Comparable<K>> PartitionOperator<T> partitionByHash(KeySelector<T, K> keyExtractor) {
 		final TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
-		return new PartitionOperator<T>(this, PartitionMethod.HASH, new Keys.SelectorFunctionKeys<T, K>(clean(keyExtractor), this.getType(), keyType), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, PartitionMethod.HASH, new Keys.SelectorFunctionKeys<>(clean(keyExtractor), this.getType(), keyType), Utils.getCallLocationName());
 	}
-	
+
+	/**
+	 * Range-partitions a DataSet on the specified key fields.
+	 * <p>
+	 * <b>Important:</b>This operation requires an extra pass over the DataSet to compute the range boundaries and
+	 * shuffles the whole DataSet over the network. This can take significant amount of time.
+	 *
+	 * @param fields The field indexes on which the DataSet is range-partitioned.
+	 * @return The partitioned DataSet.
+	 */
+	public PartitionOperator<T> partitionByRange(int... fields) {
+		return new PartitionOperator<>(this, PartitionMethod.RANGE, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
+	}
+
+	/**
+	 * Range-partitions a DataSet on the specified key fields.
+	 * <p>
+	 * <b>Important:</b>This operation requires an extra pass over the DataSet to compute the range boundaries and
+	 * shuffles the whole DataSet over the network. This can take significant amount of time.
+	 *
+	 * @param fields The field expressions on which the DataSet is range-partitioned.
+	 * @return The partitioned DataSet.
+	 */
+	public PartitionOperator<T> partitionByRange(String... fields) {
+		return new PartitionOperator<>(this, PartitionMethod.RANGE, new Keys.ExpressionKeys<>(fields, getType()), Utils.getCallLocationName());
+	}
+
+	/**
+	 * Range-partitions a DataSet using the specified KeySelector.
+	 * <p>
+	 * <b>Important:</b>This operation requires an extra pass over the DataSet to compute the range boundaries and
+	 * shuffles the whole DataSet over the network. This can take significant amount of time.
+	 *
+	 * @param keyExtractor The KeyExtractor with which the DataSet is range-partitioned.
+	 * @return The partitioned DataSet.
+	 *
+	 * @see KeySelector
+	 */
+	public <K extends Comparable<K>> PartitionOperator<T> partitionByRange(KeySelector<T, K> keyExtractor) {
+		final TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
+		return new PartitionOperator<>(this, PartitionMethod.RANGE, new Keys.SelectorFunctionKeys<>(clean(keyExtractor), this.getType(), keyType), Utils.getCallLocationName());
+	}
+
 	/**
 	 * Partitions a tuple DataSet on the specified key fields using a custom partitioner.
 	 * This method takes the key position to partition on, and a partitioner that accepts the key type.
@@ -1120,7 +1304,7 @@ public abstract class DataSet<T> {
 	 * @return The partitioned DataSet.
 	 */
 	public <K> PartitionOperator<T> partitionCustom(Partitioner<K> partitioner, int field) {
-		return new PartitionOperator<T>(this, new Keys.ExpressionKeys<T>(new int[] {field}, getType(), false), clean(partitioner), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, new Keys.ExpressionKeys<>(new int[] {field}, getType()), clean(partitioner), Utils.getCallLocationName());
 	}
 	
 	/**
@@ -1134,26 +1318,26 @@ public abstract class DataSet<T> {
 	 * @return The partitioned DataSet.
 	 */
 	public <K> PartitionOperator<T> partitionCustom(Partitioner<K> partitioner, String field) {
-		return new PartitionOperator<T>(this, new Keys.ExpressionKeys<T>(new String[] {field}, getType()), clean(partitioner), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, new Keys.ExpressionKeys<>(new String[] {field}, getType()), clean(partitioner), Utils.getCallLocationName());
 	}
 	
 	/**
 	 * Partitions a DataSet on the key returned by the selector, using a custom partitioner.
-	 * This method takes the key selector t get the key to partition on, and a partitioner that
+	 * This method takes the key selector to get the key to partition on, and a partitioner that
 	 * accepts the key type.
 	 * <p>
 	 * Note: This method works only on single field keys, i.e. the selector cannot return tuples
 	 * of fields.
 	 * 
 	 * @param partitioner The partitioner to assign partitions to keys.
-	 * @param keyExtractor The KeyExtractor with which the DataSet is hash-partitioned.
+	 * @param keyExtractor The KeyExtractor with which the DataSet is partitioned.
 	 * @return The partitioned DataSet.
 	 * 
 	 * @see KeySelector
 	 */
 	public <K extends Comparable<K>> PartitionOperator<T> partitionCustom(Partitioner<K> partitioner, KeySelector<T, K> keyExtractor) {
 		final TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
-		return new PartitionOperator<T>(this, new Keys.SelectorFunctionKeys<T, K>(keyExtractor, getType(), keyType), clean(partitioner), Utils.getCallLocationName());
+		return new PartitionOperator<>(this, new Keys.SelectorFunctionKeys<>(keyExtractor, getType(), keyType), clean(partitioner), Utils.getCallLocationName());
 	}
 	
 	/**
@@ -1165,7 +1349,7 @@ public abstract class DataSet<T> {
 	 * @return The re-balanced DataSet.
 	 */
 	public PartitionOperator<T> rebalance() {
-		return new PartitionOperator<T>(this, PartitionMethod.REBALANCE, Utils.getCallLocationName());
+		return new PartitionOperator<>(this, PartitionMethod.REBALANCE, Utils.getCallLocationName());
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -1181,7 +1365,7 @@ public abstract class DataSet<T> {
 	 * @return The DataSet with sorted local partitions.
 	 */
 	public SortPartitionOperator<T> sortPartition(int field, Order order) {
-		return new SortPartitionOperator<T>(this, field, order, Utils.getCallLocationName());
+		return new SortPartitionOperator<>(this, field, order, Utils.getCallLocationName());
 	}
 
 	/**
@@ -1193,7 +1377,25 @@ public abstract class DataSet<T> {
 	 * @return The DataSet with sorted local partitions.
 	 */
 	public SortPartitionOperator<T> sortPartition(String field, Order order) {
-		return new SortPartitionOperator<T>(this, field, order, Utils.getCallLocationName());
+		return new SortPartitionOperator<>(this, field, order, Utils.getCallLocationName());
+	}
+
+	/**
+	 * Locally sorts the partitions of the DataSet on the extracted key in the specified order.
+	 * The DataSet can be sorted on multiple values by returning a tuple from the KeySelector.
+	 *
+	 * Note that no additional sort keys can be appended to a KeySelector sort keys. To sort
+	 * the partitions by multiple values using KeySelector, the KeySelector must return a tuple
+	 * consisting of the values.
+	 *
+	 * @param keyExtractor The KeySelector function which extracts the key values from the DataSet
+	 *                     on which the DataSet is sorted.
+	 * @param order The order in which the DataSet is sorted.
+	 * @return The DataSet with sorted local partitions.
+	 */
+	public <K> SortPartitionOperator<T> sortPartition(KeySelector<T, K> keyExtractor, Order order) {
+		final TypeInformation<K> keyType = TypeExtractor.getKeySelectorTypes(keyExtractor, getType());
+		return new SortPartitionOperator<>(this, new Keys.SelectorFunctionKeys<>(clean(keyExtractor), getType(), keyType), order, Utils.getCallLocationName());
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -1205,10 +1407,49 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	/**
-	 * Writes a DataSet as a text file to the specified location.<br/>
-	 * For each element of the DataSet the result of {@link Object#toString()} is written.  
+	 * Writes a DataSet as text file(s) to the specified location.<br>
+	 * For each element of the DataSet the result of {@link Object#toString()} is written.<br/>
+	 * <br/>
+	 * <span class="strong">Output files and directories</span><br/>
+	 * What output how writeAsText() method produces is depending on other circumstance
+	 * <ul>
+	 *   <li>
+	 * A directory is created and multiple files are written underneath. (Default behavior)<br/>
+	 * This sink creates a directory called "path1", and files "1", "2" ... are writen underneath depending on <a href="https://flink.apache.org/faq.html#what-is-the-parallelism-how-do-i-set-it">parallelism</a>
+	 * <pre>{@code .
+	 * └── path1/
+	 *     ├── 1
+	 *     ├── 2
+	 *     └── ...}</pre>
+	 * Code Example
+	 * <pre>{@code dataset.writeAsText("file:///path1");}</pre>
+	 *   </li>
+	 *   <li>
+	 * A single file called "path1" is created when parallelism is set to 1
+	 * <pre>{@code .
+	 * └── path1 }</pre>
+	 * Code Example
+	 * <pre>{@code // Parallelism is set to only this particular operation
+	 *dataset.writeAsText("file:///path1").setParallelism(1);
+	 *
+	 * // This will creates the same effect but note all operators' parallelism are set to one 
+	 *env.setParallelism(1); 
+	 *...
+	 *dataset.writeAsText("file:///path1"); }</pre>
+	 *   </li>
+	 *   <li>
+	 * A directory is always created when <a href="https://ci.apache.org/projects/flink/flink-docs-master/setup/config.html#file-systems">fs.output.always-create-directory</a>
+	 * is set to true in flink-conf.yaml file, even when parallelism is set to 1.
+	 * <pre>{@code .
+	 * └── path1/
+	 *     └── 1 }</pre>
+	 * Code Example
+	 * <pre>{@code // fs.output.always-create-directory = true
+	 *dataset.writeAsText("file:///path1").setParallelism(1); }</pre>
+	 *   </li>
+	 * </ul>
 	 * 
-	 * @param filePath The path pointing to the location the text file is written to.
+	 * @param filePath The path pointing to the location the text file or files under the directory is written to.
 	 * @return The DataSink that writes the DataSet.
 	 * 
 	 * @see TextOutputFormat
@@ -1216,9 +1457,9 @@ public abstract class DataSet<T> {
 	public DataSink<T> writeAsText(String filePath) {
 		return output(new TextOutputFormat<T>(new Path(filePath)));
 	}
-	
+
 	/**
-	 * Writes a DataSet as a text file to the specified location.<br/>
+	 * Writes a DataSet as text file(s) to the specified location.<br>
 	 * For each element of the DataSet the result of {@link Object#toString()} is written.  
 	 * 
 	 * @param filePath The path pointing to the location the text file is written to.
@@ -1226,15 +1467,16 @@ public abstract class DataSet<T> {
 	 * @return The DataSink that writes the DataSet.
 	 * 
 	 * @see TextOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
 	public DataSink<T> writeAsText(String filePath, WriteMode writeMode) {
-		TextOutputFormat<T> tof = new TextOutputFormat<T>(new Path(filePath));
+		TextOutputFormat<T> tof = new TextOutputFormat<>(new Path(filePath));
 		tof.setWriteMode(writeMode);
 		return output(tof);
 	}
-	
+
 	/**
-	 * Writes a DataSet as a text file to the specified location.<br/>
+	 * Writes a DataSet as text file(s) to the specified location.<br>
 	 * For each element of the DataSet the result of {@link TextFormatter#format(Object)} is written.
 	 *
 	 * @param filePath The path pointing to the location the text file is written to.
@@ -1242,13 +1484,14 @@ public abstract class DataSet<T> {
 	 * @return The DataSink that writes the DataSet.
 	 *
 	 * @see TextOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
 	public DataSink<String> writeAsFormattedText(String filePath, TextFormatter<T> formatter) {
-		return this.map(new FormattingMapper<T>(formatter)).writeAsText(filePath);
+		return map(new FormattingMapper<>(clean(formatter))).writeAsText(filePath);
 	}
 
 	/**
-	 * Writes a DataSet as a text file to the specified location.<br/>
+	 * Writes a DataSet as text file(s) to the specified location.<br>
 	 * For each element of the DataSet the result of {@link TextFormatter#format(Object)} is written.
 	 *
 	 * @param filePath The path pointing to the location the text file is written to.
@@ -1257,16 +1500,17 @@ public abstract class DataSet<T> {
 	 * @return The DataSink that writes the DataSet.
 	 *
 	 * @see TextOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
-	public DataSink<String> writeAsFormattedText(String filePath, WriteMode writeMode, final TextFormatter<T> formatter) {
-		return this.map(new FormattingMapper<T>(clean(formatter))).writeAsText(filePath, writeMode);
+	public DataSink<String> writeAsFormattedText(String filePath, WriteMode writeMode, TextFormatter<T> formatter) {
+		return map(new FormattingMapper<>(clean(formatter))).writeAsText(filePath, writeMode);
 	}
-	
+
 	/**
-	 * Writes a {@link Tuple} DataSet as a CSV file to the specified location.<br/>
-	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br/>
+	 * Writes a {@link Tuple} DataSet as CSV file(s) to the specified location.<br>
+	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br>
 	 * For each Tuple field the result of {@link Object#toString()} is written.
-	 * Tuple fields are separated by the default field delimiter {@code "comma" (,)}.<br/>
+	 * Tuple fields are separated by the default field delimiter {@code "comma" (,)}.<br>
 	 * Tuples are are separated by the newline character ({@code \n}).
 	 * 
 	 * @param filePath The path pointing to the location the CSV file is written to.
@@ -1274,16 +1518,17 @@ public abstract class DataSet<T> {
 	 * 
 	 * @see Tuple
 	 * @see CsvOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories 
 	 */
 	public DataSink<T> writeAsCsv(String filePath) {
 		return writeAsCsv(filePath, CsvOutputFormat.DEFAULT_LINE_DELIMITER, CsvOutputFormat.DEFAULT_FIELD_DELIMITER);
 	}
-	
+
 	/**
-	 * Writes a {@link Tuple} DataSet as a CSV file to the specified location.<br/>
-	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br/>
+	 * Writes a {@link Tuple} DataSet as CSV file(s) to the specified location.<br>
+	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br>
 	 * For each Tuple field the result of {@link Object#toString()} is written.
-	 * Tuple fields are separated by the default field delimiter {@code "comma" (,)}.<br/>
+	 * Tuple fields are separated by the default field delimiter {@code "comma" (,)}.<br>
 	 * Tuples are are separated by the newline character ({@code \n}).
 	 * 
 	 * @param filePath The path pointing to the location the CSV file is written to.
@@ -1292,14 +1537,15 @@ public abstract class DataSet<T> {
 	 * 
 	 * @see Tuple
 	 * @see CsvOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
 	public DataSink<T> writeAsCsv(String filePath, WriteMode writeMode) {
 		return internalWriteAsCsv(new Path(filePath),CsvOutputFormat.DEFAULT_LINE_DELIMITER, CsvOutputFormat.DEFAULT_FIELD_DELIMITER, writeMode);
 	}
-	
+
 	/**
-	 * Writes a {@link Tuple} DataSet as a CSV file to the specified location with the specified field and line delimiters.<br/>
-	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br/>
+	 * Writes a {@link Tuple} DataSet as CSV file(s) to the specified location with the specified field and line delimiters.<br>
+	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br>
 	 * For each Tuple field the result of {@link Object#toString()} is written.
 	 * 
 	 * @param filePath The path pointing to the location the CSV file is written to.
@@ -1308,15 +1554,16 @@ public abstract class DataSet<T> {
 	 * 
 	 * @see Tuple
 	 * @see CsvOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
 	public DataSink<T> writeAsCsv(String filePath, String rowDelimiter, String fieldDelimiter) {
 		return internalWriteAsCsv(new Path(filePath), rowDelimiter, fieldDelimiter, null);
 	}
 
 	/**
-	 * Writes a {@link Tuple} DataSet as a CSV file to the specified location with the specified field and line delimiters.<br/>
-	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br/>
-	 * For each Tuple field the result of {@link Object#toString()} is written.
+	 * Writes a {@link Tuple} DataSet as CSV file(s) to the specified location with the specified field and line delimiters.<br>
+	 * <b>Note: Only a Tuple DataSet can written as a CSV file.</b><br>
+§	 * For each Tuple field the result of {@link Object#toString()} is written.
 	 * 
 	 * @param filePath The path pointing to the location the CSV file is written to.
 	 * @param rowDelimiter The row delimiter to separate Tuples.
@@ -1325,6 +1572,7 @@ public abstract class DataSet<T> {
 	 * 
 	 * @see Tuple
 	 * @see CsvOutputFormat
+	 * @see DataSet#writeAsText(String) Output files and directories
 	 */
 	public DataSink<T> writeAsCsv(String filePath, String rowDelimiter, String fieldDelimiter, WriteMode writeMode) {
 		return internalWriteAsCsv(new Path(filePath), rowDelimiter, fieldDelimiter, writeMode);
@@ -1332,8 +1580,8 @@ public abstract class DataSet<T> {
 	
 	@SuppressWarnings("unchecked")
 	private <X extends Tuple> DataSink<T> internalWriteAsCsv(Path filePath, String rowDelimiter, String fieldDelimiter, WriteMode wm) {
-		Validate.isTrue(getType().isTupleType(), "The writeAsCsv() method can only be used on data sets of tuples.");
-		CsvOutputFormat<X> of = new CsvOutputFormat<X>(filePath, rowDelimiter, fieldDelimiter);
+		Preconditions.checkArgument(getType().isTupleType(), "The writeAsCsv() method can only be used on data sets of tuples.");
+		CsvOutputFormat<X> of = new CsvOutputFormat<>(filePath, rowDelimiter, fieldDelimiter);
 		if(wm != null) {
 			of.setWriteMode(wm);
 		}
@@ -1341,23 +1589,96 @@ public abstract class DataSet<T> {
 	}
 	
 	/**
-	 * Writes a DataSet to the standard output stream (stdout).<br/>
-	 * For each element of the DataSet the result of {@link Object#toString()} is written.
+	 * Prints the elements in a DataSet to the standard output stream {@link System#out} of the JVM that calls
+	 * the print() method. For programs that are executed in a cluster, this method needs
+	 * to gather the contents of the DataSet back to the client, to print it there.
 	 * 
-	 *  @return The DataSink that writes the DataSet.
+	 * <p>The string written for each element is defined by the {@link Object#toString()} method.</p>
+	 * 
+	 * <p>This method immediately triggers the program execution, similar to the
+	 * {@link #collect()} and {@link #count()} methods.</p>
+	 * 
+	 * @see #printToErr()
+	 * @see #printOnTaskManager(String)
 	 */
-	public DataSink<T> print() {
-		return output(new PrintingOutputFormat<T>(false));
+	public void print() throws Exception {
+		List<T> elements = collect();
+		for (T e: elements) {
+			System.out.println(e);
+		}
+	}
+
+	/**
+	 * Prints the elements in a DataSet to the standard error stream {@link System#err} of the JVM that calls
+	 * the print() method. For programs that are executed in a cluster, this method needs
+	 * to gather the contents of the DataSet back to the client, to print it there.
+	 *
+	 * <p>The string written for each element is defined by the {@link Object#toString()} method.</p>
+	 *
+	 * <p>This method immediately triggers the program execution, similar to the
+	 * {@link #collect()} and {@link #count()} methods.</p>
+	 * 
+	 * @see #print()
+	 * @see #printOnTaskManager(String)
+	 */
+	public void printToErr() throws Exception {
+		List<T> elements = collect();
+		for (T e: elements) {
+			System.err.println(e);
+		}
+	}
+
+	/**
+	 * Writes a DataSet to the standard output streams (stdout) of the TaskManagers that execute
+	 * the program (or more specifically, the data sink operators). On a typical cluster setup, the
+	 * data will appear in the TaskManagers' <i>.out</i> files.
+	 * 
+	 * <p>To print the data to the console or stdout stream of the client process instead, use the
+	 * {@link #print()} method.</p>
+	 * 
+	 * <p>For each element of the DataSet the result of {@link Object#toString()} is written.</p>
+	 *
+	 * @param prefix The string to prefix each line of the output with. This helps identifying outputs
+	 *               from different printing sinks.   
+	 * @return The DataSink operator that writes the DataSet.
+	 *  
+	 * @see #print()
+	 */
+	public DataSink<T> printOnTaskManager(String prefix) {
+		return output(new PrintingOutputFormat<T>(prefix, false));
 	}
 	
 	/**
-	 * Writes a DataSet to the standard error stream (stderr).<br/>
-	 * For each element of the DataSet the result of {@link Object#toString()} is written.
+	 * Writes a DataSet to the standard output stream (stdout).
 	 * 
+	 * <p>For each element of the DataSet the result of {@link Object#toString()} is written.</p>
+	 *
+	 * @param sinkIdentifier The string to prefix the output with.
 	 * @return The DataSink that writes the DataSet.
+	 * 
+	 * @deprecated Use {@link #printOnTaskManager(String)} instead.
 	 */
-	public DataSink<T> printToErr() {
-		return output(new PrintingOutputFormat<T>(true));
+	@Deprecated
+	@PublicEvolving
+	public DataSink<T> print(String sinkIdentifier) {
+		return output(new PrintingOutputFormat<T>(sinkIdentifier, false));
+	}
+
+	/**
+	 * Writes a DataSet to the standard error stream (stderr).
+	 * 
+	 * <p>For each element of the DataSet the result of {@link Object#toString()} is written.</p>
+	 *
+	 * @param sinkIdentifier The string to prefix the output with.
+	 * @return The DataSink that writes the DataSet.
+	 * 
+	 * @deprecated Use {@link #printOnTaskManager(String)} instead, othe 
+	 *             {@link PrintingOutputFormat} instead.
+	 */
+	@Deprecated
+	@PublicEvolving
+	public DataSink<T> printToErr(String sinkIdentifier) {
+		return output(new PrintingOutputFormat<T>(sinkIdentifier, true));
 	}
 	
 	/**
@@ -1371,8 +1692,8 @@ public abstract class DataSet<T> {
 	 * @see FileOutputFormat
 	 */
 	public DataSink<T> write(FileOutputFormat<T> outputFormat, String filePath) {
-		Validate.notNull(filePath, "File path must not be null.");
-		Validate.notNull(outputFormat, "Output format must not be null.");
+		Preconditions.checkNotNull(filePath, "File path must not be null.");
+		Preconditions.checkNotNull(outputFormat, "Output format must not be null.");
 
 		outputFormat.setOutputFilePath(new Path(filePath));
 		return output(outputFormat);
@@ -1390,9 +1711,9 @@ public abstract class DataSet<T> {
 	 * @see FileOutputFormat
 	 */
 	public DataSink<T> write(FileOutputFormat<T> outputFormat, String filePath, WriteMode writeMode) {
-		Validate.notNull(filePath, "File path must not be null.");
-		Validate.notNull(writeMode, "Write mode must not be null.");
-		Validate.notNull(outputFormat, "Output format must not be null.");
+		Preconditions.checkNotNull(filePath, "File path must not be null.");
+		Preconditions.checkNotNull(writeMode, "Write mode must not be null.");
+		Preconditions.checkNotNull(outputFormat, "Output format must not be null.");
 
 		outputFormat.setOutputFilePath(new Path(filePath));
 		outputFormat.setWriteMode(writeMode);
@@ -1411,14 +1732,14 @@ public abstract class DataSet<T> {
 	 * @see DataSink
 	 */
 	public DataSink<T> output(OutputFormat<T> outputFormat) {
-		Validate.notNull(outputFormat);
+		Preconditions.checkNotNull(outputFormat);
 		
 		// configure the type if needed
 		if (outputFormat instanceof InputTypeConfigurable) {
 			((InputTypeConfigurable) outputFormat).setInputType(getType(), context.getConfig() );
 		}
 		
-		DataSink<T> sink = new DataSink<T>(this, outputFormat, getType());
+		DataSink<T> sink = new DataSink<>(this, outputFormat, getType());
 		this.context.registerDataSink(sink);
 		return sink;
 	}
@@ -1428,9 +1749,10 @@ public abstract class DataSet<T> {
 	// --------------------------------------------------------------------------------------------
 	
 	protected static void checkSameExecutionContext(DataSet<?> set1, DataSet<?> set2) {
-		if (set1.context != set2.context) {
+		if (set1.getExecutionEnvironment() != set2.getExecutionEnvironment()) {
 			throw new IllegalArgumentException("The two inputs have different execution contexts.");
 		}
 	}
+
 
 }

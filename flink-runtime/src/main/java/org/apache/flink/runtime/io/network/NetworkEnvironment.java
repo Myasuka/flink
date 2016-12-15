@@ -18,47 +18,33 @@
 
 package org.apache.flink.runtime.io.network;
 
-import akka.actor.ActorRef;
-import akka.dispatch.OnFailure;
-import akka.pattern.Patterns;
-import akka.util.Timeout;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager.IOMode;
 import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
-import org.apache.flink.runtime.io.network.netty.NettyConfig;
-import org.apache.flink.runtime.io.network.netty.NettyConnectionManager;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionConsumableNotifier;
 import org.apache.flink.runtime.io.network.partition.ResultPartition;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionManager;
 import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
-import org.apache.flink.runtime.taskmanager.NetworkEnvironmentConfiguration;
+import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.query.KvStateRegistry;
+import org.apache.flink.runtime.query.TaskKvStateRegistry;
+import org.apache.flink.runtime.query.netty.KvStateServer;
 import org.apache.flink.runtime.taskmanager.Task;
 import org.apache.flink.runtime.taskmanager.TaskManager;
+import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
-import scala.concurrent.Future;
-import scala.concurrent.duration.FiniteDuration;
 
 import java.io.IOException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static org.apache.flink.runtime.messages.JobManagerMessages.ScheduleOrUpdateConsumers;
-import static org.apache.flink.runtime.messages.TaskMessages.FailTask;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * Network I/O components of each {@link TaskManager} instance. The network environment contains
  * the data structures that keep track of all intermediate results and all data exchanges.
- *
- * When initialized, the NetworkEnvironment will allocate the network buffer pool.
- * All other components (netty, intermediate result managers, ...) are only created once the
- * environment is "associated" with a TaskManager and JobManager. This happens as soon as the
- * TaskManager actor gets created and registers itself at the JobManager.
  */
 public class NetworkEnvironment {
 
@@ -66,48 +52,61 @@ public class NetworkEnvironment {
 
 	private final Object lock = new Object();
 
-	private final NetworkEnvironmentConfiguration configuration;
-
-	private final FiniteDuration jobManagerTimeout;
-
 	private final NetworkBufferPool networkBufferPool;
 
-	private ConnectionManager connectionManager;
+	private final ConnectionManager connectionManager;
 
-	private ResultPartitionManager partitionManager;
+	private final ResultPartitionManager resultPartitionManager;
 
-	private TaskEventDispatcher taskEventDispatcher;
+	private final TaskEventDispatcher taskEventDispatcher;
 
-	private ResultPartitionConsumableNotifier partitionConsumableNotifier;
+	/** Server for {@link org.apache.flink.runtime.state.KvState} requests. */
+	private final KvStateServer kvStateServer;
+
+	/** Registry for {@link org.apache.flink.runtime.state.KvState} instances. */
+	private final KvStateRegistry kvStateRegistry;
+
+	private final IOManager.IOMode defaultIOMode;
+
+	private final int partitionRequestInitialBackoff;
+
+	private final int partitionRequestMaxBackoff;
 
 	private boolean isShutdown;
 
+	public NetworkEnvironment(
+		NetworkBufferPool networkBufferPool,
+		ConnectionManager connectionManager,
+		ResultPartitionManager resultPartitionManager,
+		TaskEventDispatcher taskEventDispatcher,
+		KvStateRegistry kvStateRegistry,
+		KvStateServer kvStateServer,
+		IOMode defaultIOMode,
+		int partitionRequestInitialBackoff,
+		int partitionRequestMaxBackoff) {
 
-	/**
-	 * Initializes all network I/O components.
-	 */
-	public NetworkEnvironment(FiniteDuration jobManagerTimeout,
-								NetworkEnvironmentConfiguration config) throws IOException {
+		this.networkBufferPool = checkNotNull(networkBufferPool);
+		this.connectionManager = checkNotNull(connectionManager);
+		this.resultPartitionManager = checkNotNull(resultPartitionManager);
+		this.taskEventDispatcher = checkNotNull(taskEventDispatcher);
+		this.kvStateRegistry = checkNotNull(kvStateRegistry);
 
-		this.configuration = checkNotNull(config);
-		this.jobManagerTimeout = checkNotNull(jobManagerTimeout);
+		this.kvStateServer = kvStateServer;
 
-		// create the network buffers - this is the operation most likely to fail upon
-		// mis-configuration, so we do this first
-		try {
-			networkBufferPool = new NetworkBufferPool(config.numNetworkBuffers(), config.networkBufferSize());
-		}
-		catch (Throwable t) {
-			throw new IOException("Cannot allocate network buffer pool: " + t.getMessage(), t);
-		}
+		this.defaultIOMode = defaultIOMode;
+
+		this.partitionRequestInitialBackoff = partitionRequestInitialBackoff;
+		this.partitionRequestMaxBackoff = partitionRequestMaxBackoff;
+
+		isShutdown = false;
 	}
 
 	// --------------------------------------------------------------------------------------------
 	//  Properties
 	// --------------------------------------------------------------------------------------------
 
-	public ResultPartitionManager getPartitionManager() {
-		return partitionManager;
+	public ResultPartitionManager getResultPartitionManager() {
+		return resultPartitionManager;
 	}
 
 	public TaskEventDispatcher getTaskEventDispatcher() {
@@ -123,119 +122,28 @@ public class NetworkEnvironment {
 	}
 
 	public IOMode getDefaultIOMode() {
-		return configuration.ioMode();
+		return defaultIOMode;
 	}
 
-	public ResultPartitionConsumableNotifier getPartitionConsumableNotifier() {
-		return partitionConsumableNotifier;
+	public int getPartitionRequestInitialBackoff() {
+		return partitionRequestInitialBackoff;
 	}
 
-	// --------------------------------------------------------------------------------------------
-	//  Association / Disassociation with JobManager / TaskManager
-	// --------------------------------------------------------------------------------------------
-
-	public boolean isAssociated() {
-		return partitionConsumableNotifier != null;
+	public int getPartitionRequestMaxBackoff() {
+		return partitionRequestMaxBackoff;
 	}
 
-	/**
-	 * This associates the network environment with a TaskManager and JobManager.
-	 * This will actually start the network components.
-	 *
-	 * @param jobManagerRef The JobManager actor reference.
-	 * @param taskManagerRef The TaskManager actor reference.
-	 *
-	 * @throws IOException Thrown if the network subsystem (Netty) cannot be properly started.
-	 */
-	public void associateWithTaskManagerAndJobManager(ActorRef jobManagerRef, ActorRef taskManagerRef)
-			throws IOException
-	{
-		checkNotNull(jobManagerRef);
-		checkNotNull(taskManagerRef);
-
-		synchronized (lock) {
-			if (isShutdown) {
-				throw new IllegalStateException("environment is shut down");
-			}
-
-			if (this.partitionConsumableNotifier == null &&
-				this.partitionManager == null &&
-				this.taskEventDispatcher == null &&
-				this.connectionManager == null)
-			{
-				// good, not currently associated. start the individual components
-
-				LOG.debug("Starting result partition manager and network connection manager");
-				this.partitionManager = new ResultPartitionManager();
-				this.taskEventDispatcher = new TaskEventDispatcher();
-				this.partitionConsumableNotifier = new JobManagerResultPartitionConsumableNotifier(
-													jobManagerRef, taskManagerRef, new Timeout(jobManagerTimeout));
-
-				// -----  Network connections  -----
-				final Option<NettyConfig> nettyConfig = configuration.nettyConfig();
-				connectionManager = nettyConfig.isDefined() ? new NettyConnectionManager(nettyConfig.get())
-															: new LocalConnectionManager();
-
-				try {
-					LOG.debug("Starting network connection manager");
-					connectionManager.start(partitionManager, taskEventDispatcher, networkBufferPool);
-				}
-				catch (Throwable t) {
-					throw new IOException("Failed to instantiate network connection manager: " + t.getMessage(), t);
-				}
-			}
-			else {
-				throw new IllegalStateException(
-						"Network Environment is already associated with a JobManager/TaskManager");
-			}
-		}
+	public KvStateRegistry getKvStateRegistry() {
+		return kvStateRegistry;
 	}
 
-	public void disassociate() throws IOException {
-		synchronized (lock) {
-			if (!isAssociated()) {
-				return;
-			}
-
-			LOG.debug("Disassociating NetworkEnvironment from TaskManager. Cleaning all intermediate results.");
-
-			// terminate all network connections
-			if (connectionManager != null) {
-				try {
-					LOG.debug("Shutting down network connection manager");
-					connectionManager.shutdown();
-					connectionManager = null;
-				}
-				catch (Throwable t) {
-					throw new IOException("Cannot shutdown network connection manager", t);
-				}
-			}
-
-			// shutdown all intermediate results
-			if (partitionManager != null) {
-				try {
-					LOG.debug("Shutting down intermediate result partition manager");
-					partitionManager.shutdown();
-					partitionManager = null;
-				}
-				catch (Throwable t) {
-					throw new IOException("Cannot shutdown partition manager", t);
-				}
-			}
-
-			partitionConsumableNotifier = null;
-
-			if (taskEventDispatcher != null) {
-				taskEventDispatcher.clearAll();
-				taskEventDispatcher = null;
-			}
-
-			// make sure that the global buffer pool re-acquires all buffers
-			networkBufferPool.destroyAllBufferPools();
-		}
+	public KvStateServer getKvStateServer() {
+		return kvStateServer;
 	}
 
-
+	public TaskKvStateRegistry createKvStateTaskRegistry(JobID jobId, JobVertexID jobVertexId) {
+		return kvStateRegistry.createTaskRegistry(jobId, jobVertexId);
+	}
 
 	// --------------------------------------------------------------------------------------------
 	//  Task operations
@@ -243,7 +151,7 @@ public class NetworkEnvironment {
 
 	public void registerTask(Task task) throws IOException {
 		final ResultPartition[] producedPartitions = task.getProducedPartitions();
-		final ResultPartitionWriter[] writers = task.getWriters();
+		final ResultPartitionWriter[] writers = task.getAllWriters();
 
 		if (writers.length != producedPartitions.length) {
 			throw new IllegalStateException("Unequal number of writers and partitions.");
@@ -252,9 +160,6 @@ public class NetworkEnvironment {
 		synchronized (lock) {
 			if (isShutdown) {
 				throw new IllegalStateException("NetworkEnvironment is shut down");
-			}
-			if (!isAssociated()) {
-				throw new IllegalStateException("NetworkEnvironment is not associated with a TaskManager");
 			}
 
 			for (int i = 0; i < producedPartitions.length; i++) {
@@ -268,17 +173,15 @@ public class NetworkEnvironment {
 					bufferPool = networkBufferPool.createBufferPool(partition.getNumberOfSubpartitions(), false);
 					partition.registerBufferPool(bufferPool);
 
-					partitionManager.registerResultPartition(partition);
-				}
-				catch (Throwable t) {
+					resultPartitionManager.registerResultPartition(partition);
+				} catch (Throwable t) {
 					if (bufferPool != null) {
 						bufferPool.lazyDestroy();
 					}
 
 					if (t instanceof IOException) {
 						throw (IOException) t;
-					}
-					else {
+					} else {
 						throw new IOException(t.getMessage(), t);
 					}
 				}
@@ -288,7 +191,7 @@ public class NetworkEnvironment {
 			}
 
 			// Setup the buffer pool for each buffer reader
-			final SingleInputGate[] inputGates = task.getInputGates();
+			final SingleInputGate[] inputGates = task.getAllInputGates();
 
 			for (SingleInputGate gate : inputGates) {
 				BufferPool bufferPool = null;
@@ -296,16 +199,14 @@ public class NetworkEnvironment {
 				try {
 					bufferPool = networkBufferPool.createBufferPool(gate.getNumberOfInputChannels(), false);
 					gate.setBufferPool(bufferPool);
-				}
-				catch (Throwable t) {
+				} catch (Throwable t) {
 					if (bufferPool != null) {
 						bufferPool.lazyDestroy();
 					}
 
 					if (t instanceof IOException) {
 						throw (IOException) t;
-					}
-					else {
+					} else {
 						throw new IOException(t.getMessage(), t);
 					}
 				}
@@ -315,29 +216,35 @@ public class NetworkEnvironment {
 
 	public void unregisterTask(Task task) {
 		LOG.debug("Unregister task {} from network environment (state: {}).",
-				task.getTaskNameWithSubtasks(), task.getExecutionState());
+				task.getTaskInfo().getTaskNameWithSubtasks(), task.getExecutionState());
 
 		final ExecutionAttemptID executionId = task.getExecutionId();
 
 		synchronized (lock) {
-			if (isShutdown || !isAssociated()) {
+			if (isShutdown) {
 				// no need to do anything when we are not operational
 				return;
 			}
 
 			if (task.isCanceledOrFailed()) {
-				partitionManager.releasePartitionsProducedBy(executionId);
+				resultPartitionManager.releasePartitionsProducedBy(executionId, task.getFailureCause());
 			}
 
-			ResultPartitionWriter[] writers = task.getWriters();
-
+			ResultPartitionWriter[] writers = task.getAllWriters();
 			if (writers != null) {
-				for (ResultPartitionWriter writer : task.getWriters()) {
+				for (ResultPartitionWriter writer : writers) {
 					taskEventDispatcher.unregisterWriter(writer);
 				}
 			}
 
-			final SingleInputGate[] inputGates = task.getInputGates();
+			ResultPartition[] partitions = task.getProducedPartitions();
+			if (partitions != null) {
+				for (ResultPartition partition : partitions) {
+					partition.destroyBufferPool();
+				}
+			}
+
+			final SingleInputGate[] inputGates = task.getAllInputGates();
 
 			if (inputGates != null) {
 				for (SingleInputGate gate : inputGates) {
@@ -354,28 +261,29 @@ public class NetworkEnvironment {
 		}
 	}
 
-	public boolean hasReleasedAllResources() {
-		String msg = String.format("Network buffer pool: %d missing memory segments. %d registered buffer pools. Connection manager: %d active connections. Task event dispatcher: %d registered writers.",
-				networkBufferPool.getTotalNumberOfMemorySegments() - networkBufferPool.getNumberOfAvailableMemorySegments(),
-				networkBufferPool.getNumberOfRegisteredBufferPools(), connectionManager.getNumberOfActiveConnections(),
-				taskEventDispatcher.getNumberOfRegisteredWriters());
+	public void start() throws IOException {
+		synchronized (lock) {
+			Preconditions.checkState(!isShutdown, "The NetworkEnvironment has already been shut down.");
 
-		boolean success = networkBufferPool.getTotalNumberOfMemorySegments() == networkBufferPool.getNumberOfAvailableMemorySegments() &&
-				networkBufferPool.getNumberOfRegisteredBufferPools() == 0 &&
-				connectionManager.getNumberOfActiveConnections() == 0 &&
-				taskEventDispatcher.getNumberOfRegisteredWriters() == 0;
+			LOG.info("Starting the network environment and its components.");
 
-		if (success) {
-			String successMsg = "Network environment did release all resources: " + msg;
-			LOG.debug(successMsg);
+			try {
+				LOG.debug("Starting network connection manager");
+				connectionManager.start(resultPartitionManager, taskEventDispatcher, networkBufferPool);
+			}
+			catch (IOException t) {
+				throw new IOException("Failed to instantiate network connection manager.", t);
+			}
+
+			if (kvStateServer != null) {
+				try {
+					LOG.debug("Starting the KvState server.");
+					kvStateServer.start();
+				} catch (InterruptedException ie) {
+					throw new IOException("Failed to start the KvState server.", ie);
+				}
+			}
 		}
-		else {
-			String errMsg = "Network environment did *not* release all resources: " + msg;
-
-			LOG.error(errMsg);
-		}
-
-		return success;
 	}
 
 	/**
@@ -387,20 +295,45 @@ public class NetworkEnvironment {
 				return;
 			}
 
-			// shut down all connections and free all intermediate result partitions
+			LOG.info("Shutting down the network environment and its components.");
+
+			if (kvStateServer != null) {
+				try {
+					kvStateServer.shutDown();
+				} catch (Throwable t) {
+					LOG.warn("Cannot shut down KvState server.", t);
+				}
+			}
+
+			// terminate all network connections
 			try {
-				disassociate();
+				LOG.debug("Shutting down network connection manager");
+				connectionManager.shutdown();
 			}
 			catch (Throwable t) {
-				LOG.warn("Network services did not shut down properly: " + t.getMessage(), t);
+				LOG.warn("Cannot shut down the network connection manager.", t);
 			}
+
+			// shutdown all intermediate results
+			try {
+				LOG.debug("Shutting down intermediate result partition manager");
+				resultPartitionManager.shutdown();
+			}
+			catch (Throwable t) {
+				LOG.warn("Cannot shut down the result partition manager.", t);
+			}
+
+			taskEventDispatcher.clearAll();
+
+			// make sure that the global buffer pool re-acquires all buffers
+			networkBufferPool.destroyAllBufferPools();
 
 			// destroy the buffer pool
 			try {
 				networkBufferPool.destroy();
 			}
 			catch (Throwable t) {
-				LOG.warn("Network buffer pool did not shut down properly: " + t.getMessage(), t);
+				LOG.warn("Network buffer pool did not shut down properly.", t);
 			}
 
 			isShutdown = true;
@@ -408,49 +341,8 @@ public class NetworkEnvironment {
 	}
 
 	public boolean isShutdown() {
-		return isShutdown;
-	}
-
-	/**
-	 * Notifies the job manager about consumable partitions.
-	 */
-	private static class JobManagerResultPartitionConsumableNotifier implements ResultPartitionConsumableNotifier {
-
-		private final ActorRef jobManager;
-
-		private final ActorRef taskManager;
-
-		private final Timeout jobManagerMessageTimeout;
-
-		public JobManagerResultPartitionConsumableNotifier(ActorRef jobManager,
-															ActorRef taskManager,
-															Timeout jobManagerMessageTimeout) {
-			this.jobManager = jobManager;
-			this.taskManager = taskManager;
-			this.jobManagerMessageTimeout = jobManagerMessageTimeout;
-		}
-
-		@Override
-		public void notifyPartitionConsumable(JobID jobId, final ResultPartitionID partitionId) {
-
-			final ScheduleOrUpdateConsumers msg = new ScheduleOrUpdateConsumers(jobId, partitionId);
-
-			Future<Object> futureResponse = Patterns.ask(jobManager, msg, jobManagerMessageTimeout);
-
-			futureResponse.onFailure(new OnFailure() {
-				@Override
-				public void onFailure(Throwable failure) {
-					LOG.error("Could not schedule or update consumers at the JobManager.", failure);
-
-					// Fail task at the TaskManager
-					FailTask failMsg = new FailTask(
-							partitionId.getProducerId(),
-							new RuntimeException("Could not notify JobManager to schedule or update consumers",
-									failure));
-
-					taskManager.tell(failMsg, ActorRef.noSender());
-				}
-			}, AkkaUtils.globalExecutionContext());
+		synchronized (lock) {
+			return isShutdown;
 		}
 	}
 }

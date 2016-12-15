@@ -18,39 +18,61 @@
 
 package org.apache.flink.api.common;
 
+import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.Public;
+
+import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The result of a job execution. Gives access to the execution time of the job,
  * and to all accumulators created by this job.
  */
+@Public
 public class JobExecutionResult extends JobSubmissionResult {
 
 	private long netRuntime;
 
-	private Map<String, Object> accumulatorResults;
+	private final Map<String, Object> accumulatorResults;
 
 	/**
 	 * Creates a new JobExecutionResult.
 	 *
 	 * @param jobID The job's ID.
-	 * @param netRuntime The net runtime of the job (excluding pre-flight phase like the optimizer)
+	 * @param netRuntime The net runtime of the job (excluding pre-flight phase like the optimizer) in milliseconds
 	 * @param accumulators A map of all accumulators produced by the job.
 	 */
 	public JobExecutionResult(JobID jobID, long netRuntime, Map<String, Object> accumulators) {
 		super(jobID);
 		this.netRuntime = netRuntime;
-		this.accumulatorResults = accumulators;
+
+		if (accumulators != null) {
+			this.accumulatorResults = accumulators;
+		} else {
+			this.accumulatorResults = Collections.emptyMap();
+		}
 	}
 
 	/**
 	 * Gets the net execution time of the job, i.e., the execution time in the parallel system,
 	 * without the pre-flight steps like the optimizer.
 	 *
-	 * @return The net execution time.
+	 * @return The net execution time in milliseconds.
 	 */
 	public long getNetRuntime() {
 		return this.netRuntime;
+	}
+
+    /**
+	 * Gets the net execution time of the job, i.e., the execution time in the parallel system,
+	 * without the pre-flight steps like the optimizer in a desired time unit.
+	 *
+	 * @param desiredUnit the unit of the <tt>NetRuntime</tt>
+	 * @return The net execution time in the desired unit.
+	 */
+	public long getNetRuntime(TimeUnit desiredUnit) {
+		return desiredUnit.convert(getNetRuntime(), TimeUnit.MILLISECONDS);
 	}
 
 	/**
@@ -83,6 +105,8 @@ public class JobExecutionResult extends JobSubmissionResult {
 	 * @return Result of the counter, or null if the counter does not exist
 	 * @throws java.lang.ClassCastException Thrown, if the accumulator was not aggregating a {@link java.lang.Integer}
 	 */
+	@Deprecated
+	@PublicEvolving
 	public Integer getIntCounterResult(String accumulatorName) {
 		Object result = this.accumulatorResults.get(accumulatorName);
 		if (result == null) {
@@ -93,5 +117,17 @@ public class JobExecutionResult extends JobSubmissionResult {
 							+ "' should be Integer but has type " + result.getClass());
 		}
 		return (Integer) result;
+	}
+
+
+	/**
+	 * Returns a dummy object for wrapping a JobSubmissionResult
+	 * @param result The SubmissionResult
+	 * @return a JobExecutionResult
+	 * @deprecated Will be removed in future versions.
+	 */
+	@Deprecated
+	public static JobExecutionResult fromJobSubmissionResult(JobSubmissionResult result) {
+		return new JobExecutionResult(result.getJobID(), -1, null);
 	}
 }

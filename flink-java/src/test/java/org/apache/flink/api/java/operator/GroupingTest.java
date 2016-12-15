@@ -67,8 +67,9 @@ public class GroupingTest {
 
 	private final List<Tuple4<Integer, Long, CustomType, Long[]>> tupleWithCustomData =
 			new ArrayList<Tuple4<Integer, Long, CustomType, Long[]>>();
-
 	
+	private final List<Tuple2<byte[], byte[]>> byteArrayData = new ArrayList<Tuple2<byte[], byte[]>>();
+
 	@Test  
 	public void testGroupByKeyFields1() {
 		
@@ -106,7 +107,7 @@ public class GroupingTest {
 		
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IndexOutOfBoundsException.class)
 	public void testGroupByKeyFields4() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -116,7 +117,7 @@ public class GroupingTest {
 		tupleDs.groupBy(5);
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IndexOutOfBoundsException.class)
 	public void testGroupByKeyFields5() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -124,6 +125,15 @@ public class GroupingTest {
 
 		// should not work, negative field position
 		tupleDs.groupBy(-1);
+	}
+
+	@Test
+	public void testGroupByKeyFieldsOnPrimitiveArray() {
+		this.byteArrayData.add(new Tuple2(new byte[]{0}, new byte[]{1}));
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Tuple2<byte[], byte[]>> tupleDs = env.fromCollection(byteArrayData);
+		tupleDs.groupBy(0);
 	}
 
 	@Test
@@ -143,7 +153,7 @@ public class GroupingTest {
 		}
 	}
 
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = InvalidProgramException.class)
 	public void testGroupByKeyExpressions2() {
 
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -324,7 +334,7 @@ public class GroupingTest {
 		}
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IndexOutOfBoundsException.class)
 	public void testGroupSortKeyFields2() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -551,6 +561,38 @@ public class GroupingTest {
 						}, Order.ASCENDING);
 	}
 
+	@Test
+	public void testGroupingAtomicType() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> dataSet = env.fromElements(0, 1, 1, 2, 0, 0);
+
+		dataSet.groupBy("*");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testGroupAtomicTypeWithInvalid1() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> dataSet = env.fromElements(0, 1, 2, 3);
+
+		dataSet.groupBy("*", "invalidField");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testGroupAtomicTypeWithInvalid2() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> dataSet = env.fromElements(0, 1, 2, 3);
+
+		dataSet.groupBy("invalidField");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testGroupAtomicTypeWithInvalid3() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<ArrayList<Integer>> dataSet = env.fromElements(new ArrayList<Integer>());
+
+		dataSet.groupBy("*");
+	}
+
 
 	public static class CustomType implements Serializable {
 		
@@ -564,8 +606,8 @@ public class GroupingTest {
 		public String myString;
 		public Nest nested;
 		
-		public CustomType() {};
-		
+		public CustomType() {}
+
 		public CustomType(int i, long l, String s) {
 			myInt = i;
 			myLong = l;
@@ -581,7 +623,7 @@ public class GroupingTest {
 	public static class CustomType2 implements Serializable {
 
 		public int myInt;
-		public int[] myIntArray;
+		public Integer[] myIntArray;
 
 	}
 }

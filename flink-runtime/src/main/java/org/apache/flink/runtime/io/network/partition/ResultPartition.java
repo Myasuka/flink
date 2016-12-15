@@ -18,9 +18,9 @@
 
 package org.apache.flink.runtime.io.network.partition;
 
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
-import org.apache.flink.runtime.io.disk.iomanager.IOManager.IOMode;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.BufferPoolOwner;
@@ -28,7 +28,7 @@ import org.apache.flink.runtime.io.network.buffer.BufferProvider;
 import org.apache.flink.runtime.io.network.partition.consumer.LocalInputChannel;
 import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
-import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.taskmanager.TaskActions;
 import org.apache.flink.runtime.taskmanager.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,9 +37,10 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkElementIndex;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * A result partition for data produced by a single task.
@@ -75,6 +76,10 @@ import static com.google.common.base.Preconditions.checkState;
 public class ResultPartition implements BufferPoolOwner {
 
 	private static final Logger LOG = LoggerFactory.getLogger(ResultPartition.class);
+	
+	private final String owningTaskName;
+
+	private final TaskActions taskActions;
 
 	private final JobID jobId;
 
@@ -89,6 +94,8 @@ public class ResultPartition implements BufferPoolOwner {
 	private final ResultPartitionManager partitionManager;
 
 	private final ResultPartitionConsumableNotifier partitionConsumableNotifier;
+
+	private final boolean sendScheduleOrUpdateConsumersMessage;
 
 	// - Runtime state --------------------------------------------------------
 
@@ -107,6 +114,8 @@ public class ResultPartition implements BufferPoolOwner {
 
 	private boolean isFinished;
 
+	private volatile Throwable cause;
+
 	// - Statistics ----------------------------------------------------------
 
 	/** The total number of buffers (both data and event buffers) */
@@ -116,28 +125,32 @@ public class ResultPartition implements BufferPoolOwner {
 	private long totalNumberOfBytes;
 
 	public ResultPartition(
-			JobID jobId,
-			ResultPartitionID partitionId,
-			ResultPartitionType partitionType,
-			int numberOfSubpartitions,
-			ResultPartitionManager partitionManager,
-			ResultPartitionConsumableNotifier partitionConsumableNotifier,
-			IOManager ioManager,
-			IOMode defaultIoMode) {
+		String owningTaskName,
+		TaskActions taskActions, // actions on the owning task
+		JobID jobId,
+		ResultPartitionID partitionId,
+		ResultPartitionType partitionType,
+		int numberOfSubpartitions,
+		ResultPartitionManager partitionManager,
+		ResultPartitionConsumableNotifier partitionConsumableNotifier,
+		IOManager ioManager,
+		boolean sendScheduleOrUpdateConsumersMessage) {
 
+		this.owningTaskName = checkNotNull(owningTaskName);
+		this.taskActions = checkNotNull(taskActions);
 		this.jobId = checkNotNull(jobId);
 		this.partitionId = checkNotNull(partitionId);
 		this.partitionType = checkNotNull(partitionType);
 		this.subpartitions = new ResultSubpartition[numberOfSubpartitions];
 		this.partitionManager = checkNotNull(partitionManager);
 		this.partitionConsumableNotifier = checkNotNull(partitionConsumableNotifier);
+		this.sendScheduleOrUpdateConsumersMessage = sendScheduleOrUpdateConsumersMessage;
 
 		// Create the subpartitions.
 		switch (partitionType) {
 			case BLOCKING:
 				for (int i = 0; i < subpartitions.length; i++) {
-					subpartitions[i] = new SpillableSubpartition(
-							i, this, ioManager, defaultIoMode);
+					subpartitions[i] = new SpillableSubpartition(i, this, ioManager);
 				}
 
 				break;
@@ -156,7 +169,7 @@ public class ResultPartition implements BufferPoolOwner {
 		// Initially, partitions should be consumed once before release.
 		pin();
 
-		LOG.debug("Initialized {}", this);
+		LOG.debug("{}: Initialized {}", owningTaskName, this);
 	}
 
 	/**
@@ -198,12 +211,26 @@ public class ResultPartition implements BufferPoolOwner {
 		return bufferPool;
 	}
 
+	public BufferPool getBufferPool() {
+		return bufferPool;
+	}
+
 	public int getTotalNumberOfBuffers() {
 		return totalNumberOfBuffers;
 	}
 
 	public long getTotalNumberOfBytes() {
 		return totalNumberOfBytes;
+	}
+
+	public int getNumberOfQueuedBuffers() {
+		int totalBuffers = 0;
+
+		for (ResultSubpartition subpartition : subpartitions) {
+			totalBuffers += subpartition.getNumberOfQueuedBuffers();
+		}
+
+		return totalBuffers;
 	}
 
 	// ------------------------------------------------------------------------
@@ -270,44 +297,63 @@ public class ResultPartition implements BufferPoolOwner {
 		}
 	}
 
+	public void release() {
+		release(null);
+	}
+
 	/**
 	 * Releases the result partition.
 	 */
-	public void release() {
+	public void release(Throwable cause) {
 		if (isReleased.compareAndSet(false, true)) {
-			LOG.debug("Releasing {}", this);
+			LOG.debug("{}: Releasing {}.", owningTaskName, this);
 
-			try {
-				for (ResultSubpartition subpartition : subpartitions) {
-					try {
-						synchronized (subpartition) {
-							subpartition.release();
-						}
-					}
-					// Catch this in order to ensure that release is called on all subpartitions
-					catch (Throwable t) {
-						LOG.error("Error during release of result subpartition: " + t.getMessage(), t);
+			// Set the error cause
+			if (cause != null) {
+				this.cause = cause;
+			}
+
+			// Release all subpartitions
+			for (ResultSubpartition subpartition : subpartitions) {
+				try {
+					synchronized (subpartition) {
+						subpartition.release();
 					}
 				}
-			}
-			finally {
-				if (bufferPool != null) {
-					bufferPool.lazyDestroy();
+				// Catch this in order to ensure that release is called on all subpartitions
+				catch (Throwable t) {
+					LOG.error("Error during release of result subpartition: " + t.getMessage(), t);
 				}
 			}
+		}
+	}
+
+	public void destroyBufferPool() {
+		if (bufferPool != null) {
+			bufferPool.lazyDestroy();
 		}
 	}
 
 	/**
 	 * Returns the requested subpartition.
 	 */
-	public ResultSubpartitionView createSubpartitionView(int index, BufferProvider bufferProvider) throws IOException {
+	public ResultSubpartitionView createSubpartitionView(int index, BufferProvider bufferProvider, BufferAvailabilityListener availabilityListener) throws IOException {
 		int refCnt = pendingReferences.get();
 
 		checkState(refCnt != -1, "Partition released.");
 		checkState(refCnt > 0, "Partition not pinned.");
 
-		return subpartitions[index].createReadView(bufferProvider);
+		checkElementIndex(index, subpartitions.length, "Subpartition not found.");
+
+		ResultSubpartitionView readView = subpartitions[index].createReadView(bufferProvider, availabilityListener);
+
+		LOG.debug("Created {}", readView);
+
+		return readView;
+	}
+
+	public Throwable getFailureCause() {
+		return cause;
 	}
 
 	/**
@@ -391,9 +437,9 @@ public class ResultPartition implements BufferPoolOwner {
 	/**
 	 * Notifies pipelined consumers of this result partition once.
 	 */
-	private void notifyPipelinedConsumers() throws IOException {
-		if (partitionType.isPipelined() && !hasNotifiedPipelinedConsumers) {
-			partitionConsumableNotifier.notifyPartitionConsumable(jobId, partitionId);
+	private void notifyPipelinedConsumers() {
+		if (sendScheduleOrUpdateConsumersMessage && !hasNotifiedPipelinedConsumers && partitionType.isPipelined()) {
+			partitionConsumableNotifier.notifyPartitionConsumable(jobId, partitionId, taskActions);
 
 			hasNotifiedPipelinedConsumers = true;
 		}

@@ -21,11 +21,15 @@ package org.apache.flink.runtime.util;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Properties;
 
+import org.apache.hadoop.util.VersionInfo;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.apache.hadoop.security.UserGroupInformation;
 
 /**
@@ -36,7 +40,7 @@ public class EnvironmentInformation {
 
 	private static final Logger LOG = LoggerFactory.getLogger(EnvironmentInformation.class);
 
-	private static final String UNKNOWN = "<unknown>";
+	public static final String UNKNOWN = "<unknown>";
 
 	/**
 	 * Returns the version of the code as String. If version == null, then the JobManager does not run from a
@@ -55,27 +59,26 @@ public class EnvironmentInformation {
 	 * @return The code revision.
 	 */
 	public static RevisionInformation getRevisionInformation() {
-		RevisionInformation info = new RevisionInformation();
 		String revision = UNKNOWN;
 		String commitDate = UNKNOWN;
-		try {
-			Properties properties = new Properties();
-			InputStream propFile = EnvironmentInformation.class.getClassLoader().getResourceAsStream(".version.properties");
+		try (InputStream propFile = EnvironmentInformation.class.getClassLoader().getResourceAsStream(".version.properties")) {
 			if (propFile != null) {
+				Properties properties = new Properties();
 				properties.load(propFile);
-				revision = properties.getProperty("git.commit.id.abbrev");
-				commitDate = properties.getProperty("git.commit.time");
+				String propRevision = properties.getProperty("git.commit.id.abbrev");
+				String propCommitDate = properties.getProperty("git.commit.time");
+				revision = propRevision != null ? propRevision : UNKNOWN;
+				commitDate = propCommitDate != null ? propCommitDate : UNKNOWN;
 			}
 		} catch (Throwable t) {
 			if (LOG.isDebugEnabled()) {
-				LOG.debug("Cannot determine code revision: Unable ro read version property file.", t);
+				LOG.debug("Cannot determine code revision: Unable to read version property file.", t);
 			} else {
-				LOG.info("Cannot determine code revision: Unable ro read version property file.");
+				LOG.info("Cannot determine code revision: Unable to read version property file.");
 			}
 		}
-		info.commitId = revision;
-		info.commitDate = commitDate;
-		return info;
+		
+		return new RevisionInformation(revision, commitDate);
 	}
 
 	/**
@@ -87,18 +90,20 @@ public class EnvironmentInformation {
 		try {
 			return UserGroupInformation.getCurrentUser().getShortUserName();
 		}
+		catch (LinkageError e) {
+			// hadoop classes are not in the classpath
+			LOG.debug("Cannot determine user/group information using Hadoop utils. " +
+					"Hadoop classes not loaded or compatible", e);
+		}
 		catch (Throwable t) {
-			if (LOG.isDebugEnabled() && !(t instanceof ClassNotFoundException)) {
-				LOG.debug("Cannot determine user/group information using Hadoop utils.", t);
-			}
+			// some other error occurred that we should log and make known
+			LOG.warn("Error while accessing user/group information via Hadoop utils.", t);
 		}
 		
 		String user = System.getProperty("user.name");
 		if (user == null) {
 			user = UNKNOWN;
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("Cannot determine user/group information for the current user.");
-			}
+			LOG.debug("Cannot determine user/group information for the current user.");
 		}
 		return user;
 	}
@@ -106,10 +111,27 @@ public class EnvironmentInformation {
 	/**
 	 * The maximum JVM heap size, in bytes.
 	 * 
+	 * <p>This method uses the <i>-Xmx</i> value of the JVM, if set. If not set, it returns (as
+	 * a heuristic) 1/4th of the physical memory size.
+	 * 
 	 * @return The maximum JVM heap size, in bytes.
 	 */
 	public static long getMaxJvmHeapMemory() {
-		return Runtime.getRuntime().maxMemory();
+		final long maxMemory = Runtime.getRuntime().maxMemory();
+		if (maxMemory != Long.MAX_VALUE) {
+			// we have the proper max memory
+			return maxMemory;
+		} else {
+			// max JVM heap size is not set - use the heuristic to use 1/4th of the physical memory
+			final long physicalMemory = Hardware.getSizeOfPhysicalMemory();
+			if (physicalMemory != -1) {
+				// got proper value for physical memory
+				return physicalMemory / 4;
+			} else {
+				throw new RuntimeException("Could not determine the amount of free memory.\n" +
+						"Please set the maximum memory for the JVM, e.g. -Xmx512M for 512 megabytes.");
+			}
+		}
 	}
 
 	/**
@@ -137,7 +159,7 @@ public class EnvironmentInformation {
 	 */
 	public static long getSizeOfFreeHeapMemory() {
 		Runtime r = Runtime.getRuntime();
-		return r.maxMemory() - r.totalMemory() + r.freeMemory();
+		return getMaxJvmHeapMemory() - r.totalMemory() + r.freeMemory();
 	}
 
 	/**
@@ -202,6 +224,34 @@ public class EnvironmentInformation {
 	}
 
 	/**
+	 * Tries to retrieve the maximum number of open file handles. This method will only work on
+	 * UNIX-based operating systems with Sun/Oracle Java versions.
+	 * 
+	 * <p>If the number of max open file handles cannot be determined, this method returns {@code -1}.</p>
+	 * 
+	 * @return The limit of open file handles, or {@code -1}, if the limit could not be determined.
+	 */
+	public static long getOpenFileHandlesLimit() {
+		Class<?> sunBeanClass;
+		try {
+			sunBeanClass = Class.forName("com.sun.management.UnixOperatingSystemMXBean");
+		}
+		catch (ClassNotFoundException e) {
+			return -1L;
+		}
+		
+		try {
+			Method fhLimitMethod = sunBeanClass.getMethod("getMaxFileDescriptorCount");
+			Object result = fhLimitMethod.invoke(ManagementFactory.getOperatingSystemMXBean());
+			return (Long) result;
+		}
+		catch (Throwable t) {
+			LOG.warn("Unexpected error when accessing file handle limit", t);
+			return -1L;
+		}
+	}
+	
+	/**
 	 * Logs a information about the environment, like code revision, current user, java version,
 	 * and JVM parameters.
 	 *
@@ -230,6 +280,7 @@ public class EnvironmentInformation {
 			log.info(" JVM: " + jvmVersion);
 			log.info(" Maximum heap size: " + maxHeapMegabytes + " MiBytes");
 			log.info(" JAVA_HOME: " + (javaHome == null ? "(not set)" : javaHome));
+			log.info(" Hadoop version: " + VersionInfo.getVersion());
 
 			if (options.length == 0) {
 				log.info(" JVM Options: (none)");
@@ -251,28 +302,9 @@ public class EnvironmentInformation {
 				}
 			}
 
-			log.info("--------------------------------------------------------------------------------");
-		}
-	}
+			log.info(" Classpath: " + System.getProperty("java.class.path"));
 
-	/**
-	 * Checks whether the Java version is lower than Java 7 (Java 1.7) and
-	 * prints a warning message in that case.
-	 */
-	public static void checkJavaVersion() {
-		try {
-			String versionString = System.getProperty("java.version").substring(0, 3);
-			double versionDouble = Double.parseDouble(versionString);
-			if (versionDouble < 1.7) {
-				LOG.warn("Flink has been started with Java 6. " +
-						"Java 6 is not maintained any more by Oracle or the OpenJDK community. " +
-						"Flink may drop support for Java 6 in future releases, due to the " +
-						"unavailability of bug fixes security patches.");
-			}
-		}
-		catch (Exception e) {
-			LOG.warn("Could not parse java version for startup checks");
-			LOG.debug("Exception when parsing java version", e);
+			log.info("--------------------------------------------------------------------------------");
 		}
 	}
 
@@ -288,9 +320,16 @@ public class EnvironmentInformation {
 	 * code.
 	 */
 	public static class RevisionInformation {
+		
 		/** The git commit id (hash) */
-		public String commitId;
+		public final String commitId;
+		
 		/** The git commit date */
-		public String commitDate;
+		public final String commitDate;
+
+		public RevisionInformation(String commitId, String commitDate) {
+			this.commitId = commitId;
+			this.commitDate = commitDate;
+		}
 	}
 }

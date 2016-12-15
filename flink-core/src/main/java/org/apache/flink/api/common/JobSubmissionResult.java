@@ -15,13 +15,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.flink.api.common;
 
+import org.apache.flink.annotation.Public;
+
 /**
- * The result of a job submission.
- * Contains the JobID
+ * The result of submitting a job to a JobManager.
  */
+@Public
 public class JobSubmissionResult {
+
 	private JobID jobID;
 
 	public JobSubmissionResult(JobID jobID) {
@@ -35,5 +39,27 @@ public class JobSubmissionResult {
 	 */
 	public JobID getJobID() {
 		return jobID;
+	}
+
+	/**
+	 * Checks if this JobSubmissionResult is also a JobExecutionResult.
+	 * See {@code getJobExecutionResult} to retrieve the JobExecutionResult.
+	 * @return True if this is a JobExecutionResult, false otherwise
+	 */
+	public boolean isJobExecutionResult() {
+		return this instanceof JobExecutionResult;
+	}
+
+	/**
+	 * Returns the JobExecutionResult if available.
+	 * @return The JobExecutionResult
+	 * @throws ClassCastException if this is not a JobExecutionResult
+	 */
+	public JobExecutionResult getJobExecutionResult() {
+		if (isJobExecutionResult()) {
+			return (JobExecutionResult) this;
+		} else {
+			throw new ClassCastException("This JobSubmissionResult is not a JobExecutionResult.");
+		}
 	}
 }

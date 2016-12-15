@@ -21,20 +21,26 @@ package org.apache.flink.runtime.jobmanager
 import akka.actor.ActorSystem
 import akka.actor.Status.Success
 import akka.testkit.{ImplicitSender, TestKit}
-import org.apache.flink.runtime.jobgraph.{JobGraph, DistributionPattern,
-AbstractJobVertex}
+import org.apache.flink.api.common.ExecutionConfig
+import org.apache.flink.runtime.akka.ListeningBehaviour
+import org.apache.flink.runtime.jobgraph.{JobGraph, DistributionPattern, JobVertex}
 import org.apache.flink.runtime.jobmanager.Tasks.{Receiver, Sender}
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup
-import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultSuccess, SubmitJob}
-import org.apache.flink.runtime.testingUtils.TestingUtils
+import org.apache.flink.runtime.messages.JobManagerMessages.{JobSubmitSuccess, JobResultSuccess, SubmitJob}
+import org.apache.flink.runtime.testingUtils.{ScalaTestingUtils, TestingUtils}
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
-import scala.collection.convert.WrapAsJava
+import scala.concurrent.duration._
 
 @RunWith(classOf[JUnitRunner])
-class CoLocationConstraintITCase(_system: ActorSystem) extends TestKit(_system) with
-ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll with WrapAsJava{
+class CoLocationConstraintITCase(_system: ActorSystem)
+    extends TestKit(_system)
+    with ImplicitSender
+    with WordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with ScalaTestingUtils {
   def this() = this(ActorSystem("TestingActorSystem", TestingUtils.testConfig))
 
   /**
@@ -45,8 +51,8 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll with WrapA
     "support colocation constraints and slot sharing" in {
       val num_tasks = 31
 
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
 
       sender.setInvokableClass(classOf[Sender])
       receiver.setInvokableClass(classOf[Receiver])
@@ -65,12 +71,12 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll with WrapA
       val jobGraph = new JobGraph("Pointwise job", sender, receiver)
 
       val cluster = TestingUtils.startTestingCluster(num_tasks)
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(1 seconds)
 
       try {
         within(TestingUtils.TESTING_DURATION) {
-          jm ! SubmitJob(jobGraph, false)
-          expectMsg(Success(jobGraph.getJobID))
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID))
 
           expectMsgType[JobResultSuccess]
         }

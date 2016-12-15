@@ -18,6 +18,10 @@
 
 package org.apache.flink.runtime.messages
 
+import java.util.UUID
+
+import akka.actor.ActorRef
+import org.apache.flink.api.common.JobID
 import org.apache.flink.runtime.jobgraph.JobGraph
 
 /**
@@ -26,7 +30,7 @@ import org.apache.flink.runtime.jobgraph.JobGraph
 object JobClientMessages {
 
   /**
-   * This message is sent to the JobClient (via ask) to submit a job and
+   * This message is sent to the JobClientActor (via ask) to submit a job and
    * get a response when the job execution has finished.
    * 
    * The response to this message is a
@@ -37,13 +41,35 @@ object JobClientMessages {
   case class SubmitJobAndWait(jobGraph: JobGraph)
 
   /**
-   * This message is sent to the JobClient (via ask) to submit a job and 
-   * return as soon as the result of the submit operation is known. 
-   *
-   * The response to this message is a
-   * [[org.apache.flink.api.common.JobSubmissionResult]]
-   *
-   * @param jobGraph The job to be executed.
-   */
-  case class SubmitJobDetached(jobGraph: JobGraph)
+    * This message is sent to the JobClientActor to ask it to register at the JobManager
+    * and then return once the job execution is complete.
+    * @param jobID The job id
+    */
+  case class AttachToJobAndWait(jobID: JobID)
+
+  /** Notifies the JobClientActor about a new leader address and a leader session ID.
+    *
+    * @param address New leader address
+    * @param leaderSessionID New leader session ID
+    */
+  case class JobManagerLeaderAddress(address: String, leaderSessionID: UUID)
+
+  /** Notifies the JobClientActor about the ActorRef of the new leader.
+    *
+    * @param jobManager ActorRef of the new leader
+    */
+  case class JobManagerActorRef(jobManager: ActorRef) extends RequiresLeaderSessionID
+
+  /** Message which is triggered when the submission timeout has been reached. */
+  case object SubmissionTimeout extends RequiresLeaderSessionID
+
+  /** Message which is triggered when the JobClient registration at the JobManager times out */
+  case object RegistrationTimeout extends RequiresLeaderSessionID
+
+  /** Message which is triggered when the connection timeout has been reached. */
+  case object ConnectionTimeout extends RequiresLeaderSessionID
+
+  def getSubmissionTimeout(): AnyRef = SubmissionTimeout
+  def getRegistrationTimeout(): AnyRef = RegistrationTimeout
+  def getConnectionTimeout(): AnyRef = ConnectionTimeout
 }

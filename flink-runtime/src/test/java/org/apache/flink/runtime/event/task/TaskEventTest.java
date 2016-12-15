@@ -23,14 +23,14 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.Iterator;
 
-import org.apache.flink.runtime.testutils.CommonTestUtils;
+import org.apache.flink.util.InstantiationUtil;
+
 import org.junit.Test;
 
 /**
  * This class contains serialization tests concerning task events derived from
- * {@link org.apache.flink.runtime.event.task.AbstractEvent}.
+ * {@link org.apache.flink.runtime.event.AbstractEvent}.
  * 
  */
 public class TaskEventTest {
@@ -42,7 +42,7 @@ public class TaskEventTest {
 
 		try {
 			final IntegerTaskEvent orig = new IntegerTaskEvent(11);
-			final IntegerTaskEvent copy = (IntegerTaskEvent) CommonTestUtils.createCopyWritable(orig);
+			final IntegerTaskEvent copy = InstantiationUtil.createCopyWritable(orig);
 
 			assertEquals(orig.getInteger(), copy.getInteger());
 			assertEquals(orig.hashCode(), copy.hashCode());
@@ -62,36 +62,11 @@ public class TaskEventTest {
 		try {
 
 			final StringTaskEvent orig = new StringTaskEvent("Test");
-			final StringTaskEvent copy = (StringTaskEvent) CommonTestUtils.createCopyWritable(orig);
+			final StringTaskEvent copy = InstantiationUtil.createCopyWritable(orig);
 
 			assertEquals(orig.getString(), copy.getString());
 			assertEquals(orig.hashCode(), copy.hashCode());
 			assertTrue(orig.equals(copy));
-
-		} catch (IOException ioe) {
-			fail(ioe.getMessage());
-		}
-	}
-
-	/**
-	 * This test checks the serialization/deserialization of {@link EventList} objects.
-	 */
-	@Test
-	public void testEventList() {
-
-		try {
-
-			final EventList orig = new EventList();
-			orig.add(new StringTaskEvent("Test 2"));
-			orig.add(new IntegerTaskEvent(70));
-			final EventList copy = (EventList) CommonTestUtils.createCopyWritable(orig);
-
-			assertEquals(orig.size(), copy.size());
-			final Iterator<AbstractEvent> origIt = orig.iterator();
-			final Iterator<AbstractEvent> copyIt = copy.iterator();
-			while (origIt.hasNext()) {
-				assertEquals(origIt.next(), copyIt.next());
-			}
 
 		} catch (IOException ioe) {
 			fail(ioe.getMessage());

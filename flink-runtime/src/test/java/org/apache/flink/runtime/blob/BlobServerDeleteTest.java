@@ -20,6 +20,7 @@ package org.apache.flink.runtime.blob;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.util.OperatingSystem;
 import org.junit.Test;
 
 import java.io.File;
@@ -30,6 +31,7 @@ import java.util.Random;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 /**
  * Tests how DELETE requests behave.
@@ -48,7 +50,7 @@ public class BlobServerDeleteTest {
 			server = new BlobServer(config);
 
 			InetSocketAddress serverAddress = new InetSocketAddress("localhost", server.getPort());
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 
 			byte[] data = new byte[2000000];
 			rnd.nextBytes(data);
@@ -61,7 +63,7 @@ public class BlobServerDeleteTest {
 			client.delete(key);
 			client.close();
 
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 			try {
 				client.get(key);
 				fail("BLOB should have been deleted");
@@ -106,7 +108,7 @@ public class BlobServerDeleteTest {
 			server = new BlobServer(config);
 
 			InetSocketAddress serverAddress = new InetSocketAddress("localhost", server.getPort());
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 
 			byte[] data = new byte[2000000];
 			rnd.nextBytes(data);
@@ -124,7 +126,7 @@ public class BlobServerDeleteTest {
 			client.deleteAll(jobID);
 			client.close();
 
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 			try {
 				client.get(jobID, name1);
 				fail("BLOB should have been deleted");
@@ -141,7 +143,7 @@ public class BlobServerDeleteTest {
 				// expected
 			}
 
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 			try {
 				client.get(jobID, name2);
 				fail("BLOB should have been deleted");
@@ -178,7 +180,7 @@ public class BlobServerDeleteTest {
 			server = new BlobServer(config);
 
 			InetSocketAddress serverAddress = new InetSocketAddress("localhost", server.getPort());
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 
 			byte[] data = new byte[2000000];
 			rnd.nextBytes(data);
@@ -226,7 +228,7 @@ public class BlobServerDeleteTest {
 			server = new BlobServer(config);
 
 			InetSocketAddress serverAddress = new InetSocketAddress("localhost", server.getPort());
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 
 			byte[] data = new byte[2000000];
 			rnd.nextBytes(data);
@@ -267,6 +269,8 @@ public class BlobServerDeleteTest {
 
 	@Test
 	public void testDeleteFails() {
+		assumeTrue(!OperatingSystem.isWindows()); //setWritable doesn't work on Windows.
+
 		BlobServer server = null;
 		BlobClient client = null;
 
@@ -275,7 +279,7 @@ public class BlobServerDeleteTest {
 			server = new BlobServer(config);
 
 			InetSocketAddress serverAddress = new InetSocketAddress("localhost", server.getPort());
-			client = new BlobClient(serverAddress);
+			client = new BlobClient(serverAddress, config);
 
 			byte[] data = new byte[2000000];
 			rnd.nextBytes(data);

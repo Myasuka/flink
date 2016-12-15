@@ -20,8 +20,6 @@
 package org.apache.flink.types.parser;
 
 import org.apache.flink.types.DoubleValue;
-import org.apache.flink.types.parser.DoubleValueParser;
-import org.apache.flink.types.parser.FieldParser;
 
 
 public class DoubleValueParserTest extends ParserTestBase<DoubleValue> {
@@ -52,8 +50,13 @@ public class DoubleValueParserTest extends ParserTestBase<DoubleValue> {
 	@Override
 	public String[] getInvalidTestValues() {
 		return new String[] {
-			"a", "123abc4", "-57-6", "7-877678"
+			"a", "123abc4", "-57-6", "7-877678", " 1", "2 ", " ", "\t"
 		};
+	}
+
+	@Override
+	public boolean allowsEmptyField() {
+		return false;
 	}
 
 	@Override

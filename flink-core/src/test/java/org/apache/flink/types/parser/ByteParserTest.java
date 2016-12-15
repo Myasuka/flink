@@ -19,9 +19,6 @@
 
 package org.apache.flink.types.parser;
 
-import org.apache.flink.types.parser.ByteParser;
-import org.apache.flink.types.parser.FieldParser;
-
 
 public class ByteParserTest extends ParserTestBase<Byte> {
 
@@ -43,8 +40,13 @@ public class ByteParserTest extends ParserTestBase<Byte> {
 	public String[] getInvalidTestValues() {
 		return new String[] {
 			"a", "9a", "-57-6", "7-88", String.valueOf(Byte.MAX_VALUE) + "0", String.valueOf(Short.MIN_VALUE),
-			String.valueOf(Byte.MAX_VALUE + 1), String.valueOf(Byte.MIN_VALUE - 1)
+			String.valueOf(Byte.MAX_VALUE + 1), String.valueOf(Byte.MIN_VALUE - 1),  " 1", "2 ", " ", "\t"
 		};
+	}
+
+	@Override
+	public boolean allowsEmptyField() {
+		return false;
 	}
 
 	@Override
@@ -56,4 +58,5 @@ public class ByteParserTest extends ParserTestBase<Byte> {
 	public Class<Byte> getTypeClass() {
 		return Byte.class;
 	}
+
 }

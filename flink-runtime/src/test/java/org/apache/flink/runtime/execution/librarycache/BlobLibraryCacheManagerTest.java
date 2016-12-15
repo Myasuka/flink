@@ -27,13 +27,16 @@ import org.apache.flink.runtime.blob.BlobKey;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.util.OperatingSystem;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -43,10 +46,6 @@ public class BlobLibraryCacheManagerTest {
 
 	@Test
 	public void testLibraryCacheManagerCleanup() {
-		Configuration config = new Configuration();
-
-		config.setLong(ConfigConstants.LIBRARY_CACHE_MANAGER_CLEANUP_INTERVAL, 1);
-		GlobalConfiguration.includeConfiguration(config);
 
 		JobID jid = new JobID();
 		List<BlobKey> keys = new ArrayList<BlobKey>();
@@ -56,9 +55,10 @@ public class BlobLibraryCacheManagerTest {
 		final byte[] buf = new byte[128];
 
 		try {
-			server = new BlobServer(new Configuration());
+			Configuration config = new Configuration();
+			server = new BlobServer(config);
 			InetSocketAddress blobSocketAddress = new InetSocketAddress(server.getPort());
-			BlobClient bc = new BlobClient(blobSocketAddress);
+			BlobClient bc = new BlobClient(blobSocketAddress, config);
 
 			keys.add(bc.put(buf));
 			buf[0] += 1;
@@ -66,7 +66,7 @@ public class BlobLibraryCacheManagerTest {
 
 			long cleanupInterval = 1000l;
 			libraryCacheManager = new BlobLibraryCacheManager(server, cleanupInterval);
-			libraryCacheManager.registerJob(jid, keys);
+			libraryCacheManager.registerJob(jid, keys, Collections.<URL>emptyList());
 
 			List<File> files = new ArrayList<File>();
 
@@ -131,6 +131,8 @@ public class BlobLibraryCacheManagerTest {
 
 	@Test
 	public void testRegisterAndDownload() {
+		assumeTrue(!OperatingSystem.isWindows()); //setWritable doesn't work on Windows.
+
 		BlobServer server = null;
 		BlobCache cache = null;
 		File cacheDir = null;
@@ -142,7 +144,7 @@ public class BlobLibraryCacheManagerTest {
 			cache = new BlobCache(serverAddress, config);
 
 			// upload some meaningless data to the server
-			BlobClient uploader = new BlobClient(serverAddress);
+			BlobClient uploader = new BlobClient(serverAddress, config);
 			BlobKey dataKey1 = uploader.put(new byte[]{1, 2, 3, 4, 5, 6, 7, 8});
 			BlobKey dataKey2 = uploader.put(new byte[]{11, 12, 13, 14, 15, 16, 17, 18});
 			uploader.close();
@@ -166,13 +168,17 @@ public class BlobLibraryCacheManagerTest {
 				ExecutionAttemptID executionId = new ExecutionAttemptID();
 				Collection<BlobKey> keys = Collections.singleton(dataKey1);
 
-				libCache.registerTask(jid, executionId, keys);
+				libCache.registerTask(jid, executionId, keys, Collections.<URL>emptyList());
 				assertEquals(1, libCache.getNumberOfReferenceHolders(jid));
 				assertEquals(1, libCache.getNumberOfCachedLibraries());
 				assertNotNull(libCache.getClassLoader(jid));
 
 				// un-register them again
 				libCache.unregisterTask(jid, executionId);
+
+				// Don't fail if called again
+				libCache.unregisterTask(jid, executionId);
+
 				assertEquals(0, libCache.getNumberOfReferenceHolders(jid));
 
 				// library is still cached (but not associated with job any more)
@@ -197,7 +203,8 @@ public class BlobLibraryCacheManagerTest {
 
 			// since we cannot download this library any more, this call should fail
 			try {
-				libCache.registerTask(new JobID(), new ExecutionAttemptID(), Collections.singleton(dataKey2));
+				libCache.registerTask(new JobID(), new ExecutionAttemptID(), Collections.singleton(dataKey2),
+						Collections.<URL>emptyList());
 				fail("This should fail with an IOException");
 			}
 			catch (IOException e) {

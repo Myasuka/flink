@@ -29,6 +29,9 @@ import static org.junit.Assert.*;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.core.memory.MemorySegment;
+import org.apache.flink.core.memory.MemorySegmentFactory;
+import org.apache.flink.util.TestLogger;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -37,7 +40,7 @@ import org.junit.Test;
  *
  * @param <T>
  */
-public abstract class ComparatorTestBase<T> {
+public abstract class ComparatorTestBase<T> extends TestLogger {
 
 	// Same as in the NormalizedKeySorter
 	private static final int DEFAULT_MAX_NORMALIZED_KEY_LEN = 8;
@@ -237,7 +240,7 @@ public abstract class ComparatorTestBase<T> {
 	
 	// Help Function for setting up a memory segment and normalize the keys of the data array in it
 	public MemorySegment setupNormalizedKeysMemSegment(T[] data, int normKeyLen, TypeComparator<T> comparator) {
-		MemorySegment memSeg = new MemorySegment(new byte[2048]);
+		MemorySegment memSeg = MemorySegmentFactory.allocateUnpooledSegment(2048);
 
 		// Setup normalized Keys in the memory segment
 		int offset = 0;
@@ -293,7 +296,7 @@ public abstract class ComparatorTestBase<T> {
 			MemorySegment memSeg2 = setupNormalizedKeysMemSegment(data, normKeyLen, comparator);
 
 			for (int i = 0; i < data.length; i++) {
-				assertTrue(MemorySegment.compare(memSeg1, memSeg2, i * normKeyLen, i * normKeyLen, normKeyLen) == 0);
+				assertTrue(memSeg1.compare(memSeg2, i * normKeyLen, i * normKeyLen, normKeyLen) == 0);
 			}
 		} catch (Exception e) {
 			System.err.println(e.getMessage());
@@ -331,7 +334,7 @@ public abstract class ComparatorTestBase<T> {
 			// Get the normKeyLen on which we are testing
 			int normKeyLen = getNormKeyLen(halfLength, data, comparator);
 
-			// Write the data into different 2 memory segements
+			// Write the data into different 2 memory segments
 			MemorySegment memSegLow = setupNormalizedKeysMemSegment(data, normKeyLen, comparator);
 			MemorySegment memSegHigh = setupNormalizedKeysMemSegment(data, normKeyLen, comparator);
 
@@ -342,14 +345,14 @@ public abstract class ComparatorTestBase<T> {
 				for (int h = l + 1; h < data.length; h++) {
 					int cmp;
 					if (greater) {
-						cmp = MemorySegment.compare(memSegLow, memSegHigh, l * normKeyLen, h * normKeyLen, normKeyLen);
+						cmp = memSegLow.compare(memSegHigh, l * normKeyLen, h * normKeyLen, normKeyLen);
 						if (fullyDetermines) {
 							assertTrue(cmp < 0);
 						} else {
 							assertTrue(cmp <= 0);
 						}
 					} else {
-						cmp = MemorySegment.compare(memSegHigh, memSegLow, h * normKeyLen, l * normKeyLen, normKeyLen);
+						cmp = memSegHigh.compare(memSegLow, h * normKeyLen, l * normKeyLen, normKeyLen);
 						if (fullyDetermines) {
 							assertTrue(cmp > 0);
 						} else {
@@ -393,6 +396,32 @@ public abstract class ComparatorTestBase<T> {
 			System.err.println(e.getMessage());
 			e.printStackTrace();
 			fail("Exception in test: " + e.getMessage());
+		}
+	}
+
+	// -------------------------------- Key extraction tests --------------------------------------
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void testKeyExtraction() {
+		TypeComparator<T> comparator = getComparator(true);
+		T[] data = getSortedData();
+
+		for (T value : data) {
+			TypeComparator[] comparators = comparator.getFlatComparators();
+			Object[] extractedKeys = new Object[comparators.length];
+			int insertedKeys = comparator.extractKeys(value, extractedKeys, 0);
+			assertTrue(insertedKeys == comparators.length);
+
+			for (int i = 0; i < insertedKeys; i++) {
+				// check if some keys are null, although this is not supported
+				if (!supportsNullKeys()) {
+					assertNotNull(extractedKeys[i]);
+				}
+				// compare the extracted key with itself as a basic check
+				// if the extracted key corresponds to the comparator
+				assertTrue(comparators[i].compare(extractedKeys[i], extractedKeys[i]) == 0);
+			}
 		}
 	}
 
@@ -445,6 +474,10 @@ public abstract class ComparatorTestBase<T> {
 		T deserialized = serializer.deserialize(serializer.createInstance(), in);
 		deepEquals("Deserialized value is wrong.", value, deserialized);
 
+	}
+
+	protected boolean supportsNullKeys() {
+		return false;
 	}
 
 	// --------------------------------------------------------------------------------------------

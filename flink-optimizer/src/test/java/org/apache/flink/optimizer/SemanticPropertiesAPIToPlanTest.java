@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,16 +18,17 @@
 
 package org.apache.flink.optimizer;
 
+import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.ReduceFunction;
-import org.apache.flink.api.common.operators.base.JoinOperatorBase;
+import org.apache.flink.api.common.operators.base.InnerJoinOperatorBase;
 import org.apache.flink.api.common.operators.base.MapOperatorBase;
 import org.apache.flink.api.common.operators.base.ReduceOperatorBase;
 import org.apache.flink.api.common.operators.util.FieldSet;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.api.java.operators.translation.JavaPlan;
+import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.optimizer.dataproperties.GlobalProperties;
 import org.apache.flink.optimizer.dataproperties.LocalProperties;
@@ -57,8 +58,8 @@ public class SemanticPropertiesAPIToPlanTest extends CompilerTestBase {
 				.groupBy(1)
 				.reduce(new MockReducer()).withForwardedFields("*");
 
-		set.print();
-		JavaPlan plan = env.createProgramPlan();
+		set.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		oPlan.accept(new Visitor<PlanNode>() {
@@ -118,14 +119,14 @@ public class SemanticPropertiesAPIToPlanTest extends CompilerTestBase {
 				.reduce(new MockReducer()).withForwardedFields("f1->f2");
 		DataSet<Tuple3<Integer, Integer, Integer>> out = in1.join(in2).where(1).equalTo(2).with(new MockJoin());
 
-		out.print();
-		JavaPlan plan = env.createProgramPlan();
+		out.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		oPlan.accept(new Visitor<PlanNode>() {
 			@Override
 			public boolean preVisit(PlanNode visitable) {
-				if (visitable instanceof DualInputPlanNode && visitable.getProgramOperator() instanceof JoinOperatorBase) {
+				if (visitable instanceof DualInputPlanNode && visitable.getProgramOperator() instanceof InnerJoinOperatorBase) {
 					DualInputPlanNode node = ((DualInputPlanNode) visitable);
 
 					final Channel inConn1 = node.getInput1();

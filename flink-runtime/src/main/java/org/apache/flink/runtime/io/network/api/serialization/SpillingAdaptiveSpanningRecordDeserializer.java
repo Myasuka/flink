@@ -18,19 +18,15 @@
 
 package org.apache.flink.runtime.io.network.api.serialization;
 
-import org.apache.flink.configuration.ConfigConstants;
-import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.core.io.IOReadableWritable;
 import org.apache.flink.core.memory.DataInputView;
-import org.apache.flink.core.memory.InputViewDataInputStreamWrapper;
+import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.MemorySegment;
-import org.apache.flink.runtime.io.network.api.serialization.RecordDeserializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.util.DataInputDeserializer;
 import org.apache.flink.util.StringUtils;
 
 import java.io.BufferedInputStream;
-import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
@@ -47,7 +43,14 @@ import java.util.Random;
  */
 public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWritable> implements RecordDeserializer<T> {
 	
+	private static final String BROKEN_SERIALIZATION_ERROR_MESSAGE =
+					"Serializer consumed more bytes than the record had. " +
+					"This indicates broken serialization. If you are using custom serialization types " +
+					"(Value or Writable), check their serialization methods. If you are using a " +
+					"Kryo-serialized type, check the corresponding Kryo serializer.";
+	
 	private static final int THRESHOLD_FOR_SPILLING = 5 * 1024 * 1024; // 5 MiBytes
+	
 	
 	private final NonSpanningWrapper nonSpanningWrapper;
 	
@@ -55,15 +58,9 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 
 	private Buffer currentBuffer;
 
-	public SpillingAdaptiveSpanningRecordDeserializer() {
-		
-		String tempDirString = GlobalConfiguration.getString(
-				ConfigConstants.TASK_MANAGER_TMP_DIR_KEY,
-				ConfigConstants.DEFAULT_TASK_MANAGER_TMP_PATH);
-		String[] directories = tempDirString.split(",|" + File.pathSeparator);
-		
+	public SpillingAdaptiveSpanningRecordDeserializer(String[] tmpDirectories) {
 		this.nonSpanningWrapper = new NonSpanningWrapper();
-		this.spanningWrapper = new SpanningWrapper(directories);
+		this.spanningWrapper = new SpanningWrapper(tmpDirectories);
 	}
 
 	@Override
@@ -108,12 +105,25 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 
 			if (len <= nonSpanningRemaining - 4) {
 				// we can get a full record from here
-				target.read(this.nonSpanningWrapper);
-				
-				return (this.nonSpanningWrapper.remaining() == 0) ?
-					DeserializationResult.LAST_RECORD_FROM_BUFFER :
-					DeserializationResult.INTERMEDIATE_RECORD_FROM_BUFFER;
-			} else {
+				try {
+					target.read(this.nonSpanningWrapper);
+
+					int remaining = this.nonSpanningWrapper.remaining();
+					if (remaining > 0) {
+						return DeserializationResult.INTERMEDIATE_RECORD_FROM_BUFFER;
+					}
+					else if (remaining == 0) {
+						return DeserializationResult.LAST_RECORD_FROM_BUFFER;
+					}
+					else {
+						throw new IndexOutOfBoundsException("Remaining = " + remaining);
+					}
+				}
+				catch (IndexOutOfBoundsException e) {
+					throw new IOException(BROKEN_SERIALIZATION_ERROR_MESSAGE, e);
+				}
+			}
+			else {
 				// we got the length, but we need the rest from the spanning deserializer
 				// and need to wait for more buffers
 				this.spanningWrapper.initializeWithPartialRecord(this.nonSpanningWrapper, len);
@@ -156,6 +166,7 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 	public boolean hasUnfinishedData() {
 		return this.nonSpanningWrapper.remaining() > 0 || this.spanningWrapper.getNumGatheredBytes() > 0;
 	}
+
 
 	// -----------------------------------------------------------------------------------------------------------------
 	
@@ -222,21 +233,21 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 
 		@Override
 		public final short readShort() throws IOException {
-			final short v = this.segment.getShort(this.position);
+			final short v = this.segment.getShortBigEndian(this.position);
 			this.position += 2;
 			return v;
 		}
 
 		@Override
 		public final int readUnsignedShort() throws IOException {
-			final int v = this.segment.getShort(this.position) & 0xffff;
+			final int v = this.segment.getShortBigEndian(this.position) & 0xffff;
 			this.position += 2;
 			return v;
 		}
 
 		@Override
 		public final char readChar() throws IOException  {
-			final char v = this.segment.getChar(this.position);
+			final char v = this.segment.getCharBigEndian(this.position);
 			this.position += 2;
 			return v;
 		}
@@ -362,7 +373,7 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 					if (((char2 & 0xC0) != 0x80) || ((char3 & 0xC0) != 0x80)) {
 						throw new UTFDataFormatException("malformed input around byte " + (count - 1));
 					}
-					chararr[chararr_count++] = (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | ((char3 & 0x3F) << 0));
+					chararr[chararr_count++] = (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | (char3 & 0x3F));
 					break;
 				default:
 					throw new UTFDataFormatException("malformed input around byte " + count);
@@ -449,8 +460,8 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 		
 		private File spillFile;
 		
-		private InputViewDataInputStreamWrapper spillFileReader;
-		
+		private DataInputViewStreamWrapper spillFileReader;
+
 		public SpanningWrapper(String[] tempDirs) {
 			this.tempDirs = tempDirs;
 			
@@ -503,6 +514,7 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 					return;
 				} else {
 					this.recordLength = this.lengthBuffer.getInt(0);
+
 					this.lengthBuffer.clear();
 					segmentPosition = toPut;
 					
@@ -543,9 +555,9 @@ public class SpillingAdaptiveSpanningRecordDeserializer<T extends IOReadableWrit
 				}
 				else {
 					spillingChannel.close();
-					
-					DataInputStream inStream = new DataInputStream(new BufferedInputStream(new FileInputStream(spillFile), 2 * 1024 * 1024));
-					this.spillFileReader = new InputViewDataInputStreamWrapper(inStream);
+
+					BufferedInputStream inStream = new BufferedInputStream(new FileInputStream(spillFile), 2 * 1024 * 1024);
+					this.spillFileReader = new DataInputViewStreamWrapper(inStream);
 				}
 			}
 		}

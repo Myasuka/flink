@@ -18,12 +18,9 @@
 
 package org.apache.flink.api.common.functions.util;
 
-import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.FutureTask;
-
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.accumulators.AccumulatorHelper;
 import org.apache.flink.api.common.accumulators.DoubleCounter;
@@ -32,39 +29,52 @@ import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.accumulators.LongCounter;
 import org.apache.flink.api.common.cache.DistributedCache;
 import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.state.ReducingState;
+import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.metrics.MetricGroup;
+
+import java.io.Serializable;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.Future;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * A standalone implementation of the {@link RuntimeContext}, created by runtime UDF operators.
  */
+@PublicEvolving
 public abstract class AbstractRuntimeUDFContext implements RuntimeContext {
 
-	private final String name;
-
-	private final int numParallelSubtasks;
-
-	private final int subtaskIndex;
+	private final TaskInfo taskInfo;
 
 	private final ClassLoader userCodeClassLoader;
 
 	private final ExecutionConfig executionConfig;
 
-	private final HashMap<String, Accumulator<?, ?>> accumulators = new HashMap<String, Accumulator<?, ?>>();
+	private final Map<String, Accumulator<?, ?>> accumulators;
+
+	private final DistributedCache distributedCache;
 	
-	private final DistributedCache distributedCache = new DistributedCache();
-	
-	
-	public AbstractRuntimeUDFContext(String name, int numParallelSubtasks, int subtaskIndex, ClassLoader userCodeClassLoader, ExecutionConfig executionConfig) {
-		this.name = name;
-		this.numParallelSubtasks = numParallelSubtasks;
-		this.subtaskIndex = subtaskIndex;
+	private final MetricGroup metrics;
+
+	public AbstractRuntimeUDFContext(TaskInfo taskInfo,
+										ClassLoader userCodeClassLoader,
+										ExecutionConfig executionConfig,
+										Map<String, Accumulator<?,?>> accumulators,
+										Map<String, Future<Path>> cpTasks,
+										MetricGroup metrics) {
+		this.taskInfo = checkNotNull(taskInfo);
 		this.userCodeClassLoader = userCodeClassLoader;
 		this.executionConfig = executionConfig;
-	}
-	
-	public AbstractRuntimeUDFContext(String name, int numParallelSubtasks, int subtaskIndex, ClassLoader userCodeClassLoader, ExecutionConfig executionConfig, Map<String, FutureTask<Path>> cpTasks) {
-		this(name, numParallelSubtasks, subtaskIndex, userCodeClassLoader, executionConfig);
-		this.distributedCache.setCopyTasks(cpTasks);
+		this.distributedCache = new DistributedCache(checkNotNull(cpTasks));
+		this.accumulators = checkNotNull(accumulators);
+		this.metrics = metrics;
 	}
 
 	@Override
@@ -74,17 +84,32 @@ public abstract class AbstractRuntimeUDFContext implements RuntimeContext {
 
 	@Override
 	public String getTaskName() {
-		return this.name;
+		return taskInfo.getTaskName();
 	}
 
 	@Override
 	public int getNumberOfParallelSubtasks() {
-		return this.numParallelSubtasks;
+		return taskInfo.getNumberOfParallelSubtasks();
 	}
 
 	@Override
 	public int getIndexOfThisSubtask() {
-		return this.subtaskIndex;
+		return taskInfo.getIndexOfThisSubtask();
+	}
+	
+	@Override
+	public MetricGroup getMetricGroup() {
+		return metrics;
+	}
+
+	@Override
+	public int getAttemptNumber() {
+		return taskInfo.getAttemptNumber();
+	}
+
+	@Override
+	public String getTaskNameWithSubtasks() {
+		return taskInfo.getTaskNameWithSubtasks();
 	}
 
 	@Override
@@ -123,8 +148,8 @@ public abstract class AbstractRuntimeUDFContext implements RuntimeContext {
 	}
 
 	@Override
-	public HashMap<String, Accumulator<?, ?>> getAllAccumulators() {
-		return this.accumulators;
+	public Map<String, Accumulator<?, ?>> getAllAccumulators() {
+		return Collections.unmodifiableMap(this.accumulators);
 	}
 	
 	@Override
@@ -158,5 +183,26 @@ public abstract class AbstractRuntimeUDFContext implements RuntimeContext {
 			accumulators.put(name, accumulator);
 		}
 		return (Accumulator<V, A>) accumulator;
+	}
+
+	@Override
+	@PublicEvolving
+	public <T> ValueState<T> getState(ValueStateDescriptor<T> stateProperties) {
+		throw new UnsupportedOperationException(
+				"This state is only accessible by functions executed on a KeyedStream");
+	}
+
+	@Override
+	@PublicEvolving
+	public <T> ListState<T> getListState(ListStateDescriptor<T> stateProperties) {
+		throw new UnsupportedOperationException(
+				"This state is only accessible by functions executed on a KeyedStream");
+	}
+
+	@Override
+	@PublicEvolving
+	public <T> ReducingState<T> getReducingState(ReducingStateDescriptor<T> stateProperties) {
+		throw new UnsupportedOperationException(
+				"This state is only accessible by functions executed on a KeyedStream");
 	}
 }

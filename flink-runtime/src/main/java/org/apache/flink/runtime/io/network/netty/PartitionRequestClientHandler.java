@@ -18,29 +18,34 @@
 
 package org.apache.flink.runtime.io.network.netty;
 
+import com.google.common.collect.Maps;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.apache.flink.core.memory.MemorySegment;
-import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
+import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferProvider;
+import org.apache.flink.runtime.io.network.buffer.FreeingBufferRecycler;
+import org.apache.flink.runtime.io.network.netty.exception.LocalTransportException;
+import org.apache.flink.runtime.io.network.netty.exception.RemoteTransportException;
+import org.apache.flink.runtime.io.network.netty.exception.TransportException;
+import org.apache.flink.runtime.io.network.partition.PartitionNotFoundException;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
 import org.apache.flink.runtime.util.event.EventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.net.SocketAddress;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static org.apache.flink.util.Preconditions.checkState;
 
 class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 
@@ -56,9 +61,13 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 
 	private final StagedMessagesHandlerTask stagedMessagesHandler = new StagedMessagesHandlerTask();
 
-	private ChannelHandlerContext ctx;
+	/**
+	 * Set of cancelled partition requests. A request is cancelled iff an input channel is cleared
+	 * while data is still coming in for this channel.
+	 */
+	private final ConcurrentMap<InputChannelID, InputChannelID> cancelled = Maps.newConcurrentMap();
 
-	private ScheduledFuture<?> logOutputTask;
+	private volatile ChannelHandlerContext ctx;
 
 	// ------------------------------------------------------------------------
 	// Input channel/receiver registration
@@ -67,11 +76,23 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 	void addInputChannel(RemoteInputChannel listener) {
 		checkState(!channelError.get(), "There has been an error in the channel.");
 
-		inputChannels.put(listener.getInputChannelId(), listener);
+		if (!inputChannels.containsKey(listener.getInputChannelId())) {
+			inputChannels.put(listener.getInputChannelId(), listener);
+		}
 	}
 
 	void removeInputChannel(RemoteInputChannel listener) {
 		inputChannels.remove(listener.getInputChannelId());
+	}
+
+	void cancelRequestFor(InputChannelID inputChannelId) {
+		if (inputChannelId == null || ctx == null) {
+			return;
+		}
+
+		if (cancelled.putIfAbsent(inputChannelId, inputChannelId) == null) {
+			ctx.writeAndFlush(new NettyMessage.CancelPartitionRequest(inputChannelId));
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -84,38 +105,62 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 			this.ctx = ctx;
 		}
 
-		if (LOG.isDebugEnabled()) {
-			logOutputTask = ctx.channel().eventLoop().scheduleWithFixedDelay(new DebugOutputTask(), 30, 30, TimeUnit.SECONDS);
-		}
-
 		super.channelActive(ctx);
 	}
 
 	@Override
 	public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		if (logOutputTask != null) {
-			logOutputTask.cancel(true);
+		// Unexpected close. In normal operation, the client closes the connection after all input
+		// channels have been removed. This indicates a problem with the remote task manager.
+		if (!inputChannels.isEmpty()) {
+			final SocketAddress remoteAddr = ctx.channel().remoteAddress();
+
+			notifyAllChannelsOfErrorAndClose(new RemoteTransportException(
+					"Connection unexpectedly closed by remote task manager '" + remoteAddr + "'. "
+							+ "This might indicate that the remote task manager was lost.",
+					remoteAddr));
 		}
 
-		super.channelActive(ctx);
+		super.channelInactive(ctx);
 	}
 
+	/**
+	 * Called on exceptions in the client handler pipeline.
+	 *
+	 * <p> Remote exceptions are received as regular payload.
+	 */
 	@Override
 	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-		if (logOutputTask != null) {
-			logOutputTask.cancel(true);
+
+		if (cause instanceof TransportException) {
+			notifyAllChannelsOfErrorAndClose(cause);
 		}
+		else {
+			final SocketAddress remoteAddr = ctx.channel().remoteAddress();
 
-		notifyAllChannelsOfErrorAndClose(cause);
+			final TransportException tex;
 
-		super.exceptionCaught(ctx, cause);
+			// Improve on the connection reset by peer error message
+			if (cause instanceof IOException
+					&& cause.getMessage().equals("Connection reset by peer")) {
+
+				tex = new RemoteTransportException(
+						"Lost connection to task manager '" + remoteAddr + "'. This indicates "
+								+ "that the remote task manager was lost.", remoteAddr, cause);
+			}
+			else {
+				tex = new LocalTransportException(cause.getMessage(), ctx.channel().localAddress(), cause);
+			}
+
+			notifyAllChannelsOfErrorAndClose(tex);
+		}
 	}
 
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
 		try {
 			if (!bufferListener.hasStagedBufferOrEvent() && stagedMessages.isEmpty()) {
-				decodeMsg(msg);
+				decodeMsg(msg, false);
 			}
 			else {
 				stagedMessages.add(msg);
@@ -128,14 +173,22 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 
 	private void notifyAllChannelsOfErrorAndClose(Throwable cause) {
 		if (channelError.compareAndSet(false, true)) {
-			for (RemoteInputChannel inputChannel : inputChannels.values()) {
-				inputChannel.onError(cause);
+			try {
+				for (RemoteInputChannel inputChannel : inputChannels.values()) {
+					inputChannel.onError(cause);
+				}
 			}
+			catch (Throwable t) {
+				// We can only swallow the Exception at this point. :(
+				LOG.warn("An Exception was thrown during error notification of a "
+						+ "remote input channel.", t);
+			}
+			finally {
+				inputChannels.clear();
 
-			inputChannels.clear();
-
-			if (ctx != null) {
-				ctx.close();
+				if (ctx != null) {
+					ctx.close();
+				}
 			}
 		}
 	}
@@ -147,7 +200,7 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 		super.channelReadComplete(ctx);
 	}
 
-	private boolean decodeMsg(Object msg) throws Throwable {
+	private boolean decodeMsg(Object msg, boolean isStagedBuffer) throws Throwable {
 		final Class<?> msgClazz = msg.getClass();
 
 		// ---- Buffer --------------------------------------------------------
@@ -157,23 +210,37 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 			RemoteInputChannel inputChannel = inputChannels.get(bufferOrEvent.receiverId);
 			if (inputChannel == null) {
 				bufferOrEvent.releaseBuffer();
+
+				cancelRequestFor(bufferOrEvent.receiverId);
+
 				return true;
 			}
 
-			return decodeBufferOrEvent(inputChannel, bufferOrEvent);
+			return decodeBufferOrEvent(inputChannel, bufferOrEvent, isStagedBuffer);
 		}
 		// ---- Error ---------------------------------------------------------
 		else if (msgClazz == NettyMessage.ErrorResponse.class) {
 			NettyMessage.ErrorResponse error = (NettyMessage.ErrorResponse) msg;
 
+			SocketAddress remoteAddr = ctx.channel().remoteAddress();
+
 			if (error.isFatalError()) {
-				notifyAllChannelsOfErrorAndClose(error.error);
+				notifyAllChannelsOfErrorAndClose(new RemoteTransportException(
+						"Fatal error at remote task manager '" + remoteAddr + "'.",
+						remoteAddr, error.cause));
 			}
 			else {
 				RemoteInputChannel inputChannel = inputChannels.get(error.receiverId);
 
 				if (inputChannel != null) {
-					inputChannel.onError(error.error);
+					if (error.cause.getClass() == PartitionNotFoundException.class) {
+						inputChannel.onFailedPartitionRequest();
+					}
+					else {
+						inputChannel.onError(new RemoteTransportException(
+								"Error at remote task manager '" + remoteAddr + "'.",
+										remoteAddr, error.cause));
+					}
 				}
 			}
 		}
@@ -184,7 +251,7 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 		return true;
 	}
 
-	private boolean decodeBufferOrEvent(RemoteInputChannel inputChannel, NettyMessage.BufferResponse bufferOrEvent) throws Throwable {
+	private boolean decodeBufferOrEvent(RemoteInputChannel inputChannel, NettyMessage.BufferResponse bufferOrEvent, boolean isStagedBuffer) throws Throwable {
 		boolean releaseNettyBuffer = true;
 
 		try {
@@ -201,7 +268,9 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 				BufferProvider bufferProvider = inputChannel.getBufferProvider();
 
 				if (bufferProvider == null) {
-					return false; // receiver has been cancelled/failed
+					// receiver has been cancelled/failed
+					cancelRequestFor(bufferOrEvent.receiverId);
+					return isStagedBuffer;
 				}
 
 				while (true) {
@@ -221,7 +290,7 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 						return false;
 					}
 					else if (bufferProvider.isDestroyed()) {
-						return false;
+						return isStagedBuffer;
 					}
 				}
 			}
@@ -231,7 +300,8 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 				byte[] byteArray = new byte[bufferOrEvent.getSize()];
 				bufferOrEvent.getNettyBuffer().readBytes(byteArray);
 
-				Buffer buffer = new Buffer(new MemorySegment(byteArray), EventSerializer.RECYCLER, false);
+				MemorySegment memSeg = MemorySegmentFactory.wrap(byteArray);
+				Buffer buffer = new Buffer(memSeg, FreeingBufferRecycler.INSTANCE, false);
 
 				inputChannel.onBuffer(buffer, bufferOrEvent.sequenceNumber);
 
@@ -304,15 +374,28 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 			boolean success = false;
 
 			try {
-				checkNotNull(buffer, "Buffer request could not be satisfied.");
+				if (buffer != null) {
+					if (availableBuffer.compareAndSet(null, buffer)) {
+						ctx.channel().eventLoop().execute(this);
 
-				if (availableBuffer.compareAndSet(null, buffer)) {
-					ctx.channel().eventLoop().execute(this);
-
-					success = true;
+						success = true;
+					}
+					else {
+						throw new IllegalStateException("Received a buffer notification, " +
+								" but the previous one has not been handled yet.");
+					}
 				}
 				else {
-					throw new IllegalStateException("Received a buffer notification, but the previous one has not been handled yet.");
+					// The buffer pool has been destroyed
+					stagedBufferResponse = null;
+
+					if (stagedMessages.isEmpty()) {
+						ctx.channel().config().setAutoRead(true);
+						ctx.channel().read();
+					}
+					else {
+						ctx.channel().eventLoop().execute(stagedMessagesHandler);
+					}
 				}
 			}
 			catch (Throwable t) {
@@ -355,6 +438,9 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 
 					success = true;
 				}
+				else {
+					cancelRequestFor(stagedBufferResponse.receiverId);
+				}
 
 				stagedBufferResponse = null;
 
@@ -370,7 +456,6 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 				notifyAllChannelsOfErrorAndClose(t);
 			}
 			finally {
-
 				if (!success) {
 					if (buffer != null) {
 						buffer.recycle();
@@ -387,7 +472,7 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 			try {
 				Object msg;
 				while ((msg = stagedMessages.poll()) != null) {
-					if (!decodeMsg(msg)) {
+					if (!decodeMsg(msg, true)) {
 						return;
 					}
 				}
@@ -398,45 +483,6 @@ class PartitionRequestClientHandler extends ChannelInboundHandlerAdapter {
 			catch (Throwable t) {
 				notifyAllChannelsOfErrorAndClose(t);
 			}
-		}
-	}
-
-	// ------------------------------------------------------------------------
-
-	/**
-	 * Debug output task executed periodically by the network I/O thread.
-	 */
-	private class DebugOutputTask implements Runnable {
-
-		@Override
-		public void run() {
-			StringBuilder str = new StringBuilder();
-
-			str.append("Channel remote address: ");
-			str.append(ctx.channel().remoteAddress());
-			str.append(". ");
-
-			str.append("Channel active: ");
-			str.append(ctx.channel().isActive());
-			str.append(". ");
-
-			str.append("Number of registered input channels: ");
-			str.append(inputChannels.size());
-			str.append(". ");
-
-			str.append("Has staged buffer or event: ");
-			str.append(bufferListener.hasStagedBufferOrEvent());
-			str.append(". ");
-
-			str.append("Total number of staged messages: ");
-			str.append(stagedMessages.size());
-			str.append(". ");
-
-			str.append("Channel auto read? ");
-			str.append(ctx.channel().config().isAutoRead());
-			str.append(". ");
-
-			LOG.debug(str.toString());
 		}
 	}
 }

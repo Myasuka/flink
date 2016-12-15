@@ -18,24 +18,23 @@
 
 package org.apache.flink.runtime.io.network.partition.consumer;
 
-import org.apache.flink.runtime.event.task.TaskEvent;
+import org.apache.flink.runtime.metrics.groups.TaskIOMetricGroup;
+import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.runtime.io.network.ConnectionManager;
 import org.apache.flink.runtime.io.network.TaskEventDispatcher;
-import org.apache.flink.runtime.io.network.api.reader.BufferReader;
-import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionManager;
 
 import java.io.IOException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * An input channel place holder to be replaced by either a {@link RemoteInputChannel}
  * or {@link LocalInputChannel} at runtime.
  */
-public class UnknownInputChannel extends InputChannel {
+class UnknownInputChannel extends InputChannel {
 
 	private final ResultPartitionManager partitionManager;
 
@@ -43,19 +42,32 @@ public class UnknownInputChannel extends InputChannel {
 
 	private final ConnectionManager connectionManager;
 
+	/** Initial and maximum backoff (in ms) after failed partition requests. */
+	private final int initialBackoff;
+
+	private final int maxBackoff;
+
+	private final TaskIOMetricGroup metrics;
+
 	public UnknownInputChannel(
 			SingleInputGate gate,
 			int channelIndex,
 			ResultPartitionID partitionId,
 			ResultPartitionManager partitionManager,
 			TaskEventDispatcher taskEventDispatcher,
-			ConnectionManager connectionManager) {
+			ConnectionManager connectionManager,
+			int initialBackoff,
+			int maxBackoff,
+			TaskIOMetricGroup metrics) {
 
-		super(gate, channelIndex, partitionId);
+		super(gate, channelIndex, partitionId, initialBackoff, maxBackoff, null);
 
-		this.partitionManager = partitionManager;
-		this.taskEventDispatcher = taskEventDispatcher;
-		this.connectionManager = connectionManager;
+		this.partitionManager = checkNotNull(partitionManager);
+		this.taskEventDispatcher = checkNotNull(taskEventDispatcher);
+		this.connectionManager = checkNotNull(connectionManager);
+		this.metrics = checkNotNull(metrics);
+		this.initialBackoff = initialBackoff;
+		this.maxBackoff = maxBackoff;
 	}
 
 	@Override
@@ -64,9 +76,9 @@ public class UnknownInputChannel extends InputChannel {
 	}
 
 	@Override
-	public Buffer getNextBuffer() throws IOException {
+	public BufferAndAvailability getNextBuffer() throws IOException {
 		// Nothing to do here
-		return null;
+		throw new UnsupportedOperationException("Cannot retrieve a buffer from an UnknownInputChannel");
 	}
 
 	@Override
@@ -79,8 +91,7 @@ public class UnknownInputChannel extends InputChannel {
 	 * <p>
 	 * <strong>Important</strong>: It is important that the method correctly
 	 * always <code>false</code> for unknown input channels in order to not
-	 * finish the consumption of an intermediate result partition early in
-	 * {@link BufferReader}.
+	 * finish the consumption of an intermediate result partition early.
 	 */
 	@Override
 	public boolean isReleased() {
@@ -106,10 +117,10 @@ public class UnknownInputChannel extends InputChannel {
 	// ------------------------------------------------------------------------
 
 	public RemoteInputChannel toRemoteInputChannel(ConnectionID producerAddress) {
-		return new RemoteInputChannel(inputGate, channelIndex, partitionId, checkNotNull(producerAddress), connectionManager);
+		return new RemoteInputChannel(inputGate, channelIndex, partitionId, checkNotNull(producerAddress), connectionManager, initialBackoff, maxBackoff, metrics);
 	}
 
 	public LocalInputChannel toLocalInputChannel() {
-		return new LocalInputChannel(inputGate, channelIndex, partitionId, partitionManager, taskEventDispatcher);
+		return new LocalInputChannel(inputGate, channelIndex, partitionId, partitionManager, taskEventDispatcher, initialBackoff, maxBackoff, metrics);
 	}
 }

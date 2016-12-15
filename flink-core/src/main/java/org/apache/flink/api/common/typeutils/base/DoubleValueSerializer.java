@@ -20,11 +20,12 @@ package org.apache.flink.api.common.typeutils.base;
 
 import java.io.IOException;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.types.DoubleValue;
 
-
+@Internal
 public final class DoubleValueSerializer extends TypeSerializerSingleton<DoubleValue> {
 
 	private static final long serialVersionUID = 1L;
@@ -77,5 +78,10 @@ public final class DoubleValueSerializer extends TypeSerializerSingleton<DoubleV
 	@Override
 	public void copy(DataInputView source, DataOutputView target) throws IOException {
 		target.writeDouble(source.readDouble());
+	}
+
+	@Override
+	public boolean canEqual(Object obj) {
+		return obj instanceof DoubleValueSerializer;
 	}
 }

@@ -21,31 +21,37 @@ package org.apache.flink.api.common.functions.util;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.FutureTask;
+import java.util.concurrent.Future;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.TaskInfo;
+import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.functions.BroadcastVariableInitializer;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.metrics.MetricGroup;
 
 /**
  * A standalone implementation of the {@link RuntimeContext}, created by runtime UDF operators.
  */
+@Internal
 public class RuntimeUDFContext extends AbstractRuntimeUDFContext {
 
 	private final HashMap<String, Object> initializedBroadcastVars = new HashMap<String, Object>();
 	
 	private final HashMap<String, List<?>> uninitializedBroadcastVars = new HashMap<String, List<?>>();
-	
-	
-	public RuntimeUDFContext(String name, int numParallelSubtasks, int subtaskIndex, ClassLoader userCodeClassLoader, ExecutionConfig executionConfig) {
-		super(name, numParallelSubtasks, subtaskIndex, userCodeClassLoader, executionConfig);
+
+	public RuntimeUDFContext(TaskInfo taskInfo, ClassLoader userCodeClassLoader, ExecutionConfig executionConfig,
+								Map<String, Future<Path>> cpTasks, Map<String, Accumulator<?, ?>> accumulators,
+								MetricGroup metrics) {
+		super(taskInfo, userCodeClassLoader, executionConfig, accumulators, cpTasks, metrics);
 	}
-	
-	public RuntimeUDFContext(String name, int numParallelSubtasks, int subtaskIndex, ClassLoader userCodeClassLoader, ExecutionConfig executionConfig, Map<String, FutureTask<Path>> cpTasks) {
-		super(name, numParallelSubtasks, subtaskIndex, userCodeClassLoader, executionConfig, cpTasks);
+
+	@Override
+	public boolean hasBroadcastVariable(String name) {
+		return this.initializedBroadcastVars.containsKey(name) || this.uninitializedBroadcastVars.containsKey(name);
 	}
-	
 
 	@Override
 	@SuppressWarnings("unchecked")

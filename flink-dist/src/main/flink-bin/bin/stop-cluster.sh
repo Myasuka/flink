@@ -17,33 +17,35 @@
 # limitations under the License.
 ################################################################################
 
-
 bin=`dirname "$0"`
 bin=`cd "$bin"; pwd`
 
 . "$bin"/config.sh
 
-HOSTLIST=$FLINK_SLAVES
+# Stop TaskManager instance(s) using pdsh (Parallel Distributed Shell) when available
+readSlaves
 
-if [ "$HOSTLIST" = "" ]; then
-    HOSTLIST="${FLINK_CONF_DIR}/slaves"
+command -v pdsh >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    for slave in ${SLAVES[@]}; do
+        ssh -n $FLINK_SSH_OPTS $slave -- "nohup /bin/bash -l \"${FLINK_BIN_DIR}/taskmanager.sh\" stop &"
+    done
+else
+    PDSH_SSH_ARGS="" PDSH_SSH_ARGS_APPEND=$FLINK_SSH_OPTS pdsh -w $(IFS=, ; echo "${SLAVES[*]}") \
+        "nohup /bin/bash -l \"${FLINK_BIN_DIR}/taskmanager.sh\" stop"
 fi
 
-if [ ! -f "$HOSTLIST" ]; then
-    echo $HOSTLIST is not a valid slave list
-    exit 1
+# Stop JobManager instance(s)
+shopt -s nocasematch
+if [[ $HIGH_AVAILABILITY == "zookeeper" ]]; then
+    # HA Mode
+    readMasters
+
+    for master in ${MASTERS[@]}; do
+        ssh -n $FLINK_SSH_OPTS $master -- "nohup /bin/bash -l \"${FLINK_BIN_DIR}/jobmanager.sh\" stop &"
+    done
+
+else
+	  "$FLINK_BIN_DIR"/jobmanager.sh stop
 fi
-
-
-GOON=true
-while $GOON
-do
-    read line || GOON=false
-    if [ -n "$line" ]; then
-        HOST=$( extractHostName $line)
-        ssh -n $FLINK_SSH_OPTS $HOST -- "nohup /bin/bash $FLINK_BIN_DIR/taskmanager.sh stop &"
-    fi
-done < $HOSTLIST
-
-# cluster mode, stop the job manager locally and stop the task manager on every slave host
-"$FLINK_BIN_DIR"/jobmanager.sh stop
+shopt -u nocasematch

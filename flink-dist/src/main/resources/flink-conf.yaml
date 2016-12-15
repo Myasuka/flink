@@ -21,31 +21,80 @@
 # Common
 #==============================================================================
 
+# The host on which the JobManager runs. Only used in non-high-availability mode.
+# The JobManager process will use this hostname to bind the listening servers to.
+# The TaskManagers will try to connect to the JobManager on that host.
+
 jobmanager.rpc.address: localhost
+
+
+# The port where the JobManager's main actor system listens for messages.
 
 jobmanager.rpc.port: 6123
 
+
+# The heap size for the JobManager JVM
+
 jobmanager.heap.mb: 256
+
+
+# The heap size for the TaskManager JVM
 
 taskmanager.heap.mb: 512
 
+
+# The number of task slots that each TaskManager offers. Each slot runs one parallel pipeline.
+
 taskmanager.numberOfTaskSlots: 1
 
+# Specify whether TaskManager memory should be allocated when starting up (true) or when
+# memory is required in the memory manager (false)
+
+taskmanager.memory.preallocate: false
+
+# The parallelism used for programs that did not specify and other parallelism.
+
 parallelism.default: 1
+
 
 #==============================================================================
 # Web Frontend
 #==============================================================================
+ 
+# The address under which the web-based runtime monitor listens.
+#
+#jobmanager.web.address: 0.0.0.0
 
 # The port under which the web-based runtime monitor listens.
 # A value of -1 deactivates the web server.
 
 jobmanager.web.port: 8081
 
-# The port uder which the standalone web client
-# (for job upload and submit) listens.
+# Flag to specify whether job submission is enabled from the web-based
+# runtime monitor. Uncomment to disable.
 
-webclient.port: 8080
+#jobmanager.web.submit.enable: false
+
+
+#==============================================================================
+# Streaming state checkpointing
+#==============================================================================
+
+# The backend that will be used to store operator state checkpoints if
+# checkpointing is enabled.
+#
+# Supported backends: jobmanager, filesystem, rocksdb, <class-name-of-factory>
+#
+#state.backend: filesystem
+
+
+# Directory for storing checkpoints in a Flink-supported filesystem
+# Note: State backend must be accessible from the JobManager and all TaskManagers.
+# Use "hdfs://" for HDFS setups, "file://" for UNIX/POSIX-compliant file systems,
+# (or any local file system under Windows), or "S3://" for S3 file system.
+#
+# state.backend.fs.checkpointdir: hdfs://namenode-host:port/flink-checkpoints
+
 
 #==============================================================================
 # Advanced
@@ -54,6 +103,7 @@ webclient.port: 8080
 # The number of buffers for the network stack.
 #
 # taskmanager.network.numberOfBuffers: 2048
+
 
 # Directories for temporary files.
 #
@@ -71,6 +121,7 @@ webclient.port: 8080
 #
 # taskmanager.tmp.dirs: /tmp
 
+
 # Path to the Hadoop configuration directory.
 #
 # This configuration is used when writing into HDFS. Unless specified otherwise,
@@ -81,3 +132,48 @@ webclient.port: 8080
 # via keys 'fs.hdfs.hdfsdefault' and 'fs.hdfs.hdfssite'.
 #
 # fs.hdfs.hadoopconf: /path/to/hadoop/conf/
+
+
+#==============================================================================
+# High Availability
+#==============================================================================
+
+# The list of ZooKeeper quorum peers that coordinate the high-availability
+# setup. This must be a list of the form:
+#
+# "host1:clientPort,host2:clientPort,..." (default clientPort: 2181)
+#
+
+# high-availability: zookeeper
+# high-availability.zookeeper.quorum: localhost:2181
+# high-availability.zookeeper.storageDir: hdfs:///flink/ha/
+
+# ACL options are based on https://zookeeper.apache.org/doc/r3.1.2/zookeeperProgrammers.html#sc_BuiltinACLSchemes
+# It can be either "creator" (ZOO_CREATE_ALL_ACL) or "open" (ZOO_OPEN_ACL_UNSAFE)
+# The default value is "open" and it can be changed to "creator" if ZK security is enabled
+#
+# high-availability.zookeeper.client.acl: open
+
+#==============================================================================
+# Flink Cluster Security Configuration (optional configuration)
+#==============================================================================
+
+# Kerberos security for the connectors can be enabled by providing below configurations
+# Security works in two modes - keytab/principal combination or using the Kerberos token cache
+# If keytab and principal are not provided, token cache (manual kinit) will be used
+
+#security.keytab: /path/to/kerberos/keytab
+#security.principal: flink-user
+
+#==============================================================================
+# ZK Security Configuration (optional configuration)
+#==============================================================================
+# Below configurations are applicable if ZK quorum is configured for Kerberos security
+
+# SASL authentication is disabled by default and can be enabled by changig the value to false
+#
+# zookeeper.sasl.disable: true
+
+# Override below configuration to provide custom ZK service name if configured
+#
+# zookeeper.sasl.service-name: zookeeper

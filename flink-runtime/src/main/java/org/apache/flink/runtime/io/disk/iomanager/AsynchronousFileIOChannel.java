@@ -28,7 +28,7 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * A base class for readers and writers that accept read or write requests for whole blocks.
@@ -294,6 +294,10 @@ final class SegmentReadRequest implements ReadRequest {
 	private final MemorySegment segment;
 
 	protected SegmentReadRequest(AsynchronousFileIOChannel<MemorySegment, ReadRequest> targetChannel, MemorySegment segment) {
+		if (segment == null) {
+			throw new NullPointerException("Illegal read request with null memory segment.");
+		}
+		
 		this.channel = targetChannel;
 		this.segment = segment;
 	}
@@ -463,7 +467,7 @@ final class FileSegmentReadRequest implements ReadRequest {
 
 			fileSegment = new FileSegment(fileChannel, position, length, isBuffer);
 
-			// Skip the binary dataa
+			// Skip the binary data
 			fileChannel.position(position + length);
 
 			hasReachedEndOfFile.set(fileChannel.size() - fileChannel.position() == 0);

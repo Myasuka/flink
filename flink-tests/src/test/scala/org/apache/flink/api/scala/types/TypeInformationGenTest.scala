@@ -17,18 +17,18 @@
  */
 package org.apache.flink.api.scala.types
 
-import java.io.DataInput
-import java.io.DataOutput
-import org.apache.flink.api.common.typeinfo._
-import org.apache.flink.api.common.typeutils._
-import org.apache.flink.api.java.typeutils._
-import org.apache.flink.api.scala.typeutils.CaseClassTypeInfo
-import org.apache.flink.types.{IntValue, StringValue}
-import org.apache.hadoop.io.Writable
-import org.junit.Assert
-import org.junit.Test
+import java.io.{DataInput, DataOutput}
 
+import org.apache.flink.api.java.typeutils.TypeExtractorTest.CustomTuple
+import org.apache.flink.api.java.io.CollectionInputFormat
+import org.apache.hadoop.io.Writable
+import org.junit.{Assert, Test}
+
+import org.apache.flink.api.common.typeinfo._
+import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala._
+import org.apache.flink.api.scala.typeutils.{UnitTypeInfo, CaseClassTypeInfo}
+import org.apache.flink.types.{IntValue, StringValue}
 
 class MyWritable extends Writable {
   def write(out: DataOutput) {
@@ -53,6 +53,41 @@ class MyObject[A](var a: A) {
 }
 
 class TypeInformationGenTest {
+
+  @Test
+  def testJavaTuple(): Unit = {
+    val ti = createTypeInformation[org.apache.flink.api.java.tuple.Tuple3[Int, String, Integer]]
+
+    Assert.assertTrue(ti.isTupleType)
+    Assert.assertEquals(3, ti.getArity)
+    Assert.assertTrue(ti.isInstanceOf[TupleTypeInfoBase[_]])
+    val tti = ti.asInstanceOf[TupleTypeInfoBase[_]]
+    Assert.assertEquals(classOf[org.apache.flink.api.java.tuple.Tuple3[_, _, _]], tti.getTypeClass)
+    for (i <- 0 until 3) {
+      Assert.assertTrue(tti.getTypeAt(i).isInstanceOf[BasicTypeInfo[_]])
+    }
+
+    Assert.assertEquals(BasicTypeInfo.INT_TYPE_INFO, tti.getTypeAt(0))
+    Assert.assertEquals(BasicTypeInfo.STRING_TYPE_INFO, tti.getTypeAt(1))
+    Assert.assertEquals(BasicTypeInfo.INT_TYPE_INFO, tti.getTypeAt(2))
+  }
+
+  @Test
+  def testCustomJavaTuple(): Unit = {
+    val ti = createTypeInformation[CustomTuple]
+
+    Assert.assertTrue(ti.isTupleType)
+    Assert.assertEquals(2, ti.getArity)
+    Assert.assertTrue(ti.isInstanceOf[TupleTypeInfoBase[_]])
+    val tti = ti.asInstanceOf[TupleTypeInfoBase[_]]
+    Assert.assertEquals(classOf[CustomTuple], tti.getTypeClass)
+    for (i <- 0 until 2) {
+      Assert.assertTrue(tti.getTypeAt(i).isInstanceOf[BasicTypeInfo[_]])
+    }
+
+    Assert.assertEquals(BasicTypeInfo.STRING_TYPE_INFO, tti.getTypeAt(0))
+    Assert.assertEquals(BasicTypeInfo.INT_TYPE_INFO, tti.getTypeAt(1))
+  }
 
   @Test
   def testBasicType(): Unit = {
@@ -84,6 +119,70 @@ class TypeInformationGenTest {
   }
 
   @Test
+  def testGenericArrays(): Unit = {
+
+    class MyObject(var a: Int, var b: String) {
+      def this() = this(0, "")
+    }
+
+    val boolArray = Array(true, false)
+    val byteArray = Array(1.toByte, 2.toByte, 3.toByte)
+    val charArray= Array(1.toChar, 2.toChar, 3.toChar)
+    val shortArray = Array(1.toShort, 2.toShort, 3.toShort)
+    val intArray = Array(1, 2, 3)
+    val longArray = Array(1L, 2L, 3L)
+    val floatArray = Array(1.0f, 2.0f, 3.0f)
+    val doubleArray = Array(1.0, 2.0, 3.0)
+    val stringArray = Array("hey", "there")
+    val objectArray = Array(new MyObject(1, "hey"), new MyObject(2, "there"))
+
+    def getType[T: TypeInformation](arr: Array[T]): TypeInformation[Array[T]] = {
+      createTypeInformation[Array[T]]
+    }
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.BOOLEAN_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(boolArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.BYTE_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(byteArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.CHAR_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(charArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.SHORT_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(shortArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.INT_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(intArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.LONG_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(longArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.FLOAT_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(floatArray))
+
+    Assert.assertEquals(
+      PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
+      getType(doubleArray))
+
+    Assert.assertEquals(
+      BasicArrayTypeInfo.STRING_ARRAY_TYPE_INFO,
+      getType(stringArray))
+
+    Assert.assertTrue(getType(objectArray).isInstanceOf[ObjectArrayTypeInfo[_, _]])
+    Assert.assertTrue(
+      getType(objectArray).asInstanceOf[ObjectArrayTypeInfo[_, _]]
+        .getComponentInfo.isInstanceOf[PojoTypeInfo[_]])
+  }
+
+  @Test
   def testWritableType(): Unit = {
     val ti = createTypeInformation[MyWritable]
 
@@ -100,7 +199,7 @@ class TypeInformationGenTest {
     Assert.assertTrue(ti.isInstanceOf[TupleTypeInfoBase[_]])
     val tti = ti.asInstanceOf[TupleTypeInfoBase[_]]
     Assert.assertEquals(classOf[Tuple9[_,_,_,_,_,_,_,_,_]], tti.getTypeClass)
-    for (i <- 0 until 0) {
+    for (i <- 0 until 9) {
       Assert.assertTrue(tti.getTypeAt(i).isInstanceOf[BasicTypeInfo[_]])
     }
 
@@ -242,7 +341,7 @@ class TypeInformationGenTest {
     Assert.assertTrue(ti.isInstanceOf[ObjectArrayTypeInfo[_, _]])
     Assert.assertEquals(
       classOf[CustomType],
-      ti.asInstanceOf[ObjectArrayTypeInfo[_, _]].getComponentType)
+      ti.asInstanceOf[ObjectArrayTypeInfo[_, _]].getComponentInfo.getTypeClass)
   }
 
   @Test
@@ -328,6 +427,18 @@ class TypeInformationGenTest {
     Assert.assertEquals(PrimitiveArrayTypeInfo.SHORT_PRIMITIVE_ARRAY_TYPE_INFO, tti.getTypeAt(6))
     Assert.assertEquals(PrimitiveArrayTypeInfo.BOOLEAN_PRIMITIVE_ARRAY_TYPE_INFO, tti.getTypeAt(7))
     Assert.assertEquals(BasicArrayTypeInfo.STRING_ARRAY_TYPE_INFO, tti.getTypeAt(8))
+  }
+
+  @Test
+  def testTrait(): Unit = {
+    trait TestTrait {
+      def foo() = 1
+      def bar(x: Int): Int
+    }
+
+    val ti = createTypeInformation[TestTrait]
+
+    Assert.assertTrue(ti.isInstanceOf[GenericTypeInfo[TestTrait]])
   }
 
   @Test
@@ -465,6 +576,33 @@ class TypeInformationGenTest {
     Assert.assertEquals(caseClassTypeInfo, caseClassInTupleTypeInfo.getTypeAt("1"))
     Assert.assertEquals(caseClassTypeInfo, caseClassInTupleTypeInfo.getTypeAt("_2"))
 
+  }
+
+  /**
+   * Tests the "implicit val scalaNothingTypeInfo" in
+   * flink-scala/src/main/scala/org/apache/flink/api/scala/package.scala
+   * This does not compile without that line.
+   */
+  @Test
+  def testNothingTypeInfoIsAvailableImplicitly() : Unit = {
+    def g() = {
+
+      def f[O: TypeInformation](x: O): Unit = {}
+
+      f(???) // O will be Nothing
+    }
+    // (Do not call g, because it throws NotImplementedError. This is a compile time test.)
+  }
+
+  @Test
+  def testUnit(): Unit = {
+    val ti = createTypeInformation[Unit]
+    Assert.assertTrue(ti.isInstanceOf[UnitTypeInfo])
+
+    // This checks the condition in checkCollection. If this fails with IllegalArgumentException,
+    // then things like "env.fromElements((),(),())" won't work.
+    import scala.collection.JavaConversions._
+    CollectionInputFormat.checkCollection(Seq((),(),()), (new UnitTypeInfo).getTypeClass())
   }
 }
 

@@ -18,48 +18,49 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import akka.actor.ActorRef;
-import akka.dispatch.OnComplete;
-import akka.dispatch.OnFailure;
-import akka.pattern.Patterns;
-import akka.util.Timeout;
+import org.apache.flink.api.common.Archiveable;
+import org.apache.flink.api.common.accumulators.Accumulator;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.JobException;
-import org.apache.flink.runtime.akka.AkkaUtils;
+import org.apache.flink.runtime.accumulators.StringifiedAccumulatorResult;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
+import org.apache.flink.runtime.concurrent.ApplyFunction;
+import org.apache.flink.runtime.concurrent.BiFunction;
+import org.apache.flink.runtime.concurrent.Future;
+import org.apache.flink.runtime.concurrent.FutureUtils;
+import org.apache.flink.runtime.concurrent.impl.FlinkCompletableFuture;
+import org.apache.flink.runtime.concurrent.impl.FlinkFuture;
 import org.apache.flink.runtime.deployment.InputChannelDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.PartialInputChannelDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.ResultPartitionLocation;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.instance.Instance;
-import org.apache.flink.runtime.instance.InstanceConnectionInfo;
 import org.apache.flink.runtime.instance.SimpleSlot;
+import org.apache.flink.runtime.instance.SlotProvider;
 import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
-import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.jobmanager.scheduler.NoResourceAvailableException;
 import org.apache.flink.runtime.jobmanager.scheduler.ScheduledUnit;
-import org.apache.flink.runtime.jobmanager.scheduler.Scheduler;
-import org.apache.flink.runtime.jobmanager.scheduler.SlotAllocationFuture;
-import org.apache.flink.runtime.jobmanager.scheduler.SlotAllocationFutureAction;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
-import org.apache.flink.runtime.messages.TaskMessages.TaskOperationResult;
-import org.apache.flink.runtime.state.StateHandle;
+import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
+import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.messages.StackTraceSampleResponse;
+import org.apache.flink.runtime.state.TaskStateHandles;
+import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.util.ExceptionUtils;
 import org.slf4j.Logger;
-import scala.concurrent.Future;
-import scala.concurrent.duration.FiniteDuration;
 
-import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
-import static akka.dispatch.Futures.future;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.flink.runtime.execution.ExecutionState.CANCELED;
 import static org.apache.flink.runtime.execution.ExecutionState.CANCELING;
 import static org.apache.flink.runtime.execution.ExecutionState.CREATED;
@@ -68,42 +69,36 @@ import static org.apache.flink.runtime.execution.ExecutionState.FAILED;
 import static org.apache.flink.runtime.execution.ExecutionState.FINISHED;
 import static org.apache.flink.runtime.execution.ExecutionState.RUNNING;
 import static org.apache.flink.runtime.execution.ExecutionState.SCHEDULED;
-
-import static org.apache.flink.runtime.messages.TaskMessages.CancelTask;
-import static org.apache.flink.runtime.messages.TaskMessages.FailIntermediateResultPartitions;
-import static org.apache.flink.runtime.messages.TaskMessages.SubmitTask;
-import static org.apache.flink.runtime.messages.TaskMessages.UpdatePartitionInfo;
-import static org.apache.flink.runtime.messages.TaskMessages.UpdateTaskSinglePartitionInfo;
-import static org.apache.flink.runtime.messages.TaskMessages.createUpdateTaskMultiplePartitionInfos;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * A single execution of a vertex. While an {@link ExecutionVertex} can be executed multiple times (for recovery,
  * or other re-computation), this class tracks the state of a single execution of that vertex and the resources.
  * 
- * NOTE ABOUT THE DESIGN RATIONAL:
+ * <p>NOTE ABOUT THE DESIGN RATIONAL:
  * 
- * In several points of the code, we need to deal with possible concurrent state changes and actions.
+ * <p>In several points of the code, we need to deal with possible concurrent state changes and actions.
  * For example, while the call to deploy a task (send it to the TaskManager) happens, the task gets cancelled.
  * 
- * We could lock the entire portion of the code (decision to deploy, deploy, set state to running) such that
+ * <p>We could lock the entire portion of the code (decision to deploy, deploy, set state to running) such that
  * it is guaranteed that any "cancel command" will only pick up after deployment is done and that the "cancel
  * command" call will never overtake the deploying call.
  * 
- * This blocks the threads big time, because the remote calls may take long. Depending of their locking behavior, it
+ * <p>This blocks the threads big time, because the remote calls may take long. Depending of their locking behavior, it
  * may even result in distributed deadlocks (unless carefully avoided). We therefore use atomic state updates and
  * occasional double-checking to ensure that the state after a completed call is as expected, and trigger correcting
  * actions if it is not. Many actions are also idempotent (like canceling).
  */
-public class Execution implements Serializable {
-
-	private static final long serialVersionUID = 42L;
+public class Execution implements AccessExecution, Archiveable<ArchivedExecution> {
 
 	private static final AtomicReferenceFieldUpdater<Execution, ExecutionState> STATE_UPDATER =
 			AtomicReferenceFieldUpdater.newUpdater(Execution.class, ExecutionState.class, "state");
-	
+
 	private static final Logger LOG = ExecutionGraph.LOG;
-	
+
 	private static final int NUM_CANCEL_CALL_TRIES = 3;
+
+	private static final int NUM_STOP_CALL_TRIES = 3;
 
 	// --------------------------------------------------------------------------------------------
 
@@ -115,36 +110,56 @@ public class Execution implements Serializable {
 
 	private final int attemptNumber;
 
-	private final FiniteDuration timeout;
+	private final Time timeout;
 
 	private ConcurrentLinkedQueue<PartialInputChannelDeploymentDescriptor> partialInputChannelDeploymentDescriptors;
 
 	private volatile ExecutionState state = CREATED;
-	
+
 	private volatile SimpleSlot assignedResource;     // once assigned, never changes until the execution is archived
-	
+
 	private volatile Throwable failureCause;          // once assigned, never changes
+
+	private volatile TaskManagerLocation assignedResourceLocation; // for the archived execution
+
+	private TaskStateHandles taskStateHandles;
+
+	/** The executor which is used to execute futures. */
+	private Executor executor;
+
+	// ------------------------- Accumulators ---------------------------------
 	
-	private volatile InstanceConnectionInfo assignedResourceLocation; // for the archived execution
-	
-	private StateHandle operatorState;
+	/* Lock for updating the accumulators atomically. Prevents final accumulators to be overwritten
+	* by partial accumulators on a late heartbeat*/
+	private final Object accumulatorLock = new Object();
+
+	/* Continuously updated map of user-defined accumulators */
+	private volatile Map<String, Accumulator<?, ?>> userAccumulators;
+	private IOMetrics ioMetrics;
 
 	// --------------------------------------------------------------------------------------------
 	
-	public Execution(ExecutionVertex vertex, int attemptNumber, long startTimestamp, FiniteDuration timeout) {
+	public Execution(
+			Executor executor,
+			ExecutionVertex vertex,
+			int attemptNumber,
+			long startTimestamp,
+			Time timeout) {
+		this.executor = checkNotNull(executor);
+
 		this.vertex = checkNotNull(vertex);
 		this.attemptId = new ExecutionAttemptID();
-		
+
 		this.attemptNumber = attemptNumber;
 
 		this.stateTimestamps = new long[ExecutionState.values().length];
 		markTimestamp(ExecutionState.CREATED, startTimestamp);
 
-		this.timeout = timeout;
+		this.timeout = checkNotNull(timeout);
 
-		this.partialInputChannelDeploymentDescriptors = new ConcurrentLinkedQueue<PartialInputChannelDeploymentDescriptor>();
+		this.partialInputChannelDeploymentDescriptors = new ConcurrentLinkedQueue<>();
 	}
-	
+
 	// --------------------------------------------------------------------------------------------
 	//   Properties
 	// --------------------------------------------------------------------------------------------
@@ -153,14 +168,17 @@ public class Execution implements Serializable {
 		return vertex;
 	}
 
+	@Override
 	public ExecutionAttemptID getAttemptId() {
 		return attemptId;
 	}
 
+	@Override
 	public int getAttemptNumber() {
 		return attemptNumber;
 	}
 
+	@Override
 	public ExecutionState getState() {
 		return state;
 	}
@@ -169,57 +187,71 @@ public class Execution implements Serializable {
 		return assignedResource;
 	}
 
-	public InstanceConnectionInfo getAssignedResourceLocation() {
+	@Override
+	public TaskManagerLocation getAssignedResourceLocation() {
 		return assignedResourceLocation;
 	}
-	
+
 	public Throwable getFailureCause() {
 		return failureCause;
 	}
-	
+
+	@Override
+	public String getFailureCauseAsString() {
+		return ExceptionUtils.stringifyException(getFailureCause());
+	}
+
+	@Override
 	public long[] getStateTimestamps() {
 		return stateTimestamps;
 	}
-	
+
+	@Override
 	public long getStateTimestamp(ExecutionState state) {
 		return this.stateTimestamps[state.ordinal()];
 	}
-	
-	public boolean isFinished() {
-		return state == FINISHED || state == FAILED || state == CANCELED;
-	}
-	
-	/**
-	 * This method cleans fields that are irrelevant for the archived execution attempt.
-	 */
-	public void prepareForArchiving() {
-		if (assignedResource != null && assignedResource.isAlive()) {
-			throw new IllegalStateException("Cannot archive Execution while the assigned resource is still running.");
-		}
-		assignedResource = null;
 
-		partialInputChannelDeploymentDescriptors.clear();
-		partialInputChannelDeploymentDescriptors = null;
+	public boolean isFinished() {
+		return state.isTerminal();
 	}
-	
+
+	public TaskStateHandles getTaskStateHandles() {
+		return taskStateHandles;
+	}
+
+	/**
+	 * Sets the initial state for the execution. The serialized state is then shipped via the
+	 * {@link TaskDeploymentDescriptor} to the TaskManagers.
+	 *
+	 * @param checkpointStateHandles all checkpointed operator state
+	 */
+	public void setInitialState(TaskStateHandles checkpointStateHandles) {
+
+		if (state != ExecutionState.CREATED) {
+			throw new IllegalArgumentException("Can only assign operator state when execution attempt is in CREATED");
+		}
+
+		this.taskStateHandles = checkpointStateHandles;
+	}
+
 	// --------------------------------------------------------------------------------------------
 	//  Actions
 	// --------------------------------------------------------------------------------------------
-	
+
 	/**
 	 * NOTE: This method only throws exceptions if it is in an illegal state to be scheduled, or if the tasks needs
 	 *       to be scheduled immediately and no resource is available. If the task is accepted by the schedule, any
 	 *       error sets the vertex state to failed and triggers the recovery logic.
 	 * 
-	 * @param scheduler The scheduler to use to schedule this execution attempt.
+	 * @param slotProvider The slot provider to use to allocate slot for this execution attempt.
 	 * @param queued Flag to indicate whether the scheduler may queue this task if it cannot
 	 *               immediately deploy it.
 	 * 
 	 * @throws IllegalStateException Thrown, if the vertex is not in CREATED state, which is the only state that permits scheduling.
 	 * @throws NoResourceAvailableException Thrown is no queued scheduling is allowed and no resources are currently available.
 	 */
-	public boolean scheduleForExecution(Scheduler scheduler, boolean queued) throws NoResourceAvailableException {
-		if (scheduler == null) {
+	public boolean scheduleForExecution(SlotProvider slotProvider, boolean queued) throws NoResourceAvailableException {
+		if (slotProvider == null) {
 			throw new IllegalArgumentException("Cannot send null Scheduler when scheduling execution.");
 		}
 
@@ -239,43 +271,43 @@ public class Execution implements Serializable {
 
 			// IMPORTANT: To prevent leaks of cluster resources, we need to make sure that slots are returned
 			//     in all cases where the deployment failed. we use many try {} finally {} clauses to assure that
-			if (queued) {
-				SlotAllocationFuture future = scheduler.scheduleQueued(toSchedule);
+			final Future<SimpleSlot> slotAllocationFuture = slotProvider.allocateSlot(toSchedule, queued);
 
-				future.setFutureAction(new SlotAllocationFutureAction() {
-					@Override
-					public void slotAllocated(SimpleSlot slot) {
+			// IMPORTANT: We have to use the synchronous handle operation (direct executor) here so
+			// that we directly deploy the tasks if the slot allocation future is completed. This is
+			// necessary for immediate deployment.
+			final Future<Void> deploymentFuture = slotAllocationFuture.handle(new BiFunction<SimpleSlot, Throwable, Void>() {
+				@Override
+				public Void apply(SimpleSlot simpleSlot, Throwable throwable) {
+					if (simpleSlot != null) {
 						try {
-							deployToSlot(slot);
-						}
-						catch (Throwable t) {
+							deployToSlot(simpleSlot);
+						} catch (Throwable t) {
 							try {
-								slot.releaseSlot();
+								simpleSlot.releaseSlot();
 							} finally {
 								markFailed(t);
 							}
 						}
 					}
-				});
-			}
-			else {
-				SimpleSlot slot = scheduler.scheduleImmediately(toSchedule);
-				try {
-					deployToSlot(slot);
-				}
-				catch (Throwable t) {
-					try {
-						slot.releaseSlot();
-					} finally {
-						markFailed(t);
+					else {
+						markFailed(throwable);
 					}
+					return null;
+				}
+			});
+
+			// if tasks have to scheduled immediately check that the task has been deployed
+			if (!queued) {
+				if (!deploymentFuture.isDone()) {
+					markFailed(new IllegalArgumentException("The slot allocation future has not been completed yet."));
 				}
 			}
-
+			
 			return true;
 		}
 		else {
-			// call race, already deployed
+			// call race, already deployed, or already done
 			return false;
 		}
 	}
@@ -310,65 +342,50 @@ public class Execution implements Serializable {
 				throw new JobException("Could not assign the ExecutionVertex to the slot " + slot);
 			}
 			this.assignedResource = slot;
-			this.assignedResourceLocation = slot.getInstance().getInstanceConnectionInfo();
+			this.assignedResourceLocation = slot.getTaskManagerLocation();
 
 			// race double check, did we fail/cancel and do we need to release the slot?
 			if (this.state != DEPLOYING) {
 				slot.releaseSlot();
 				return;
 			}
-			
+
 			if (LOG.isInfoEnabled()) {
 				LOG.info(String.format("Deploying %s (attempt #%d) to %s", vertex.getSimpleName(),
-						attemptNumber, slot.getInstance().getInstanceConnectionInfo().getHostname()));
+						attemptNumber, assignedResourceLocation.getHostname()));
 			}
-			
-			final TaskDeploymentDescriptor deployment = vertex.createDeploymentDescriptor(attemptId, slot);
-			
+
+			final TaskDeploymentDescriptor deployment = vertex.createDeploymentDescriptor(
+				attemptId,
+				slot,
+				taskStateHandles,
+				attemptNumber);
+
 			// register this execution at the execution graph, to receive call backs
 			vertex.getExecutionGraph().registerExecution(this);
+			
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
 
-			Instance instance = slot.getInstance();
-			Future<Object> deployAction = Patterns.ask(instance.getTaskManager(),
-					new SubmitTask(deployment), new Timeout(timeout));
+			final Future<Acknowledge> submitResultFuture = taskManagerGateway.submitTask(deployment, timeout);
 
-			deployAction.onComplete(new OnComplete<Object>(){
-
+			submitResultFuture.exceptionallyAsync(new ApplyFunction<Throwable, Void>() {
 				@Override
-				public void onComplete(Throwable failure, Object success) throws Throwable {
-					if (failure != null) {
-						if (failure instanceof TimeoutException) {
-							markFailed(new Exception("Cannot deploy task - TaskManager not responding.", failure));
-						}
-						else {
-							markFailed(failure);
-						}
+				public Void apply(Throwable failure) {
+					if (failure instanceof TimeoutException) {
+						String taskname = vertex.getTaskName() + '(' +
+							(getParallelSubtaskIndex() + 1) + '/' +
+							vertex.getTotalNumberOfParallelSubtasks() + ") (" + attemptId + ')';
+
+						markFailed(new Exception(
+							"Cannot deploy task " + taskname + " - TaskManager (" + assignedResourceLocation
+								+ ") not responding after a timeout of " + timeout, failure));
 					}
 					else {
-						if (success == null) {
-							markFailed(new Exception("Failed to deploy the task to slot " + slot + ": TaskOperationResult was null"));
-						}
-
-						if (success instanceof TaskOperationResult) {
-							TaskOperationResult result = (TaskOperationResult) success;
-
-							if (!result.executionID().equals(attemptId)) {
-								markFailed(new Exception("Answer execution id does not match the request execution id."));
-							} else if (result.success()) {
-								switchToRunning();
-							} else {
-								// deployment failed :(
-								markFailed(new Exception("Failed to deploy the task " +
-										getVertexWithAttempt() + " to slot " + slot + ": " + result
-										.description()));
-							}
-						} else {
-							markFailed(new Exception("Failed to deploy the task to slot " + slot +
-									": Response was not of type TaskOperationResult"));
-						}
+						markFailed(failure);
 					}
+					return null;
 				}
-			}, AkkaUtils.globalExecutionContext());
+			}, executor);
 		}
 		catch (Throwable t) {
 			markFailed(t);
@@ -376,21 +393,51 @@ public class Execution implements Serializable {
 		}
 	}
 
+	/**
+	 * Sends stop RPC call.
+	 */
+	public void stop() {
+		final SimpleSlot slot = assignedResource;
+
+		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
+
+			Future<Acknowledge> stopResultFuture = FutureUtils.retry(
+				new Callable<Future<Acknowledge>>() {
+
+					@Override
+					public Future<Acknowledge> call() throws Exception {
+						return taskManagerGateway.stopTask(attemptId, timeout);
+					}
+				},
+				NUM_STOP_CALL_TRIES,
+				executor);
+
+			stopResultFuture.exceptionally(new ApplyFunction<Throwable, Void>() {
+				@Override
+				public Void apply(Throwable failure) {
+					LOG.info("Stopping task was not successful.", failure);
+					return null;
+				}
+			});
+		}
+	}
+
 	public void cancel() {
 		// depending on the previous state, we go directly to cancelled (no cancel call necessary)
 		// -- or to canceling (cancel call needs to be sent to the task manager)
-		
+
 		// because of several possibly previous states, we need to again loop until we make a
 		// successful atomic state transition
 		while (true) {
-			
+
 			ExecutionState current = this.state;
-			
+
 			if (current == CANCELING || current == CANCELED) {
 				// already taken care of, no need to cancel again
 				return;
 			}
-				
+
 			// these two are the common cases where we need to send a cancel call
 			else if (current == RUNNING || current == DEPLOYING) {
 				// try to transition to canceling, if successful, send the cancel call
@@ -400,29 +447,29 @@ public class Execution implements Serializable {
 				}
 				// else: fall through the loop
 			}
-			
+
 			else if (current == FINISHED || current == FAILED) {
 				// nothing to do any more. finished failed before it could be cancelled.
 				// in any case, the task is removed from the TaskManager already
-				sendFailIntermediateResultPartitionsRPCCall();
+				sendFailIntermediateResultPartitionsRpcCall();
 
 				return;
 			}
 			else if (current == CREATED || current == SCHEDULED) {
-				// from here, we can directly switch to cancelled, because the no task has been deployed
+				// from here, we can directly switch to cancelled, because no task has been deployed
 				if (transitionState(current, CANCELED)) {
-					
+
 					// we skip the canceling state. set the timestamp, for a consistent appearance
 					markTimestamp(CANCELING, getStateTimestamp(CANCELED));
-					
+
 					try {
-						vertex.executionCanceled();
-					}
-					finally {
 						vertex.getExecutionGraph().deregisterExecution(this);
 						if (assignedResource != null) {
 							assignedResource.releaseSlot();
 						}
+					}
+					finally {
+						vertex.executionCanceled();
 					}
 					return;
 				}
@@ -435,8 +482,13 @@ public class Execution implements Serializable {
 	}
 
 	void scheduleOrUpdateConsumers(List<List<ExecutionEdge>> allConsumers) {
-		if (allConsumers.size() != 1) {
+		final int numConsumers = allConsumers.size();
+
+		if (numConsumers > 1) {
 			fail(new IllegalStateException("Currently, only a single consumer group per partition is supported."));
+		}
+		else if (numConsumers == 0) {
+			return;
 		}
 
 		for (ExecutionEdge edge : allConsumers.get(0)) {
@@ -466,23 +518,21 @@ public class Execution implements Serializable {
 				// TODO The current approach may send many update messages even though the consuming
 				// task has already been deployed with all necessary information. We have to check
 				// whether this is a problem and fix it, if it is.
-				future(new Callable<Boolean>(){
+				FlinkFuture.supplyAsync(new Callable<Void>(){
 					@Override
-					public Boolean call() throws Exception {
+					public Void call() throws Exception {
 						try {
-							final ExecutionGraph consumerGraph = consumerVertex.getExecutionGraph();
-
 							consumerVertex.scheduleForExecution(
-									consumerVertex.getExecutionGraph().getScheduler(),
+									consumerVertex.getExecutionGraph().getSlotProvider(),
 									consumerVertex.getExecutionGraph().isQueuedSchedulingAllowed());
 						} catch (Throwable t) {
-							fail(new IllegalStateException("Could not schedule consumer " +
+							consumerVertex.fail(new IllegalStateException("Could not schedule consumer " +
 									"vertex " + consumerVertex, t));
 						}
 
-						return true;
+						return null;
 					}
-				}, AkkaUtils.globalExecutionContext());
+				}, executor);
 
 				// double check to resolve race conditions
 				if(consumerVertex.getExecutionState() == RUNNING){
@@ -501,24 +551,25 @@ public class Execution implements Serializable {
 						continue;
 					}
 
-					final Instance consumerInstance = consumerSlot.getInstance();
+					final TaskManagerLocation partitionTaskManagerLocation = partition.getProducer()
+							.getCurrentAssignedResource().getTaskManagerLocation();
+					final ResourceID partitionTaskManager = partitionTaskManagerLocation.getResourceID();
+					
+					final ResourceID consumerTaskManager = consumerSlot.getTaskManagerID();
 
-					final ResultPartitionID partitionId = new ResultPartitionID(
-							partition.getPartitionId(), attemptId);
-
-					final Instance partitionInstance = partition.getProducer()
-							.getCurrentAssignedResource().getInstance();
+					final ResultPartitionID partitionId = new ResultPartitionID(partition.getPartitionId(), attemptId);
+					
 
 					final ResultPartitionLocation partitionLocation;
 
-					if (consumerInstance.equals(partitionInstance)) {
+					if (consumerTaskManager.equals(partitionTaskManager)) {
 						// Consuming task is deployed to the same instance as the partition => local
 						partitionLocation = ResultPartitionLocation.createLocal();
 					}
 					else {
 						// Different instances => remote
 						final ConnectionID connectionId = new ConnectionID(
-								partitionInstance.getInstanceConnectionInfo(),
+								partitionTaskManagerLocation,
 								partition.getIntermediateResult().getConnectionIndex());
 
 						partitionLocation = ResultPartitionLocation.createRemote(connectionId);
@@ -527,10 +578,11 @@ public class Execution implements Serializable {
 					final InputChannelDeploymentDescriptor descriptor = new InputChannelDeploymentDescriptor(
 							partitionId, partitionLocation);
 
-					final UpdatePartitionInfo updateTaskMessage = new UpdateTaskSinglePartitionInfo(
-							consumer.getAttemptId(), partition.getIntermediateResult().getId(), descriptor);
-
-					sendUpdateTaskRpcCall(consumerSlot, updateTaskMessage);
+					consumer.sendUpdatePartitionInfoRpcCall(
+						Collections.singleton(
+							new PartitionInfo(
+								partition.getIntermediateResult().getId(),
+								descriptor)));
 				}
 				// ----------------------------------------------------------------
 				// Consumer is scheduled or deploying => cache input channel
@@ -562,6 +614,78 @@ public class Execution implements Serializable {
 		processFail(t, false);
 	}
 
+	/**
+	 * Request a stack trace sample from the task of this execution.
+	 *
+	 * @param sampleId of the stack trace sample
+	 * @param numSamples the sample should contain
+	 * @param delayBetweenSamples to wait
+	 * @param maxStrackTraceDepth of the samples
+	 * @param timeout until the request times out
+	 * @return Future stack trace sample response
+	 */
+	public Future<StackTraceSampleResponse> requestStackTraceSample(
+			int sampleId,
+			int numSamples,
+			Time delayBetweenSamples,
+			int maxStrackTraceDepth,
+			Time timeout) {
+
+		final SimpleSlot slot = assignedResource;
+
+		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
+
+			return taskManagerGateway.requestStackTraceSample(
+				attemptId,
+				sampleId,
+				numSamples,
+				delayBetweenSamples,
+				maxStrackTraceDepth,
+				timeout);
+		} else {
+			return FlinkCompletableFuture.completedExceptionally(new Exception("The execution has no slot assigned."));
+		}
+	}
+
+	/**
+	 * Notify the task of this execution about a completed checkpoint.
+	 *
+	 * @param checkpointId of the completed checkpoint
+	 * @param timestamp of the completed checkpoint
+	 */
+	public void notifyCheckpointComplete(long checkpointId, long timestamp) {
+		final SimpleSlot slot = assignedResource;
+
+		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
+
+			taskManagerGateway.notifyCheckpointComplete(attemptId, getVertex().getJobId(), checkpointId, timestamp);
+		} else {
+			LOG.debug("The execution has no slot assigned. This indicates that the execution is " +
+				"no longer running.");
+		}
+	}
+
+	/**
+	 * Trigger a new checkpoint on the task of this execution.
+	 *
+	 * @param checkpointId of th checkpoint to trigger
+	 * @param timestamp of the checkpoint to trigger
+	 */
+	public void triggerCheckpoint(long checkpointId, long timestamp) {
+		final SimpleSlot slot = assignedResource;
+
+		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
+
+			taskManagerGateway.triggerCheckpoint(attemptId, getVertex().getJobId(), checkpointId, timestamp);
+		} else {
+			LOG.debug("The execution has no slot assigned. This indicates that the execution is " +
+				"no longer running.");
+		}
+	}
+
 	// --------------------------------------------------------------------------------------------
 	//   Callbacks
 	// --------------------------------------------------------------------------------------------
@@ -578,6 +702,10 @@ public class Execution implements Serializable {
 	}
 
 	void markFinished() {
+		markFinished(null, null);
+	}
+
+	void markFinished(Map<String, Accumulator<?, ?>> userAccumulators, IOMetrics metrics) {
 
 		// this call usually comes during RUNNING, but may also come while still in deploying (very fast tasks!)
 		while (true) {
@@ -597,6 +725,11 @@ public class Execution implements Serializable {
 								scheduleOrUpdateConsumers(partition.getConsumers());
 							}
 						}
+
+						synchronized (accumulatorLock) {
+							this.userAccumulators = userAccumulators;
+						}
+						this.ioMetrics = metrics;
 
 						assignedResource.releaseSlot();
 						vertex.getExecutionGraph().deregisterExecution(this);
@@ -678,19 +811,16 @@ public class Execution implements Serializable {
 
 			PartialInputChannelDeploymentDescriptor partialInputChannelDeploymentDescriptor;
 
-			List<IntermediateDataSetID> resultIDs = new ArrayList<IntermediateDataSetID>();
-			List<InputChannelDeploymentDescriptor> inputChannelDeploymentDescriptors = new ArrayList<InputChannelDeploymentDescriptor>();
+			List<PartitionInfo> partitionInfos = new ArrayList<>(partialInputChannelDeploymentDescriptors.size());
 
 			while ((partialInputChannelDeploymentDescriptor = partialInputChannelDeploymentDescriptors.poll()) != null) {
-				resultIDs.add(partialInputChannelDeploymentDescriptor.getResultId());
-				inputChannelDeploymentDescriptors.add(partialInputChannelDeploymentDescriptor.createInputChannelDeploymentDescriptor(this));
+				partitionInfos.add(
+					new PartitionInfo(
+						partialInputChannelDeploymentDescriptor.getResultId(),
+						partialInputChannelDeploymentDescriptor.createInputChannelDeploymentDescriptor(this)));
 			}
 
-			UpdatePartitionInfo updateTaskMessage =
-					createUpdateTaskMultiplePartitionInfos(attemptId, resultIDs,
-							inputChannelDeploymentDescriptors);
-
-			sendUpdateTaskRpcCall(assignedResource, updateTaskMessage);
+			sendUpdatePartitionInfoRpcCall(partitionInfos);
 		}
 	}
 
@@ -704,7 +834,7 @@ public class Execution implements Serializable {
 		// the actual computation on the task manager is cleaned up by the TaskManager that noticed the failure
 
 		// we may need to loop multiple times (in the presence of concurrent calls) in order to
-		// atomically switch to failed 
+		// atomically switch to failed
 		while (true) {
 			ExecutionState current = this.state;
 
@@ -713,12 +843,16 @@ public class Execution implements Serializable {
 				return false;
 			}
 
-			if (current == CANCELED) {
-				// we are already aborting or are already aborted
+			if (current == CANCELED || current == FINISHED) {
+				// we are already aborting or are already aborted or we are already finished
 				if (LOG.isDebugEnabled()) {
-					LOG.debug(String.format("Ignoring transition of vertex %s to %s while being %s", 
-							getVertexWithAttempt(), FAILED, CANCELED));
+					LOG.debug("Ignoring transition of vertex {} to {} while being {}.", getVertexWithAttempt(), FAILED, current);
 				}
+				return false;
+			}
+
+			if (current == CANCELING) {
+				cancelingComplete();
 				return false;
 			}
 
@@ -735,7 +869,7 @@ public class Execution implements Serializable {
 				finally {
 					vertex.executionFailed(t);
 				}
-				
+
 				if (!isCallback && (current == RUNNING || current == DEPLOYING)) {
 					if (LOG.isDebugEnabled()) {
 						LOG.debug("Sending out cancel request, to remove task execution from TaskManager.");
@@ -757,7 +891,7 @@ public class Execution implements Serializable {
 		}
 	}
 
-	private boolean switchToRunning() {
+	boolean switchToRunning() {
 
 		if (transitionState(DEPLOYING, RUNNING)) {
 			sendPartitionInfos();
@@ -801,66 +935,72 @@ public class Execution implements Serializable {
 		}
 	}
 
+	/**
+	 * This method sends a CancelTask message to the instance of the assigned slot.
+	 *
+	 * The sending is tried up to NUM_CANCEL_CALL_TRIES times.
+	 */
 	private void sendCancelRpcCall() {
-		final SimpleSlot slot = this.assignedResource;
+		final SimpleSlot slot = assignedResource;
 
 		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
 
-			Future<Object> cancelResult = AkkaUtils.retry(slot.getInstance().getTaskManager(), new
-							CancelTask(attemptId), NUM_CANCEL_CALL_TRIES,
-					AkkaUtils.globalExecutionContext(), timeout);
-
-			cancelResult.onComplete(new OnComplete<Object>() {
-
-				@Override
-				public void onComplete(Throwable failure, Object success) throws Throwable {
-					if (failure != null) {
-						fail(new Exception("Task could not be canceled.", failure));
-					} else {
-						TaskOperationResult result = (TaskOperationResult) success;
-						if (!result.success()) {
-							LOG.debug("Cancel task call did not find task. Probably akka message call" +
-									" race.");
-						}
+			Future<Acknowledge> cancelResultFuture = FutureUtils.retry(
+				new Callable<Future<Acknowledge>>() {
+					@Override
+					public Future<Acknowledge> call() throws Exception {
+						return taskManagerGateway.cancelTask(attemptId, timeout);
 					}
+				},
+				NUM_CANCEL_CALL_TRIES,
+				executor);
+
+			cancelResultFuture.exceptionallyAsync(new ApplyFunction<Throwable, Void>() {
+				@Override
+				public Void apply(Throwable failure) {
+					fail(new Exception("Task could not be canceled.", failure));
+					return null;
 				}
-			}, AkkaUtils.globalExecutionContext());
+			}, executor);
 		}
 	}
 
-	private void sendFailIntermediateResultPartitionsRPCCall() {
-		final SimpleSlot slot = this.assignedResource;
+	private void sendFailIntermediateResultPartitionsRpcCall() {
+		final SimpleSlot slot = assignedResource;
 
 		if (slot != null) {
-			final Instance instance = slot.getInstance();
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
 
-			if (instance.isAlive()) {
-				try {
-					// TODO For some tests this could be a problem when querying too early if all resources were released
-					instance.getTaskManager().tell(new FailIntermediateResultPartitions(attemptId), ActorRef.noSender());
-				} catch (Throwable t) {
-					fail(new Exception("Intermediate result partition could not be failed.", t));
-				}
-			}
+			// TODO For some tests this could be a problem when querying too early if all resources were released
+			taskManagerGateway.failPartition(attemptId);
 		}
 	}
 
-	private void sendUpdateTaskRpcCall(final SimpleSlot consumerSlot,
-										final UpdatePartitionInfo updateTaskMsg) {
+	/**
+	 * Update the partition infos on the assigned resource.
+	 *
+	 * @param partitionInfos for the remote task
+	 */
+	private void sendUpdatePartitionInfoRpcCall(
+			final Iterable<PartitionInfo> partitionInfos) {
 
-		if (consumerSlot != null) {
-			final Instance instance = consumerSlot.getInstance();
+		final SimpleSlot slot = assignedResource;
 
-			Future<Object> futureUpdate = Patterns.ask(instance.getTaskManager(), updateTaskMsg,
-					new Timeout(timeout));
+		if (slot != null) {
+			final TaskManagerGateway taskManagerGateway = slot.getTaskManagerGateway();
+			final TaskManagerLocation taskManagerLocation = slot.getTaskManagerLocation();
 
-			futureUpdate.onFailure(new OnFailure() {
+			Future<Acknowledge> updatePartitionsResultFuture = taskManagerGateway.updatePartitions(attemptId, partitionInfos, timeout);
+
+			updatePartitionsResultFuture.exceptionallyAsync(new ApplyFunction<Throwable, Void>() {
 				@Override
-				public void onFailure(Throwable failure) throws Throwable {
-					fail(new IllegalStateException("Update task on instance " + instance +
-							" failed due to:", failure));
+				public Void apply(Throwable failure) {
+					fail(new IllegalStateException("Update task on TaskManager " + taskManagerLocation +
+						" failed due to:", failure));
+					return null;
 				}
-			}, AkkaUtils.globalExecutionContext());
+			}, executor);
 		}
 	}
 
@@ -873,12 +1013,18 @@ public class Execution implements Serializable {
 	}
 
 	private boolean transitionState(ExecutionState currentState, ExecutionState targetState, Throwable error) {
+		// sanity check
+		if (currentState.isTerminal()) {
+			throw new IllegalStateException("Cannot leave terminal state " + currentState + " to transition to " + targetState + '.');
+		}
+
 		if (STATE_UPDATER.compareAndSet(this, currentState, targetState)) {
 			markTimestamp(targetState);
 
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("{} ({}) switched from {} to {}.",
-						getVertex().getTaskNameWithSubtaskIndex(), getAttemptId(), currentState, targetState);
+			if (error == null) {
+				LOG.info("{} ({}) switched from {} to {}.", getVertex().getTaskNameWithSubtaskIndex(), getAttemptId(), currentState, targetState);
+			} else {
+				LOG.info("{} ({}) switched from {} to {}.", getVertex().getTaskNameWithSubtaskIndex(), getAttemptId(), currentState, targetState, error);
 			}
 
 			// make sure that the state transition completes normally.
@@ -907,17 +1053,53 @@ public class Execution implements Serializable {
 		return vertex.getSimpleName() + " - execution #" + attemptNumber;
 	}
 
+	// ------------------------------------------------------------------------
+	//  Accumulators
+	// ------------------------------------------------------------------------
+	
+	/**
+	 * Update accumulators (discarded when the Execution has already been terminated).
+	 * @param userAccumulators the user accumulators
+	 */
+	public void setAccumulators(Map<String, Accumulator<?, ?>> userAccumulators) {
+		synchronized (accumulatorLock) {
+			if (!state.isTerminal()) {
+				this.userAccumulators = userAccumulators;
+			}
+		}
+	}
+	
+	public Map<String, Accumulator<?, ?>> getUserAccumulators() {
+		return userAccumulators;
+	}
+
+	@Override
+	public StringifiedAccumulatorResult[] getUserAccumulatorsStringified() {
+		return StringifiedAccumulatorResult.stringifyAccumulatorResults(userAccumulators);
+	}
+
+	@Override
+	public int getParallelSubtaskIndex() {
+		return getVertex().getParallelSubtaskIndex();
+	}
+		
+	@Override
+	public IOMetrics getIOMetrics() {
+		return ioMetrics;
+	}
+
+	// ------------------------------------------------------------------------
+	//  Standard utilities
+	// ------------------------------------------------------------------------
+	
 	@Override
 	public String toString() {
 		return String.format("Attempt #%d (%s) @ %s - [%s]", attemptNumber, vertex.getSimpleName(),
 				(assignedResource == null ? "(unassigned)" : assignedResource.toString()), state);
 	}
 
-	public void setOperatorState(StateHandle operatorStates) {
-		this.operatorState = operatorStates;
-	}
-
-	public StateHandle getOperatorState() {
-		return operatorState;
+	@Override
+	public ArchivedExecution archive() {
+		return new ArchivedExecution(this);
 	}
 }

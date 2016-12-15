@@ -18,134 +18,58 @@
 
 package org.apache.flink.runtime.testingUtils
 
-import akka.actor.{Terminated, ActorRef}
-import org.apache.flink.api.common.JobID
-import org.apache.flink.runtime.executiongraph.ExecutionAttemptID
-import org.apache.flink.runtime.instance.InstanceConnectionInfo
+import org.apache.flink.runtime.clusterframework.types.ResourceID
 import org.apache.flink.runtime.io.disk.iomanager.IOManager
 import org.apache.flink.runtime.io.network.NetworkEnvironment
-import org.apache.flink.runtime.memorymanager.DefaultMemoryManager
-import org.apache.flink.runtime.messages.Messages.Disconnect
-import org.apache.flink.runtime.messages.TaskMessages.UnregisterTask
-import org.apache.flink.runtime.taskmanager.{TaskManagerConfiguration, TaskManager}
-import org.apache.flink.runtime.testingUtils.TestingJobManagerMessages.NotifyWhenJobRemoved
-import org.apache.flink.runtime.testingUtils.TestingMessages.DisableDisconnect
-import org.apache.flink.runtime.testingUtils.TestingTaskManagerMessages._
+import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService
+import org.apache.flink.runtime.memory.MemoryManager
+import org.apache.flink.runtime.metrics.MetricRegistry
+import org.apache.flink.runtime.taskmanager.{TaskManagerLocation, TaskManager, TaskManagerConfiguration}
 
-import scala.concurrent.duration._
 import scala.language.postfixOps
 
-/**
- * Subclass of the [[TaskManager]] to support testing messages
+/** Subclass of the [[TaskManager]] to support testing messages
  */
-class TestingTaskManager(config: TaskManagerConfiguration,
-                         connectionInfo: InstanceConnectionInfo,
-                         jobManagerAkkaURL: String,
-                         memoryManager: DefaultMemoryManager,
-                         ioManager: IOManager,
-                         network: NetworkEnvironment,
-                         numberOfSlots: Int)
-  extends TaskManager(config, connectionInfo, jobManagerAkkaURL,
-                      memoryManager, ioManager, network, numberOfSlots) {
+class TestingTaskManager(
+                          config: TaskManagerConfiguration,
+                          resourceID: ResourceID,
+                          connectionInfo: TaskManagerLocation,
+                          memoryManager: MemoryManager,
+                          ioManager: IOManager,
+                          network: NetworkEnvironment,
+                          numberOfSlots: Int,
+                          leaderRetrievalService: LeaderRetrievalService,
+                          metricRegistry : MetricRegistry)
+  extends TaskManager(
+    config,
+    resourceID,
+    connectionInfo,
+    memoryManager,
+    ioManager,
+    network,
+    numberOfSlots,
+    leaderRetrievalService,
+    metricRegistry)
+  with TestingTaskManagerLike {
 
-
-  val waitForRemoval = scala.collection.mutable.HashMap[ExecutionAttemptID, Set[ActorRef]]()
-  val waitForJobRemoval = scala.collection.mutable.HashMap[JobID, Set[ActorRef]]()
-  val waitForJobManagerToBeTerminated = scala.collection.mutable.HashMap[String, Set[ActorRef]]()
-
-  var disconnectDisabled = false
-
-
-  override def receiveWithLogMessages = {
-    receiveTestMessages orElse super.receiveWithLogMessages
-  }
-
-  /**
-   * Handler for testing related messages
-   */
-  def receiveTestMessages: Receive = {
-
-    case RequestRunningTasks =>
-      sender ! ResponseRunningTasks(runningTasks.toMap)
-      
-    case NotifyWhenTaskRemoved(executionID) =>
-      runningTasks.get(executionID) match {
-        case Some(_) =>
-          val set = waitForRemoval.getOrElse(executionID, Set())
-          waitForRemoval += (executionID -> (set + sender))
-        case None => sender ! true
-      }
-      
-    case UnregisterTask(executionID) =>
-      super.receiveWithLogMessages(UnregisterTask(executionID))
-      waitForRemoval.remove(executionID) match {
-        case Some(actors) => for(actor <- actors) actor ! true
-        case None =>
-      }
-      
-    case RequestBroadcastVariablesWithReferences =>
-      sender ! ResponseBroadcastVariablesWithReferences(
-        bcVarManager.getNumberOfVariablesWithReferences)
-
-    case RequestNumActiveConnections =>
-      val numActive = if (network.isAssociated) {
-                        network.getConnectionManager.getNumberOfActiveConnections
-                      } else {
-                        0
-                      }
-      sender ! ResponseNumActiveConnections(numActive)
-
-    case NotifyWhenJobRemoved(jobID) =>
-      if(runningTasks.values.exists(_.getJobID == jobID)){
-        val set = waitForJobRemoval.getOrElse(jobID, Set())
-        waitForJobRemoval += (jobID -> (set + sender))
-        import context.dispatcher
-        context.system.scheduler.scheduleOnce(200 milliseconds, this.self, CheckIfJobRemoved(jobID))
-      }else{
-        waitForJobRemoval.get(jobID) match {
-          case Some(listeners) => (listeners + sender) foreach (_ ! true)
-          case None => sender ! true
-        }
-      }
-
-    case CheckIfJobRemoved(jobID) =>
-      if(runningTasks.values.forall(_.getJobID != jobID)){
-        waitForJobRemoval.remove(jobID) match {
-          case Some(listeners) => listeners foreach (_ ! true)
-          case None =>
-        }
-      } else {
-        import context.dispatcher
-        context.system.scheduler.scheduleOnce(200 milliseconds, this.self, CheckIfJobRemoved(jobID))
-      }
-
-    case NotifyWhenJobManagerTerminated(jobManager) =>
-      val waiting = waitForJobManagerToBeTerminated.getOrElse(jobManager.path.name, Set())
-      waitForJobManagerToBeTerminated += jobManager.path.name -> (waiting + sender)
-
-    case msg@Terminated(jobManager) =>
-      super.receiveWithLogMessages(msg)
-
-      waitForJobManagerToBeTerminated.remove(jobManager.path.name) foreach {
-        _ foreach {
-          _ ! JobManagerTerminated(jobManager)
-        }
-      }
-
-    case msg:Disconnect =>
-      if (!disconnectDisabled) {
-        super.receiveWithLogMessages(msg)
-
-        val jobManager = sender()
-
-        waitForJobManagerToBeTerminated.remove(jobManager.path.name) foreach {
-          _ foreach {
-            _ ! JobManagerTerminated(jobManager)
-          }
-        }
-      }
-
-    case DisableDisconnect =>
-      disconnectDisabled = true
+  def this(
+            config: TaskManagerConfiguration,
+            connectionInfo: TaskManagerLocation,
+            memoryManager: MemoryManager,
+            ioManager: IOManager,
+            network: NetworkEnvironment,
+            numberOfSlots: Int,
+            leaderRetrievalService: LeaderRetrievalService,
+            metricRegistry : MetricRegistry) {
+    this(
+      config,
+      ResourceID.generate(),
+      connectionInfo,
+      memoryManager,
+      ioManager,
+      network,
+      numberOfSlots,
+      leaderRetrievalService,
+      metricRegistry)
   }
 }

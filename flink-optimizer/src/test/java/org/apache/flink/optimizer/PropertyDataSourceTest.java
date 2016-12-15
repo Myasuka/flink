@@ -18,12 +18,13 @@
 
 package org.apache.flink.optimizer;
 
+import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.common.operators.Order;
 import org.apache.flink.api.common.operators.util.FieldSet;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.operators.DataSource;
-import org.apache.flink.api.java.operators.translation.JavaPlan;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
@@ -64,9 +65,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy(0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long,String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -97,9 +98,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy(1, 0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long,String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -129,9 +130,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy("*");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long,SomePojo,String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -161,9 +162,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy("f1");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long,SomePojo,String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -193,9 +194,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy("f1.stringField");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -225,9 +226,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy("f1.intField; f2");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -258,9 +259,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data.getSplitDataProperties()
 				.splitsPartitionedBy("byDate", 1, 0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -293,9 +294,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(0)
 				.splitsGroupedBy(0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -327,9 +328,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(0)
 				.splitsGroupedBy(1, 0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -362,9 +363,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(1)
 				.splitsGroupedBy(0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -396,9 +397,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(0, 1)
 				.splitsGroupedBy(0);
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -429,9 +430,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f2")
 				.splitsGroupedBy("f2");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -463,9 +464,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f1.intField")
 				.splitsGroupedBy("f0; f1.intField");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -497,9 +498,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f1.intField")
 				.splitsGroupedBy("f1");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -530,9 +531,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f1")
 				.splitsGroupedBy("f1.stringField");
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -565,9 +566,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(1)
 				.splitsOrderedBy(new int[]{1}, new Order[]{Order.ASCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -599,9 +600,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(1)
 				.splitsOrderedBy(new int[]{1, 0}, new Order[]{Order.ASCENDING, Order.DESCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -634,9 +635,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(0)
 				.splitsOrderedBy(new int[]{1}, new Order[]{Order.ASCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -668,9 +669,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy(0, 1)
 				.splitsOrderedBy(new int[]{1}, new Order[]{Order.DESCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -701,9 +702,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 			.splitsPartitionedBy("f1.intField")
 			.splitsOrderedBy("f0; f1.intField", new Order[]{Order.ASCENDING, Order.DESCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -735,9 +736,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f1.intField")
 				.splitsOrderedBy("f1", new Order[]{Order.DESCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -768,9 +769,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 				.splitsPartitionedBy("f1")
 				.splitsOrderedBy("f1.stringField", new Order[]{Order.ASCENDING});
 
-		data.print();
+		data.output(new DiscardingOutputFormat<Tuple3<Long, SomePojo, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -808,9 +809,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data2.getSplitDataProperties()
 				.splitsPartitionedBy("byDate", 0);
 
-		data1.union(data2).print();
+		data1.union(data2).output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);
@@ -856,9 +857,9 @@ public class PropertyDataSourceTest extends CompilerTestBase {
 		data2.getSplitDataProperties()
 				.splitsPartitionedBy("byDate", 0);
 
-		data1.union(data2).print();
+		data1.union(data2).output(new DiscardingOutputFormat<Tuple2<Long, String>>());
 
-		JavaPlan plan = env.createProgramPlan();
+		Plan plan = env.createProgramPlan();
 
 		// submit the plan to the compiler
 		OptimizedPlan oPlan = compileNoStats(plan);

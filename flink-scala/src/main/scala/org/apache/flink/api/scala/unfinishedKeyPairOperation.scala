@@ -18,11 +18,12 @@
 
 package org.apache.flink.api.scala
 
+import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.InvalidProgramException
+import org.apache.flink.api.common.operators.Keys
 
 import org.apache.flink.api.java.functions.KeySelector
-import org.apache.flink.api.java.operators.Keys
-import org.apache.flink.api.java.operators.Keys.ExpressionKeys
+import Keys.ExpressionKeys
 import org.apache.flink.api.common.typeinfo.TypeInformation
 
 /**
@@ -41,6 +42,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation
  * @tparam R Type of the right input [[DataSet]].
  * @tparam O The type of the resulting Operation.
  */
+@Internal
 private[flink] abstract class UnfinishedKeyPairOperation[L, R, O](
     private[flink] val leftInput: DataSet[L],
     private[flink] val rightInput: DataSet[R]) {
@@ -65,8 +67,6 @@ private[flink] abstract class UnfinishedKeyPairOperation[L, R, O](
    * a [[HalfUnfinishedKeyPairOperation]] on which `equalTo` must be called to specify the
    * key for the right side. The result after specifying the right side key is the finished
    * operation.
-   *
-   * This only works on a CaseClass [[DataSet]].
    */
   def where(firstLeftField: String, otherLeftFields: String*) = {
     val leftKey = new ExpressionKeys[L](
@@ -92,6 +92,7 @@ private[flink] abstract class UnfinishedKeyPairOperation[L, R, O](
   }
 }
 
+@Internal
 private[flink] class HalfUnfinishedKeyPairOperation[L, R, O](
     unfinished: UnfinishedKeyPairOperation[L, R, O], leftKey: Keys[L]) {
 
@@ -113,8 +114,6 @@ private[flink] class HalfUnfinishedKeyPairOperation[L, R, O](
   /**
    * Specify the key fields for the right side of the key based operation. This returns
    * the finished operation.
-   *
-   * This only works on a CaseClass [[DataSet]].
    */
   def equalTo(firstRightField: String, otherRightFields: String*): O = {
     val rightKey = new ExpressionKeys[R](
@@ -125,7 +124,6 @@ private[flink] class HalfUnfinishedKeyPairOperation[L, R, O](
         leftKey + " Right: " + rightKey)
     }
     unfinished.finish(leftKey, rightKey)
-
   }
 
   /**

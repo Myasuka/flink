@@ -22,8 +22,8 @@ import org.apache.flink.core.memory.MemorySegment;
 
 import java.nio.ByteBuffer;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * Wrapper for pooled {@link MemorySegment} instances.
@@ -84,9 +84,8 @@ public class Buffer {
 	public ByteBuffer getNioBuffer() {
 		synchronized (recycleLock) {
 			ensureNotRecycled();
-
-			// we need to return a copy here to guarantee thread-safety
-			return memorySegment.wrap(0, currentSize).duplicate();
+			// the memory segment returns a distinct buffer every time
+			return memorySegment.wrap(0, currentSize);
 		}
 	}
 	

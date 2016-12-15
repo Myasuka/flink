@@ -20,6 +20,7 @@ package org.apache.flink.api.scala.operators.translation
 import org.apache.flink.api.common.functions.{RichCoGroupFunction, RichMapFunction,
 RichJoinFunction}
 import org.apache.flink.api.common.operators.GenericDataSinkBase
+import org.apache.flink.api.java.io.DiscardingOutputFormat
 import org.apache.flink.api.java.operators.translation.WrappingFunction
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -27,7 +28,7 @@ import org.junit.Assert.fail
 import org.apache.flink.api.common.{InvalidProgramException, Plan}
 import org.apache.flink.api.common.aggregators.LongSumAggregator
 import org.apache.flink.api.common.operators.base.DeltaIterationBase
-import org.apache.flink.api.common.operators.base.JoinOperatorBase
+import org.apache.flink.api.common.operators.base.InnerJoinOperatorBase
 import org.apache.flink.api.common.operators.base.MapOperatorBase
 import org.junit.Test
 
@@ -51,6 +52,7 @@ class DeltaIterationTranslationTest {
 
       val env = ExecutionEnvironment.getExecutionEnvironment
       env.setParallelism(DEFAULT_PARALLELISM)
+      env.getConfig.setMaxParallelism(DEFAULT_PARALLELISM);
 
       val initialSolutionSet = env.fromElements((3.44, 5L, "abc"))
       val initialWorkSet = env.fromElements((1.23, "abc"))
@@ -67,7 +69,7 @@ class DeltaIterationTranslationTest {
         .setParallelism(ITERATION_PARALLELISM)
         .registerAggregator(AGGREGATOR_NAME, new LongSumAggregator)
 
-      result.print()
+      result.output(new DiscardingOutputFormat[(Double, Long, String)])
       result.writeAsText("/dev/null")
 
       val p: Plan = env.createProgramPlan(JOB_NAME)
@@ -90,10 +92,10 @@ class DeltaIterationTranslationTest {
 
       val nextWorksetMapper: MapOperatorBase[_, _, _] =
         iteration.getNextWorkset.asInstanceOf[MapOperatorBase[_, _, _]]
-      val solutionSetJoin: JoinOperatorBase[_, _, _, _] =
-        iteration.getSolutionSetDelta.asInstanceOf[JoinOperatorBase[_, _, _, _]]
-      val worksetSelfJoin: JoinOperatorBase[_, _, _, _] =
-        solutionSetJoin.getFirstInput.asInstanceOf[JoinOperatorBase[_, _, _, _]]
+      val solutionSetJoin: InnerJoinOperatorBase[_, _, _, _] =
+        iteration.getSolutionSetDelta.asInstanceOf[InnerJoinOperatorBase[_, _, _, _]]
+      val worksetSelfJoin: InnerJoinOperatorBase[_, _, _, _] =
+        solutionSetJoin.getFirstInput.asInstanceOf[InnerJoinOperatorBase[_, _, _, _]]
       val worksetMapper: MapOperatorBase[_, _, _] =
         worksetSelfJoin.getFirstInput.asInstanceOf[MapOperatorBase[_, _, _]]
 

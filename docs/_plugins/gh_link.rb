@@ -17,8 +17,6 @@
 
 # ---------------------------------------------------------
 # Expands a github link shortcut into a proper markdown link
-#
-# Written by Ufuk Celebi
 # ---------------------------------------------------------
 
 module Jekyll
@@ -46,7 +44,7 @@ module Jekyll
       name = name.to_s == '' ? file : name
       #refname = input[2].nil? ? file : input[2]
 
-      "[#{name}](#{config["FLINK_GITHUB_URL"]}/blob/#{gh_tag}/#{path})"
+      "[#{name}](#{config["github_url"]}/blob/#{gh_tag}/#{path})"
     end
   end
 end

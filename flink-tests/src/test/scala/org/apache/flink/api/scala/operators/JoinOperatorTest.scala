@@ -17,14 +17,14 @@
  */
 package org.apache.flink.api.scala.operators
 
-import org.apache.flink.api.java.operators.Keys.IncompatibleKeysException
-import org.apache.flink.api.scala.util.CollectionDataSets.CustomType
-import org.junit.Assert
-import org.apache.flink.api.common.InvalidProgramException
-import org.junit.Ignore
-import org.junit.Test
+import java.util
 
+import org.apache.flink.api.common.InvalidProgramException
+import org.apache.flink.api.common.operators.Keys
+import Keys.IncompatibleKeysException
 import org.apache.flink.api.scala._
+import org.apache.flink.api.scala.util.CollectionDataSets.CustomType
+import org.junit.{Assert, Test}
 
 class JoinOperatorTest {
 
@@ -67,7 +67,7 @@ class JoinOperatorTest {
     ds1.join(ds2).where(0, 1).equalTo(2)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[IndexOutOfBoundsException])
   def testJoinKeyIndices4(): Unit = {
     val env = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
@@ -77,7 +77,7 @@ class JoinOperatorTest {
     ds1.join(ds2).where(5).equalTo(0)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[IndexOutOfBoundsException])
   def testJoinKeyIndices5(): Unit = {
     val env = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
@@ -87,14 +87,14 @@ class JoinOperatorTest {
     ds1.join(ds2).where(-1).equalTo(-1)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[InvalidProgramException])
   def testJoinKeyIndices6(): Unit = {
     val env = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
     val ds2 = env.fromCollection(customTypeData)
 
     // should not work, key index on custom type
-    ds1.join(ds2).where(5).equalTo(0)
+    ds1.join(ds2).where(4).equalTo(0)
   }
 
   @Test
@@ -271,6 +271,69 @@ class JoinOperatorTest {
 
     // should not work, more than one field position key
     ds1.join(ds2).where(1, 3) equalTo { _.myLong }
+  }
+
+  @Test
+  def testJoinWithAtomic(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyTupleData)
+    val ds2 = env.fromCollection(emptyLongData)
+
+    ds1.join(ds2).where(1).equalTo("*")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic1(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyTupleData)
+    val ds2 = env.fromCollection(emptyLongData)
+
+    ds1.join(ds2).where(1).equalTo("invalidKey")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic2(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyLongData)
+    val ds2 = env.fromCollection(emptyTupleData)
+
+    ds1.join(ds2).where("invalidKey").equalTo(1)
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic3(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyTupleData)
+    val ds2 = env.fromCollection(emptyLongData)
+
+    ds1.join(ds2).where(1).equalTo("_", "invalidKey")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic4(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyLongData)
+    val ds2 = env.fromCollection(emptyTupleData)
+
+    ds1.join(ds2).where("_", "invalidKey").equalTo(1)
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic5(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromElements(new util.ArrayList[Integer]())
+    val ds2 = env.fromCollection(emptyLongData)
+
+    ds1.join(ds2).where("*")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testJoinWithInvalidAtomic6(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyLongData)
+    val ds2 = env.fromElements(new util.ArrayList[Integer]())
+
+    ds1.join(ds2).where("*").equalTo("*")
   }
 }
 

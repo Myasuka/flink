@@ -21,7 +21,7 @@ package org.apache.flink.runtime.execution.librarycache;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.net.URLClassLoader;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,16 +37,16 @@ import org.apache.flink.runtime.blob.BlobService;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.util.ExceptionUtils;
+import org.apache.flink.util.Preconditions;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Preconditions;
 
 /**
  * For each job graph that is submitted to the system the library cache manager maintains
  * a set of libraries (typically JAR files) which the job requires to run. The library cache manager
  * caches library files in order to avoid unnecessary retransmission of data. It is based on a singleton
- * programming pattern, so there exists at most on library manager at a time.
+ * programming pattern, so there exists at most one library manager at a time.
  */
 public final class BlobLibraryCacheManager extends TimerTask implements LibraryCacheManager {
 
@@ -68,39 +68,46 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 	/** The blob service to download libraries */
 	private final BlobService blobService;
 	
+	private final Timer cleanupTimer;
+	
 	// --------------------------------------------------------------------------------------------
 
 	public BlobLibraryCacheManager(BlobService blobService, long cleanupInterval) {
 		this.blobService = blobService;
 
 		// Initializing the clean up task
-		Timer timer = new Timer(true);
-		timer.schedule(this, cleanupInterval);
+		this.cleanupTimer = new Timer(true);
+		this.cleanupTimer.schedule(this, cleanupInterval, cleanupInterval);
 	}
 
 	// --------------------------------------------------------------------------------------------
 	
 	@Override
-	public void registerJob(JobID id, Collection<BlobKey> requiredJarFiles) throws IOException {
-		registerTask(id, JOB_ATTEMPT_ID, requiredJarFiles);
+	public void registerJob(JobID id, Collection<BlobKey> requiredJarFiles, Collection<URL> requiredClasspaths)
+			throws IOException {
+		registerTask(id, JOB_ATTEMPT_ID, requiredJarFiles, requiredClasspaths);
 	}
 	
 	@Override
-	public void registerTask(JobID jobId, ExecutionAttemptID task, Collection<BlobKey> requiredJarFiles) throws IOException {
+	public void registerTask(JobID jobId, ExecutionAttemptID task, Collection<BlobKey> requiredJarFiles,
+			Collection<URL> requiredClasspaths) throws IOException {
 		Preconditions.checkNotNull(jobId, "The JobId must not be null.");
 		Preconditions.checkNotNull(task, "The task execution id must not be null.");
-		
+
 		if (requiredJarFiles == null) {
 			requiredJarFiles = Collections.emptySet();
 		}
-		
+		if (requiredClasspaths == null) {
+			requiredClasspaths = Collections.emptySet();
+		}
+
 		synchronized (lockObject) {
 			LibraryCacheEntry entry = cacheEntries.get(jobId);
-			
+
 			if (entry == null) {
 				// create a new entry in the library cache
 				BlobKey[] keys = requiredJarFiles.toArray(new BlobKey[requiredJarFiles.size()]);
-				URL[] urls = new URL[keys.length];
+				URL[] urls = new URL[keys.length + requiredClasspaths.size()];
 
 				int count = 0;
 				try {
@@ -124,9 +131,14 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 					ExceptionUtils.tryRethrowIOException(t);
 					throw new IOException("Library cache could not register the user code libraries.", t);
 				}
-				
-				URLClassLoader classLoader = new FlinkUserCodeClassLoader(urls);
-				cacheEntries.put(jobId, new LibraryCacheEntry(requiredJarFiles, classLoader, task));
+
+				// add classpaths
+				for (URL url : requiredClasspaths) {
+					urls[count] = url;
+					count++;
+				}
+
+				cacheEntries.put(jobId, new LibraryCacheEntry(requiredJarFiles, urls, task));
 			}
 			else {
 				entry.register(task, requiredJarFiles);
@@ -143,14 +155,16 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 	public void unregisterTask(JobID jobId, ExecutionAttemptID task) {
 		Preconditions.checkNotNull(jobId, "The JobId must not be null.");
 		Preconditions.checkNotNull(task, "The task execution id must not be null.");
-		
+
 		synchronized (lockObject) {
 			LibraryCacheEntry entry = cacheEntries.get(jobId);
-			
+
 			if (entry != null) {
 				if (entry.unregister(task)) {
 					cacheEntries.remove(jobId);
-					
+
+					entry.releaseClassLoader();
+
 					for (BlobKey key : entry.getLibraries()) {
 						unregisterReferenceToBlobKey(key);
 					}
@@ -187,7 +201,14 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 
 	@Override
 	public void shutdown() throws IOException{
+		try {
+			run();
+		} catch (Throwable t) {
+			LOG.warn("Failed to run clean up task before shutdown", t);
+		}
+
 		blobService.shutdown();
+		cleanupTimer.cancel();
 	}
 	
 	/**
@@ -196,7 +217,6 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 	@Override
 	public void run() {
 		synchronized (lockObject) {
-			
 			Iterator<Map.Entry<BlobKey, Integer>> entryIter = blobKeyReferenceCounters.entrySet().iterator();
 			
 			while (entryIter.hasNext()) {
@@ -267,17 +287,17 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 	 */
 	private static class LibraryCacheEntry {
 		
-		private final ClassLoader classLoader;
+		private final FlinkUserCodeClassLoader classLoader;
 		
 		private final Set<ExecutionAttemptID> referenceHolders;
 		
 		private final Set<BlobKey> libraries;
 		
 		
-		public LibraryCacheEntry(Collection<BlobKey> libraries, ClassLoader classLoader, ExecutionAttemptID initialReference) {
-			this.classLoader = classLoader;
-			this.libraries = new HashSet<BlobKey>(libraries);
-			this.referenceHolders = new HashSet<ExecutionAttemptID>();
+		public LibraryCacheEntry(Collection<BlobKey> libraries, URL[] libraryURLs, ExecutionAttemptID initialReference) {
+			this.classLoader = new FlinkUserCodeClassLoader(libraryURLs);
+			this.libraries = new HashSet<>(libraries);
+			this.referenceHolders = new HashSet<>();
 			this.referenceHolders.add(initialReference);
 		}
 		
@@ -307,15 +327,18 @@ public final class BlobLibraryCacheManager extends TimerTask implements LibraryC
 		public int getNumberOfReferenceHolders() {
 			return referenceHolders.size();
 		}
-	}
 
-	/**
-	 * Give the URLClassLoader a nicer name for debugging purposes.
-	 */
-	private static class FlinkUserCodeClassLoader extends URLClassLoader {
-
-		public FlinkUserCodeClassLoader(URL[] urls) {
-			super(urls);
+		/**
+		 * Release the class loader to ensure any file descriptors are closed
+		 * and the cached libraries are deleted immediately.
+		 */
+		void releaseClassLoader() {
+			try {
+				classLoader.close();
+			} catch (IOException e) {
+				LOG.warn("Failed to release user code class loader for " + Arrays.toString(libraries.toArray()));
+			}
 		}
 	}
+
 }

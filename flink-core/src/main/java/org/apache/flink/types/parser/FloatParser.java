@@ -19,38 +19,39 @@
 
 package org.apache.flink.types.parser;
 
+import org.apache.flink.annotation.PublicEvolving;
+
 /**
  * Parses a text field into a {@link Float}.
  */
+@PublicEvolving
 public class FloatParser extends FieldParser<Float> {
-	
+
 	private float result;
 	
 	@Override
 	public int parseField(byte[] bytes, int startPos, int limit, byte[] delimiter, Float reusable) {
-		
-		int i = startPos;
-
-		final int delimLimit = limit-delimiter.length+1;
-
-		while (i < limit) {
-			if (i < delimLimit && delimiterNext(bytes, i, delimiter)) {
-				break;
-			}
-			i++;
+		final int endPos = nextStringEndPos(bytes, startPos, limit, delimiter);
+		if (endPos < 0) {
+			return -1;
 		}
-		
-		String str = new String(bytes, startPos, i-startPos);
+
+		if (endPos > startPos &&
+				(Character.isWhitespace(bytes[startPos]) || Character.isWhitespace(bytes[endPos - 1]))) {
+			setErrorState(ParseErrorState.NUMERIC_VALUE_ILLEGAL_CHARACTER);
+			return -1;
+		}
+
+		String str = new String(bytes, startPos, endPos - startPos);
 		try {
 			this.result = Float.parseFloat(str);
-			return (i == limit) ? limit : i+ delimiter.length;
-		}
-		catch (NumberFormatException e) {
+			return (endPos == limit) ? limit : endPos + delimiter.length;
+		} catch (NumberFormatException e) {
 			setErrorState(ParseErrorState.NUMERIC_VALUE_FORMAT_ERROR);
 			return -1;
 		}
 	}
-	
+
 	@Override
 	public Float createValue() {
 		return Float.MIN_VALUE;
@@ -60,48 +61,45 @@ public class FloatParser extends FieldParser<Float> {
 	public Float getLastResult() {
 		return Float.valueOf(this.result);
 	}
-	
+
 	/**
-	 * Static utility to parse a field of type float from a byte sequence that represents text characters
+	 * Static utility to parse a field of type float from a byte sequence that represents text 
+	 * characters
 	 * (such as when read from a file stream).
-	 * 
-	 * @param bytes The bytes containing the text data that should be parsed.
+	 *
+	 * @param bytes    The bytes containing the text data that should be parsed.
 	 * @param startPos The offset to start the parsing.
-	 * @param length The length of the byte sequence (counting from the offset).
-	 * 
+	 * @param length   The length of the byte sequence (counting from the offset).
 	 * @return The parsed value.
-	 * 
-	 * @throws NumberFormatException Thrown when the value cannot be parsed because the text represents not a correct number.
+	 * @throws IllegalArgumentException Thrown when the value cannot be parsed because the text
+	 * represents not a correct number.
 	 */
 	public static final float parseField(byte[] bytes, int startPos, int length) {
 		return parseField(bytes, startPos, length, (char) 0xffff);
 	}
-	
+
 	/**
-	 * Static utility to parse a field of type float from a byte sequence that represents text characters
+	 * Static utility to parse a field of type float from a byte sequence that represents text 
+	 * characters
 	 * (such as when read from a file stream).
-	 * 
-	 * @param bytes The bytes containing the text data that should be parsed.
-	 * @param startPos The offset to start the parsing.
-	 * @param length The length of the byte sequence (counting from the offset).
+	 *
+	 * @param bytes     The bytes containing the text data that should be parsed.
+	 * @param startPos  The offset to start the parsing.
+	 * @param length    The length of the byte sequence (counting from the offset).
 	 * @param delimiter The delimiter that terminates the field.
-	 * 
 	 * @return The parsed value.
-	 * 
-	 * @throws NumberFormatException Thrown when the value cannot be parsed because the text represents not a correct number.
+	 * @throws IllegalArgumentException Thrown when the value cannot be parsed because the text
+	 * represents not a correct number.
 	 */
 	public static final float parseField(byte[] bytes, int startPos, int length, char delimiter) {
-		if (length <= 0) {
-			throw new NumberFormatException("Invalid input: Empty string");
+		final int limitedLen = nextStringLength(bytes, startPos, length, delimiter);
+
+		if (limitedLen > 0 &&
+				(Character.isWhitespace(bytes[startPos]) || Character.isWhitespace(bytes[startPos + limitedLen - 1]))) {
+			throw new NumberFormatException("There is leading or trailing whitespace in the numeric field.");
 		}
-		int i = 0;
-		final byte delByte = (byte) delimiter;
-		
-		while (i < length && bytes[i] != delByte) {
-			i++;
-		}
-		
-		String str = new String(bytes, startPos, i);
+
+		final String str = new String(bytes, startPos, limitedLen);
 		return Float.parseFloat(str);
 	}
 }

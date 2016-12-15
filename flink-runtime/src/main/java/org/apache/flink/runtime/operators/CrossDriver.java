@@ -20,11 +20,14 @@
 package org.apache.flink.runtime.operators;
 
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.operators.util.metrics.CountingCollector;
+import org.apache.flink.runtime.operators.util.metrics.CountingMutableObjectIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.flink.api.common.functions.CrossFunction;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.runtime.memorymanager.MemoryManager;
+import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.operators.resettable.BlockResettableMutableObjectIterator;
 import org.apache.flink.runtime.operators.resettable.SpillingResettableMutableObjectIterator;
 import org.apache.flink.runtime.operators.util.TaskConfig;
@@ -41,12 +44,12 @@ import org.apache.flink.util.MutableObjectIterator;
  * 
  * @see org.apache.flink.api.common.functions.CrossFunction
  */
-public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2, OT>, OT> {
+public class CrossDriver<T1, T2, OT> implements Driver<CrossFunction<T1, T2, OT>, OT> {
 	
 	private static final Logger LOG = LoggerFactory.getLogger(CrossDriver.class);
 	
 	
-	private PactTaskContext<CrossFunction<T1, T2, OT>, OT> taskContext;
+	private TaskContext<CrossFunction<T1, T2, OT>, OT> taskContext;
 	
 	private MemoryManager memManager;
 	
@@ -70,7 +73,7 @@ public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2,
 
 
 	@Override
-	public void setup(PactTaskContext<CrossFunction<T1, T2, OT>, OT> context) {
+	public void setup(TaskContext<CrossFunction<T1, T2, OT>, OT> context) {
 		this.taskContext = context;
 		this.running = true;
 	}
@@ -194,26 +197,29 @@ public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2,
 			LOG.debug(this.taskContext.formatLogString("Running Cross with Block-Nested-Loops: " +
 					"First input is outer (blocking) side, second input is inner (spilling) side."));
 		}
-			
-		final MutableObjectIterator<T1> in1 = this.taskContext.getInput(0);
-		final MutableObjectIterator<T2> in2 = this.taskContext.getInput(1);
+
+		final Counter numRecordsIn = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
+
+		final MutableObjectIterator<T1> in1 = new CountingMutableObjectIterator<>(this.taskContext.<T1>getInput(0), numRecordsIn);
+		final MutableObjectIterator<T2> in2 = new CountingMutableObjectIterator<>(this.taskContext.<T2>getInput(1), numRecordsIn);
 		
 		final TypeSerializer<T1> serializer1 = this.taskContext.<T1>getInputSerializer(0).getSerializer();
 		final TypeSerializer<T2> serializer2 = this.taskContext.<T2>getInputSerializer(1).getSerializer();
 		
 		final BlockResettableMutableObjectIterator<T1> blockVals = 
 				new BlockResettableMutableObjectIterator<T1>(this.memManager, in1, serializer1, this.memPagesForBlockSide,
-							this.taskContext.getOwningNepheleTask());
+							this.taskContext.getContainingTask());
 		this.blockIter = blockVals;
 		
 		final SpillingResettableMutableObjectIterator<T2> spillVals = new SpillingResettableMutableObjectIterator<T2>(
 				in2, serializer2, this.memManager, this.taskContext.getIOManager(), this.memPagesForSpillingSide,
-				this.taskContext.getOwningNepheleTask());
+				this.taskContext.getContainingTask());
 		this.spillIter = spillVals;
 		
 
 		final CrossFunction<T1, T2, OT> crosser = this.taskContext.getStub();
-		final Collector<OT> collector = this.taskContext.getOutputCollector();
+		final Collector<OT> collector = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 
 		if (objectReuseEnabled) {
@@ -259,25 +265,28 @@ public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2,
 			LOG.debug(this.taskContext.formatLogString("Running Cross with Block-Nested-Loops: " +
 					"First input is inner (spilling) side, second input is outer (blocking) side."));
 		}
-		
-		final MutableObjectIterator<T1> in1 = this.taskContext.getInput(0);
-		final MutableObjectIterator<T2> in2 = this.taskContext.getInput(1);
+
+		final Counter numRecordsIn = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
+
+		final MutableObjectIterator<T1> in1 = new CountingMutableObjectIterator<>(this.taskContext.<T1>getInput(0), numRecordsIn);
+		final MutableObjectIterator<T2> in2 = new CountingMutableObjectIterator<>(this.taskContext.<T2>getInput(1), numRecordsIn);
 		
 		final TypeSerializer<T1> serializer1 = this.taskContext.<T1>getInputSerializer(0).getSerializer();
 		final TypeSerializer<T2> serializer2 = this.taskContext.<T2>getInputSerializer(1).getSerializer();
 		
 		final SpillingResettableMutableObjectIterator<T1> spillVals = new SpillingResettableMutableObjectIterator<T1>(
 				in1, serializer1, this.memManager, this.taskContext.getIOManager(), this.memPagesForSpillingSide,
-				this.taskContext.getOwningNepheleTask());
+				this.taskContext.getContainingTask());
 		this.spillIter = spillVals;
 		
 		final BlockResettableMutableObjectIterator<T2> blockVals = 
 				new BlockResettableMutableObjectIterator<T2>(this.memManager, in2, serializer2, this.memPagesForBlockSide,
-						this.taskContext.getOwningNepheleTask());
+						this.taskContext.getContainingTask());
 		this.blockIter = blockVals;
 		
 		final CrossFunction<T1, T2, OT> crosser = this.taskContext.getStub();
-		final Collector<OT> collector = this.taskContext.getOutputCollector();
+		final Collector<OT> collector = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 		if (objectReuseEnabled) {
 			final T1 val1Reuse = serializer1.createInstance();
@@ -322,20 +331,23 @@ public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2,
 			LOG.debug(this.taskContext.formatLogString("Running Cross with Nested-Loops: " +
 					"First input is outer side, second input is inner (spilling) side."));
 		}
-		
-		final MutableObjectIterator<T1> in1 = this.taskContext.getInput(0);
-		final MutableObjectIterator<T2> in2 = this.taskContext.getInput(1);
+
+		final Counter numRecordsIn = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
+
+		final MutableObjectIterator<T1> in1 = new CountingMutableObjectIterator<>(this.taskContext.<T1>getInput(0), numRecordsIn);
+		final MutableObjectIterator<T2> in2 = new CountingMutableObjectIterator<>(this.taskContext.<T2>getInput(1), numRecordsIn);
 		
 		final TypeSerializer<T1> serializer1 = this.taskContext.<T1>getInputSerializer(0).getSerializer();
 		final TypeSerializer<T2> serializer2 = this.taskContext.<T2>getInputSerializer(1).getSerializer();
 		
 		final SpillingResettableMutableObjectIterator<T2> spillVals = new SpillingResettableMutableObjectIterator<T2>(
 				in2, serializer2, this.memManager, this.taskContext.getIOManager(), this.memPagesForSpillingSide,
-				this.taskContext.getOwningNepheleTask());
+				this.taskContext.getContainingTask());
 		this.spillIter = spillVals;
 		
 		final CrossFunction<T1, T2, OT> crosser = this.taskContext.getStub();
-		final Collector<OT> collector = this.taskContext.getOutputCollector();
+		final Collector<OT> collector = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 		if (objectReuseEnabled) {
 			final T1 val1Reuse = serializer1.createInstance();
@@ -372,19 +384,23 @@ public class CrossDriver<T1, T2, OT> implements PactDriver<CrossFunction<T1, T2,
 			LOG.debug(this.taskContext.formatLogString("Running Cross with Nested-Loops: " +
 					"First input is inner (spilling) side, second input is outer side."));
 		}
-		final MutableObjectIterator<T1> in1 = this.taskContext.getInput(0);
-		final MutableObjectIterator<T2> in2 = this.taskContext.getInput(1);
+
+		final Counter numRecordsIn = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
+
+		final MutableObjectIterator<T1> in1 = new CountingMutableObjectIterator<>(this.taskContext.<T1>getInput(0), numRecordsIn);
+		final MutableObjectIterator<T2> in2 = new CountingMutableObjectIterator<>(this.taskContext.<T2>getInput(1), numRecordsIn);
 		
 		final TypeSerializer<T1> serializer1 = this.taskContext.<T1>getInputSerializer(0).getSerializer();
 		final TypeSerializer<T2> serializer2 = this.taskContext.<T2>getInputSerializer(1).getSerializer();
 		
 		final SpillingResettableMutableObjectIterator<T1> spillVals = new SpillingResettableMutableObjectIterator<T1>(
 				in1, serializer1, this.memManager, this.taskContext.getIOManager(), this.memPagesForSpillingSide,
-				this.taskContext.getOwningNepheleTask());
+				this.taskContext.getContainingTask());
 		this.spillIter = spillVals;
 
 		final CrossFunction<T1, T2, OT> crosser = this.taskContext.getStub();
-		final Collector<OT> collector = this.taskContext.getOutputCollector();
+		final Collector<OT> collector = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 		if (objectReuseEnabled) {
 			final T1 val1Reuse = serializer1.createInstance();

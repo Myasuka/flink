@@ -17,16 +17,26 @@
  */
 package org.apache.flink.api.scala.typeutils
 
+import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.typeutils.TypeSerializer
 import org.apache.flink.core.memory.{DataOutputView, DataInputView}
 
 /**
  * Serializer for [[Option]].
  */
+@Internal
 class OptionSerializer[A](val elemSerializer: TypeSerializer[A])
   extends TypeSerializer[Option[A]] {
 
-  override def duplicate: OptionSerializer[A] = this
+  override def duplicate: OptionSerializer[A] = {
+    val duplicatedElemSerializer = elemSerializer.duplicate()
+
+    if (duplicatedElemSerializer.eq(elemSerializer)) {
+      this
+    } else {
+      new OptionSerializer[A](duplicatedElemSerializer)
+    }
+  }
 
   override def createInstance: Option[A] = {
     None
@@ -71,11 +81,18 @@ class OptionSerializer[A](val elemSerializer: TypeSerializer[A])
   override def deserialize(reuse: Option[A], source: DataInputView): Option[A] = deserialize(source)
 
   override def equals(obj: Any): Boolean = {
-    if (obj != null && obj.isInstanceOf[OptionSerializer[_]]) {
-      val other = obj.asInstanceOf[OptionSerializer[_]]
-      other.elemSerializer.equals(elemSerializer)
-    } else {
-      false
+    obj match {
+      case optionSerializer: OptionSerializer[_] =>
+        optionSerializer.canEqual(this) && elemSerializer.equals(optionSerializer.elemSerializer)
+      case _ => false
     }
+  }
+
+  override def canEqual(obj: scala.Any): Boolean = {
+    obj.isInstanceOf[OptionSerializer[_]]
+  }
+
+  override def hashCode(): Int = {
+    elemSerializer.hashCode()
   }
 }

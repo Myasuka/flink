@@ -16,7 +16,6 @@
  * limitations under the License.
  */
 
-
 package org.apache.flink.runtime.util;
 
 import java.io.EOFException;
@@ -31,7 +30,11 @@ import org.apache.flink.core.memory.MemoryUtils;
 /**
  * A simple and efficient deserializer for the {@link java.io.DataInput} interface.
  */
-public class DataInputDeserializer implements DataInputView {
+public class DataInputDeserializer implements DataInputView, java.io.Serializable {
+	
+	private static final long serialVersionUID = 1L;
+
+	// ------------------------------------------------------------------------
 	
 	private byte[] buffer;
 	
@@ -39,8 +42,9 @@ public class DataInputDeserializer implements DataInputView {
 
 	private int position;
 
-	public DataInputDeserializer() {
-	}
+	// ------------------------------------------------------------------------
+	
+	public DataInputDeserializer() {}
 	
 	public DataInputDeserializer(byte[] buffer, int start, int len) {
 		setBuffer(buffer, start, len);
@@ -50,6 +54,10 @@ public class DataInputDeserializer implements DataInputView {
 		setBuffer(buffer);
 	}
 
+	// ------------------------------------------------------------------------
+	//  Chaning buffers
+	// ------------------------------------------------------------------------
+	
 	public void setBuffer(ByteBuffer buffer) {
 		if (buffer.hasArray()) {
 			this.buffer = buffer.array();
@@ -87,6 +95,14 @@ public class DataInputDeserializer implements DataInputView {
 	// ----------------------------------------------------------------------------------------
 	//                               Data Input
 	// ----------------------------------------------------------------------------------------
+
+	public int available() {
+		if (position < end) {
+			return end - position - 1;
+		} else {
+			return 0;
+		}
+	}
 	
 	@Override
 	public boolean readBoolean() throws IOException {
@@ -109,7 +125,7 @@ public class DataInputDeserializer implements DataInputView {
 	@Override
 	public char readChar() throws IOException {
 		if (this.position < this.end - 1) {
-			return (char) (((this.buffer[this.position++] & 0xff) << 8) | ((this.buffer[this.position++] & 0xff) << 0));
+			return (char) (((this.buffer[this.position++] & 0xff) << 8) | (this.buffer[this.position++] & 0xff));
 		} else {
 			throw new EOFException();
 		}
@@ -205,7 +221,7 @@ public class DataInputDeserializer implements DataInputView {
 	@Override
 	public short readShort() throws IOException {
 		if (position >= 0 && position < this.end - 1) {
-			return (short) ((((this.buffer[position++]) & 0xff) << 8) | (((this.buffer[position++]) & 0xff) << 0));
+			return (short) ((((this.buffer[position++]) & 0xff) << 8) | ((this.buffer[position++]) & 0xff));
 		} else {
 			throw new EOFException();
 		}
@@ -271,7 +287,7 @@ public class DataInputDeserializer implements DataInputView {
 				if (((char2 & 0xC0) != 0x80) || ((char3 & 0xC0) != 0x80)) {
 					throw new UTFDataFormatException("malformed input around byte " + (count - 1));
 				}
-				chararr[chararr_count++] = (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | ((char3 & 0x3F) << 0));
+				chararr[chararr_count++] = (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | (char3 & 0x3F));
 				break;
 			default:
 				/* 10xx xxxx, 1111 xxxx */
@@ -294,7 +310,7 @@ public class DataInputDeserializer implements DataInputView {
 	@Override
 	public int readUnsignedShort() throws IOException {
 		if (this.position < this.end - 1) {
-			return ((this.buffer[this.position++] & 0xff) << 8) | ((this.buffer[this.position++] & 0xff) << 0);
+			return ((this.buffer[this.position++] & 0xff) << 8) | (this.buffer[this.position++] & 0xff);
 		} else {
 			throw new EOFException();
 		}
@@ -311,44 +327,36 @@ public class DataInputDeserializer implements DataInputView {
 			return n;
 		}
 	}
-	
-	@SuppressWarnings("restriction")
-	private static final sun.misc.Unsafe UNSAFE = MemoryUtils.UNSAFE;
-	
-	@SuppressWarnings("restriction")
-	private static final long BASE_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
-	
-	private static final boolean LITTLE_ENDIAN = (MemoryUtils.NATIVE_BYTE_ORDER == ByteOrder.LITTLE_ENDIAN);
 
 	@Override
 	public void skipBytesToRead(int numBytes) throws IOException {
 		int skippedBytes = skipBytes(numBytes);
 
-		if(skippedBytes < numBytes){
+		if (skippedBytes < numBytes){
 			throw new EOFException("Could not skip " + numBytes +" bytes.");
 		}
 	}
 
 	@Override
 	public int read(byte[] b, int off, int len) throws IOException {
-		if(b == null){
+		if (b == null){
 			throw new NullPointerException("Byte array b cannot be null.");
 		}
 
-		if(off < 0){
+		if (off < 0){
 			throw new IndexOutOfBoundsException("Offset cannot be negative.");
 		}
 
-		if(len < 0){
+		if (len < 0){
 			throw new IndexOutOfBoundsException("Length cannot be negative.");
 		}
 
-		if(b.length - off < len){
+		if (b.length - off < len){
 			throw new IndexOutOfBoundsException("Byte array does not provide enough space to store requested data" +
 					".");
 		}
 
-		if(this.position >= this.end) {
+		if (this.position >= this.end) {
 			return -1;
 		} else {
 			int toRead = Math.min(this.end-this.position, len);
@@ -363,4 +371,16 @@ public class DataInputDeserializer implements DataInputView {
 	public int read(byte[] b) throws IOException {
 		return read(b, 0, b.length);
 	}
+
+	// ------------------------------------------------------------------------
+	//  Utilities
+	// ------------------------------------------------------------------------
+
+	@SuppressWarnings("restriction")
+	private static final sun.misc.Unsafe UNSAFE = MemoryUtils.UNSAFE;
+
+	@SuppressWarnings("restriction")
+	private static final long BASE_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
+
+	private static final boolean LITTLE_ENDIAN = (MemoryUtils.NATIVE_BYTE_ORDER == ByteOrder.LITTLE_ENDIAN);
 }

@@ -22,7 +22,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.runtime.akka.AkkaUtils;
+import org.apache.flink.runtime.executiongraph.restart.NoRestartStrategy;
+import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
+import org.apache.flink.runtime.testingUtils.TestingUtils;
+import org.apache.flink.util.SerializedValue;
+
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -31,7 +37,7 @@ import java.util.List;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.JobException;
-import org.apache.flink.runtime.jobgraph.AbstractJobVertex;
+import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.api.common.JobID;
 
@@ -43,20 +49,31 @@ public class PointwisePatternTest {
 	private final Configuration cfg = new Configuration();
 	
 	@Test
-	public void testNToN() {
+	public void testNToN() throws Exception {
 		final int N = 23;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(N);
 		v2.setParallelism(N);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -78,20 +95,31 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void test2NToN() {
+	public void test2NToN() throws Exception {
 		final int N = 17;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(2 * N);
 		v2.setParallelism(N);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -114,20 +142,31 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void test3NToN() {
+	public void test3NToN() throws Exception {
 		final int N = 17;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(3 * N);
 		v2.setParallelism(N);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -151,20 +190,31 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void testNTo2N() {
+	public void testNTo2N() throws Exception {
 		final int N = 41;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(N);
 		v2.setParallelism(2 * N);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName,
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -186,20 +236,31 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void testNTo7N() {
+	public void testNTo7N() throws Exception {
 		final int N = 11;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(N);
 		v2.setParallelism(7 * N);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -221,7 +282,7 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void testLowHighIrregular() {
+	public void testLowHighIrregular() throws Exception {
 		testLowToHigh(3, 16);
 		testLowToHigh(19, 21);
 		testLowToHigh(15, 20);
@@ -229,14 +290,14 @@ public class PointwisePatternTest {
 	}
 	
 	@Test
-	public void testHighLowIrregular() {
+	public void testHighLowIrregular() throws Exception {
 		testHighToLow(16, 3);
 		testHighToLow(21, 19);
 		testHighToLow(20, 15);
 		testHighToLow(31, 11);
 	}
 	
-	private void testLowToHigh(int lowDop, int highDop) {
+	private void testLowToHigh(int lowDop, int highDop) throws Exception {
 		if (highDop < lowDop) {
 			throw new IllegalArgumentException();
 		}
@@ -244,17 +305,28 @@ public class PointwisePatternTest {
 		final int factor = highDop / lowDop;
 		final int delta = highDop % lowDop == 0 ? 0 : 1;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(lowDop);
 		v2.setParallelism(highDop);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}
@@ -282,7 +354,7 @@ public class PointwisePatternTest {
 		}
 	}
 	
-	private void testHighToLow(int highDop, int lowDop) {
+	private void testHighToLow(int highDop, int lowDop) throws Exception {
 		if (highDop < lowDop) {
 			throw new IllegalArgumentException();
 		}
@@ -290,17 +362,28 @@ public class PointwisePatternTest {
 		final int factor = highDop / lowDop;
 		final int delta = highDop % lowDop == 0 ? 0 : 1;
 		
-		AbstractJobVertex v1 = new AbstractJobVertex("vertex1");
-		AbstractJobVertex v2 = new AbstractJobVertex("vertex2");
+		JobVertex v1 = new JobVertex("vertex1");
+		JobVertex v2 = new JobVertex("vertex2");
 	
 		v1.setParallelism(highDop);
 		v2.setParallelism(lowDop);
+
+		v1.setInvokableClass(AbstractInvokable.class);
+		v2.setInvokableClass(AbstractInvokable.class);
 	
 		v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 	
-		List<AbstractJobVertex> ordered = new ArrayList<AbstractJobVertex>(Arrays.asList(v1, v2));
+		List<JobVertex> ordered = new ArrayList<JobVertex>(Arrays.asList(v1, v2));
 
-		ExecutionGraph eg = new ExecutionGraph(jobId, jobName, cfg, AkkaUtils.getDefaultTimeout());
+		ExecutionGraph eg = new ExecutionGraph(
+			TestingUtils.defaultExecutionContext(),
+			TestingUtils.defaultExecutionContext(),
+			jobId, 
+			jobName, 
+			cfg,
+			new SerializedValue<>(new ExecutionConfig()),
+			AkkaUtils.getDefaultTimeout(),
+			new NoRestartStrategy());
 		try {
 			eg.attachJobGraph(ordered);
 		}

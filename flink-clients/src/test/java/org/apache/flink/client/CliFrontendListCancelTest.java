@@ -18,18 +18,28 @@
 
 package org.apache.flink.client;
 
-import akka.actor.*;
+import akka.actor.ActorRef;
+import akka.actor.ActorSystem;
+import akka.actor.Props;
+import akka.actor.Status;
 import akka.testkit.JavaTestKit;
-
-import org.apache.flink.client.cli.CommandLineOptions;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.client.cli.CommandLineOptions;
+import org.apache.flink.runtime.akka.FlinkUntypedActor;
+import org.apache.flink.runtime.instance.ActorGateway;
+import org.apache.flink.runtime.instance.AkkaActorGateway;
 import org.apache.flink.runtime.messages.JobManagerMessages;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.UUID;
+
 import static org.apache.flink.client.CliFrontendTestUtils.pipeSystemOutToNull;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class CliFrontendListCancelTest {
 
@@ -50,7 +60,6 @@ public class CliFrontendListCancelTest {
 	@BeforeClass
 	public static void init() {
 		CliFrontendTestUtils.pipeSystemOutToNull();
-		CliFrontendTestUtils.clearGlobalConfiguration();
 	}
 	
 	@Test
@@ -77,10 +86,19 @@ public class CliFrontendListCancelTest {
 				JobID jid = new JobID();
 				String jidString = jid.toString();
 
-				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, jid));
+				final UUID leaderSessionID = UUID.randomUUID();
+
+				final ActorRef jm = actorSystem.actorOf(Props.create(
+								CliJobManager.class,
+								jid,
+								leaderSessionID
+						)
+				);
+
+				final ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
 				
 				String[] parameters = { jidString };
-				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
+				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
 
 				int retCode = testFrontend.cancel(parameters);
 				assertTrue(retCode == 0);
@@ -91,10 +109,20 @@ public class CliFrontendListCancelTest {
 				JobID jid1 = new JobID();
 				JobID jid2 = new JobID();
 
-				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, jid1));
+				final UUID leaderSessionID = UUID.randomUUID();
+
+				final ActorRef jm = actorSystem.actorOf(
+						Props.create(
+								CliJobManager.class,
+								jid1,
+								leaderSessionID
+						)
+				);
+
+				final ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
 
 				String[] parameters = { jid2.toString() };
-				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
+				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
 
 				assertTrue(testFrontend.cancel(parameters) != 0);
 			}
@@ -102,6 +130,68 @@ public class CliFrontendListCancelTest {
 		catch (Exception e) {
 			e.printStackTrace();
 			fail("Program caused an exception: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Tests cancelling with the savepoint option.
+	 */
+	@Test
+	public void testCancelWithSavepoint() throws Exception {
+		{
+			// Cancel with savepoint (no target directory)
+			JobID jid = new JobID();
+			UUID leaderSessionID = UUID.randomUUID();
+
+			Props props = Props.create(CliJobManager.class, jid, leaderSessionID);
+			ActorRef jm = actorSystem.actorOf(props);
+			ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
+
+			String[] parameters = { "-s", jid.toString() };
+			InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
+			assertEquals(0, testFrontend.cancel(parameters));
+		}
+
+		{
+			// Cancel with savepoint (with target directory)
+			JobID jid = new JobID();
+			UUID leaderSessionID = UUID.randomUUID();
+
+			Props props = Props.create(CliJobManager.class, jid, leaderSessionID, "targetDirectory");
+			ActorRef jm = actorSystem.actorOf(props);
+			ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
+
+			String[] parameters = { "-s", "targetDirectory", jid.toString() };
+			InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
+			assertEquals(0, testFrontend.cancel(parameters));
+		}
+
+		{
+			// Cancel with savepoint (with target directory), but no job ID
+			JobID jid = new JobID();
+			UUID leaderSessionID = UUID.randomUUID();
+
+			Props props = Props.create(CliJobManager.class, jid, leaderSessionID, "targetDirectory");
+			ActorRef jm = actorSystem.actorOf(props);
+			ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
+
+			String[] parameters = { "-s", "targetDirectory" };
+			InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
+			assertNotEquals(0, testFrontend.cancel(parameters));
+		}
+
+		{
+			// Cancel with savepoint (no target directory)and no job ID
+			JobID jid = new JobID();
+			UUID leaderSessionID = UUID.randomUUID();
+
+			Props props = Props.create(CliJobManager.class, jid, leaderSessionID);
+			ActorRef jm = actorSystem.actorOf(props);
+			ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
+
+			String[] parameters = { "-s" };
+			InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
+			assertNotEquals(0, testFrontend.cancel(parameters));
 		}
 	}
 
@@ -118,9 +208,17 @@ public class CliFrontendListCancelTest {
 			
 			// test list properly
 			{
-				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, (Object)null));
+				final UUID leaderSessionID = UUID.randomUUID();
+				final ActorRef jm = actorSystem.actorOf(
+						Props.create(
+								CliJobManager.class,
+								null,
+								leaderSessionID
+						)
+				);
+				final ActorGateway gateway = new AkkaActorGateway(jm, leaderSessionID);
 				String[] parameters = {"-r", "-s"};
-				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
+				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(gateway);
 				int retCode = testFrontend.list(parameters);
 				assertTrue(retCode == 0);
 			}
@@ -135,46 +233,84 @@ public class CliFrontendListCancelTest {
 
 	protected static final class InfoListTestCliFrontend extends CliFrontend {
 
-		private ActorRef jobmanager;
+		private ActorGateway jobManagerGateway;
 
-
-
-		public InfoListTestCliFrontend(ActorRef jobmanager) throws Exception {
+		public InfoListTestCliFrontend(ActorGateway jobManagerGateway) throws Exception {
 			super(CliFrontendTestUtils.getConfigDir());
-			this.jobmanager = jobmanager;
+			this.jobManagerGateway = jobManagerGateway;
 		}
 
 		@Override
-		public ActorRef getJobManager(CommandLineOptions options) {
-			return jobmanager;
+		public ActorGateway getJobManagerGateway(CommandLineOptions options) {
+			return jobManagerGateway;
 		}
 	}
 
-	protected static final class CliJobManager extends UntypedActor{
+	protected static final class CliJobManager extends FlinkUntypedActor {
 		private final JobID jobID;
+		private final UUID leaderSessionID;
+		private final String targetDirectory;
 
-		public CliJobManager(final JobID jobID){
+		public CliJobManager(final JobID jobID, final UUID leaderSessionID){
+			this(jobID, leaderSessionID, null);
+		}
+
+		public CliJobManager(final JobID jobID, final UUID leaderSessionID, String targetDirectory){
 			this.jobID = jobID;
+			this.leaderSessionID = leaderSessionID;
+			this.targetDirectory = targetDirectory;
 		}
 
 		@Override
-		public void onReceive(Object message) throws Exception {
+		public void handleMessage(Object message) {
 			if (message instanceof JobManagerMessages.RequestTotalNumberOfSlots$) {
-				getSender().tell(1, getSelf());
+				getSender().tell(decorateMessage(1), getSelf());
 			}
 			else if (message instanceof JobManagerMessages.CancelJob) {
 				JobManagerMessages.CancelJob cancelJob = (JobManagerMessages.CancelJob) message;
 
 				if (jobID != null && jobID.equals(cancelJob.jobID())) {
-					getSender().tell(new Status.Success(new Object()), getSelf());
+					getSender().tell(
+							decorateMessage(new Status.Success(new JobManagerMessages.CancellationSuccess(jobID, null))),
+							getSelf());
 				}
 				else {
-					getSender().tell(new Status.Failure(new Exception("Wrong or no JobID")), getSelf());
+					getSender().tell(
+							decorateMessage(new Status.Failure(new Exception("Wrong or no JobID"))),
+							getSelf());
+				}
+			}
+			else if (message instanceof JobManagerMessages.CancelJobWithSavepoint) {
+				JobManagerMessages.CancelJobWithSavepoint cancelJob = (JobManagerMessages.CancelJobWithSavepoint) message;
+
+				if (jobID != null && jobID.equals(cancelJob.jobID())) {
+					if (targetDirectory == null && cancelJob.savepointDirectory() == null ||
+							targetDirectory != null && targetDirectory.equals(cancelJob.savepointDirectory())) {
+						getSender().tell(
+								decorateMessage(new JobManagerMessages.CancellationSuccess(jobID, targetDirectory)),
+								getSelf());
+					} else {
+						getSender().tell(
+								decorateMessage(new JobManagerMessages.CancellationFailure(jobID, new Exception("Wrong target directory"))),
+								getSelf());
+					}
+				}
+				else {
+					getSender().tell(
+							decorateMessage(new JobManagerMessages.CancellationFailure(jobID, new Exception("Wrong or no JobID"))),
+							getSelf());
 				}
 			}
 			else if (message instanceof JobManagerMessages.RequestRunningJobsStatus$) {
-				getSender().tell(new JobManagerMessages.RunningJobsStatus(), getSelf());
+				getSender().tell(
+						decorateMessage(new JobManagerMessages.RunningJobsStatus()),
+						getSelf());
 			}
+		}
+
+		@Override
+		protected UUID getLeaderSessionID() {
+			return leaderSessionID;
 		}
 	}
 }

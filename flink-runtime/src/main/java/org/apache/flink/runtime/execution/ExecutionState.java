@@ -22,7 +22,7 @@ package org.apache.flink.runtime.execution;
  * An enumeration of all states that a task can be in during its execution.
  * Tasks usually start in the state {@code CREATED} and switch states according to
  * this diagram:
- * <pre>
+ * <pre>{@code
  *
  *     CREATED  -> SCHEDULED -> DEPLOYING -> RUNNING -> FINISHED
  *                     |            |          |
@@ -33,12 +33,12 @@ package org.apache.flink.runtime.execution;
  *                     +-------------------------+
  *
  *                                               ... -> FAILED
- * </pre>
+ * }</pre>
  *
- * It is possible to enter the {@code FAILED} state from any other state.
+ * <p>It is possible to enter the {@code FAILED} state from any other state.</p>
  *
- * The states {@code FINISHED}, {@code CANCELED}, and {@code FAILED} are
- * considered terminal states.
+ * <p>The states {@code FINISHED}, {@code CANCELED}, and {@code FAILED} are
+ * considered terminal states.</p>
  */
 public enum ExecutionState {
 

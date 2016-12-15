@@ -18,18 +18,20 @@
 package org.apache.flink.optimizer;
 
 import org.apache.flink.api.common.Plan;
+import org.apache.flink.api.common.operators.base.ReduceOperatorBase.CombineHint;
 import org.apache.flink.api.common.operators.util.FieldList;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.operators.DistinctOperator;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.optimizer.plan.OptimizedPlan;
 import org.apache.flink.optimizer.plan.SingleInputPlanNode;
 import org.apache.flink.optimizer.plan.SinkPlanNode;
 import org.apache.flink.optimizer.plan.SourcePlanNode;
-import org.apache.flink.runtime.operators.DriverStrategy;
 import org.apache.flink.optimizer.util.CompilerTestBase;
+import org.apache.flink.runtime.operators.DriverStrategy;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -50,7 +52,7 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 
 			data
 					.distinct().name("reducer")
-					.print().name("sink");
+					.output(new DiscardingOutputFormat<Tuple2<String, Double>>()).name("sink");
 
 			Plan p = env.createProgramPlan();
 			OptimizedPlan op = compileNoStats(p);
@@ -70,8 +72,8 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 			assertEquals(reduceNode, sinkNode.getInput().getSource());
 
 			// check that both reduce and combiner have the same strategy
-			assertEquals(DriverStrategy.SORTED_GROUP_REDUCE, reduceNode.getDriverStrategy());
-			assertEquals(DriverStrategy.SORTED_GROUP_COMBINE, combineNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_REDUCE, reduceNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_PARTIAL_REDUCE, combineNode.getDriverStrategy());
 
 			// check the keys
 			assertEquals(new FieldList(0, 1), reduceNode.getKeys(0));
@@ -92,6 +94,57 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 	}
 
 	@Test
+	public void testDistinctWithCombineHint() {
+		try {
+			ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+			env.setParallelism(8);
+
+			DataSet<Tuple2<String, Double>> data = env.readCsvFile("file:///will/never/be/read").types(String.class, Double.class)
+					.name("source").setParallelism(6);
+
+			data
+					.distinct().setCombineHint(CombineHint.HASH).name("reducer")
+					.output(new DiscardingOutputFormat<Tuple2<String, Double>>()).name("sink");
+
+			Plan p = env.createProgramPlan();
+			OptimizedPlan op = compileNoStats(p);
+
+			OptimizerPlanNodeResolver resolver = getOptimizerPlanNodeResolver(op);
+
+			// get the original nodes
+			SourcePlanNode sourceNode = resolver.getNode("source");
+			SingleInputPlanNode reduceNode = resolver.getNode("reducer");
+			SinkPlanNode sinkNode = resolver.getNode("sink");
+
+			// get the combiner
+			SingleInputPlanNode combineNode = (SingleInputPlanNode) reduceNode.getInput().getSource();
+
+			// check wiring
+			assertEquals(sourceNode, combineNode.getInput().getSource());
+			assertEquals(reduceNode, sinkNode.getInput().getSource());
+
+			// check that both reduce and combiner have the same strategy
+			assertEquals(DriverStrategy.SORTED_REDUCE, reduceNode.getDriverStrategy());
+			assertEquals(DriverStrategy.HASHED_PARTIAL_REDUCE, combineNode.getDriverStrategy());
+
+			// check the keys
+			assertEquals(new FieldList(0, 1), reduceNode.getKeys(0));
+			assertEquals(new FieldList(0, 1), combineNode.getKeys(0));
+			assertEquals(new FieldList(0, 1), reduceNode.getInput().getLocalStrategyKeys());
+
+			// check parallelism
+			assertEquals(6, sourceNode.getParallelism());
+			assertEquals(6, combineNode.getParallelism());
+			assertEquals(8, reduceNode.getParallelism());
+			assertEquals(8, sinkNode.getParallelism());
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+			e.printStackTrace();
+			fail(e.getClass().getSimpleName() + " in test: " + e.getMessage());
+		}
+	}
+
+	@Test
 	public void testDistinctWithSelectorFunctionKey() {
 		try {
 			ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -104,7 +157,7 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 					.distinct(new KeySelector<Tuple2<String,Double>, String>() {
 						public String getKey(Tuple2<String, Double> value) { return value.f0; }
 					}).name("reducer")
-					.print().name("sink");
+					.output(new DiscardingOutputFormat<Tuple2<String, Double>>()).name("sink");
 
 			Plan p = env.createProgramPlan();
 			OptimizedPlan op = compileNoStats(p);
@@ -128,8 +181,8 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 			assertEquals(keyProjector, sinkNode.getInput().getSource());
 
 			// check that both reduce and combiner have the same strategy
-			assertEquals(DriverStrategy.SORTED_GROUP_REDUCE, reduceNode.getDriverStrategy());
-			assertEquals(DriverStrategy.SORTED_GROUP_COMBINE, combineNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_REDUCE, reduceNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_PARTIAL_REDUCE, combineNode.getDriverStrategy());
 
 			// check the keys
 			assertEquals(new FieldList(0), reduceNode.getKeys(0));
@@ -164,7 +217,7 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 			DistinctOperator<Tuple2<String, Double>> reduced = data
 					.distinct(1).name("reducer");
 
-			reduced.print().name("sink");
+			reduced.output(new DiscardingOutputFormat<Tuple2<String, Double>>()).name("sink");
 
 			Plan p = env.createProgramPlan();
 			OptimizedPlan op = compileNoStats(p);
@@ -184,8 +237,8 @@ public class DistinctCompilationTest extends CompilerTestBase implements java.io
 			assertEquals(reduceNode, sinkNode.getInput().getSource());
 
 			// check that both reduce and combiner have the same strategy
-			assertEquals(DriverStrategy.SORTED_GROUP_REDUCE, reduceNode.getDriverStrategy());
-			assertEquals(DriverStrategy.SORTED_GROUP_COMBINE, combineNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_REDUCE, reduceNode.getDriverStrategy());
+			assertEquals(DriverStrategy.SORTED_PARTIAL_REDUCE, combineNode.getDriverStrategy());
 
 			// check the keys
 			assertEquals(new FieldList(1), reduceNode.getKeys(0));

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,6 +18,7 @@
 
 package org.apache.flink.optimizer;
 
+import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -25,7 +26,7 @@ import org.apache.flink.api.common.operators.base.JoinOperatorBase;
 import org.apache.flink.api.common.operators.util.FieldList;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.api.java.operators.translation.JavaPlan;
+import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.optimizer.dataproperties.GlobalProperties;
 import org.apache.flink.optimizer.dataproperties.PartitioningProperty;
@@ -52,8 +53,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.join(set2, JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 					.where(0,1).equalTo(0,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -73,8 +74,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.join(set2, JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -96,8 +97,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.join(set2, JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(0,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -119,8 +120,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.join(set2, JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -142,8 +143,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -164,8 +165,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.join(set2, JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -187,8 +188,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -212,8 +213,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(0,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -238,8 +239,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -263,8 +264,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,1).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -288,8 +289,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,2).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -313,8 +314,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,2).equalTo(2,1).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -338,8 +339,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,2).equalTo(1,2).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -363,8 +364,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						JoinOperatorBase.JoinHint.REPARTITION_HASH_FIRST)
 				.where(0,2).equalTo(1,2).with(new MockJoin());
 
-		joined.print();
-		JavaPlan plan = env.createProgramPlan();
+		joined.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -384,8 +385,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.coGroup(set2)
 				.where(0,1).equalTo(0,1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -405,8 +406,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.coGroup(set2)
 				.where(0,1).equalTo(2,1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -428,8 +429,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.coGroup(set2)
 				.where(0,1).equalTo(0,1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -451,8 +452,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.coGroup(set2)
 				.where(0,1).equalTo(2,1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -473,8 +474,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 								.withForwardedFields("2;1"))
 				.where(0,1).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -495,8 +496,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 				.coGroup(set2)
 				.where(0, 1).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -517,8 +518,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 								.withForwardedFields("2"))
 				.where(0,1).equalTo(2,1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -541,8 +542,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("0;1"))
 				.where(0, 1).equalTo(0, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -566,8 +567,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("1;2"))
 				.where(0, 1).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -590,8 +591,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("2;1"))
 				.where(0, 1).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -614,8 +615,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("1"))
 				.where(0, 2).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -638,8 +639,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("1"))
 				.where(0, 2).equalTo(2, 1).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -662,8 +663,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("2"))
 				.where(0, 2).equalTo(1, 2).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();
@@ -686,8 +687,8 @@ public class PartitioningReusageTest extends CompilerTestBase {
 						.withForwardedFields("1"))
 				.where(0, 2).equalTo(1, 2).with(new MockCoGroup());
 
-		coGrouped.print();
-		JavaPlan plan = env.createProgramPlan();
+		coGrouped.output(new DiscardingOutputFormat<Tuple3<Integer, Integer, Integer>>());
+		Plan plan = env.createProgramPlan();
 		OptimizedPlan oPlan = compileWithStats(plan);
 
 		SinkPlanNode sink = oPlan.getDataSinks().iterator().next();

@@ -22,7 +22,7 @@ import com.google.common.collect.Lists;
 
 import org.apache.flink.runtime.io.network.api.writer.RecordWriter;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
-import org.apache.flink.runtime.jobgraph.AbstractJobVertex;
+import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
@@ -79,12 +79,12 @@ public class ScheduleOrUpdateConsumersTest {
 	 */
 	@Test
 	public void testMixedPipelinedAndBlockingResults() throws Exception {
-		final AbstractJobVertex sender = new AbstractJobVertex("Sender");
+		final JobVertex sender = new JobVertex("Sender");
 		sender.setInvokableClass(BinaryRoundRobinSubtaskIndexSender.class);
 		sender.getConfiguration().setInteger(BinaryRoundRobinSubtaskIndexSender.CONFIG_KEY, PARALLELISM);
 		sender.setParallelism(PARALLELISM);
 
-		final AbstractJobVertex pipelinedReceiver = new AbstractJobVertex("Pipelined Receiver");
+		final JobVertex pipelinedReceiver = new JobVertex("Pipelined Receiver");
 		pipelinedReceiver.setInvokableClass(SlotCountExceedingParallelismTest.SubtaskIndexReceiver.class);
 		pipelinedReceiver.getConfiguration().setInteger(CONFIG_KEY, PARALLELISM);
 		pipelinedReceiver.setParallelism(PARALLELISM);
@@ -94,7 +94,7 @@ public class ScheduleOrUpdateConsumersTest {
 				DistributionPattern.ALL_TO_ALL,
 				ResultPartitionType.PIPELINED);
 
-		final AbstractJobVertex blockingReceiver = new AbstractJobVertex("Blocking Receiver");
+		final JobVertex blockingReceiver = new JobVertex("Blocking Receiver");
 		blockingReceiver.setInvokableClass(SlotCountExceedingParallelismTest.SubtaskIndexReceiver.class);
 		blockingReceiver.getConfiguration().setInteger(CONFIG_KEY, PARALLELISM);
 		blockingReceiver.setParallelism(PARALLELISM);
@@ -125,30 +125,25 @@ public class ScheduleOrUpdateConsumersTest {
 
 		public final static String CONFIG_KEY = "number-of-times-to-send";
 
-		private List<RecordWriter<IntValue>> writers = Lists.newArrayListWithCapacity(2);
-
-		private int numberOfTimesToSend;
-
 		@Override
-		public void registerInputOutput() {
+		public void invoke() throws Exception {
+			List<RecordWriter<IntValue>> writers = Lists.newArrayListWithCapacity(2);
+
 			// The order of intermediate result creation in the job graph specifies which produced
 			// result partition is pipelined/blocking.
 			final RecordWriter<IntValue> pipelinedWriter =
-					new RecordWriter<IntValue>(getEnvironment().getWriter(0));
+					new RecordWriter<>(getEnvironment().getWriter(0));
 
 			final RecordWriter<IntValue> blockingWriter =
-					new RecordWriter<IntValue>(getEnvironment().getWriter(1));
+					new RecordWriter<>(getEnvironment().getWriter(1));
 
 			writers.add(pipelinedWriter);
 			writers.add(blockingWriter);
 
-			numberOfTimesToSend = getTaskConfiguration().getInteger(CONFIG_KEY, 0);
-		}
+			final int numberOfTimesToSend = getTaskConfiguration().getInteger(CONFIG_KEY, 0);
 
-		@Override
-		public void invoke() throws Exception {
 			final IntValue subtaskIndex = new IntValue(
-					getEnvironment().getIndexInSubtaskGroup());
+					getEnvironment().getTaskInfo().getIndexOfThisSubtask());
 
 			// Produce the first intermediate result and then the second in a serial fashion.
 			for (RecordWriter<IntValue> writer : writers) {

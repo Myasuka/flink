@@ -18,13 +18,12 @@
 
 package org.apache.flink.runtime.taskmanager;
 
-import java.io.IOException;
-import java.util.Arrays;
-
+import org.apache.flink.runtime.accumulators.AccumulatorSnapshot;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.util.InstantiationUtil;
+import org.apache.flink.runtime.executiongraph.IOMetrics;
+import org.apache.flink.runtime.util.SerializedThrowable;
 
 /**
  * This class represents an update about a task's execution state.
@@ -46,14 +45,14 @@ public class TaskExecutionState implements java.io.Serializable {
 
 	private final ExecutionState executionState;
 
-	private final byte[] serializedError;
+	private final SerializedThrowable throwable;
 
-	// The exception must not be (de)serialized with the class, as its
-	// class may not be part of the system class loader.
-	private transient Throwable cachedError;
+	/** Serialized flink and user-defined accumulators */
+	private final AccumulatorSnapshot accumulators;
+	private final IOMetrics ioMetrics;
 
 	/**
-	 * Creates a new task execution state update, with no attached exception.
+	 * Creates a new task execution state update, with no attached exception and no accumulators.
 	 *
 	 * @param jobID
 	 *        the ID of the job the task belongs to
@@ -63,12 +62,28 @@ public class TaskExecutionState implements java.io.Serializable {
 	 *        the execution state to be reported
 	 */
 	public TaskExecutionState(JobID jobID, ExecutionAttemptID executionId, ExecutionState executionState) {
-		this(jobID, executionId, executionState, null);
+		this(jobID, executionId, executionState, null, null, null);
 	}
-	
+
+	/**
+	 * Creates a new task execution state update, with an attached exception but no accumulators.
+	 *
+	 * @param jobID
+	 *        the ID of the job the task belongs to
+	 * @param executionId
+	 *        the ID of the task execution whose state is to be reported
+	 * @param executionState
+	 *        the execution state to be reported
+	 */
+	public TaskExecutionState(JobID jobID, ExecutionAttemptID executionId,
+							ExecutionState executionState, Throwable error) {
+		this(jobID, executionId, executionState, error, null, null);
+	}
+
 	/**
 	 * Creates a new task execution state update, with an attached exception.
-	 * 
+	 * This constructor may never throw an exception.
+	 *
 	 * @param jobID
 	 *        the ID of the job the task belongs to
 	 * @param executionId
@@ -77,9 +92,12 @@ public class TaskExecutionState implements java.io.Serializable {
 	 *        the execution state to be reported
 	 * @param error
 	 *        an optional error
+	 * @param accumulators
+	 *        The flink and user-defined accumulators which may be null.
 	 */
 	public TaskExecutionState(JobID jobID, ExecutionAttemptID executionId,
-								ExecutionState executionState, Throwable error) {
+			ExecutionState executionState, Throwable error,
+			AccumulatorSnapshot accumulators, IOMetrics ioMetrics) {
 
 		if (jobID == null || executionId == null || executionState == null) {
 			throw new NullPointerException();
@@ -88,44 +106,31 @@ public class TaskExecutionState implements java.io.Serializable {
 		this.jobID = jobID;
 		this.executionId = executionId;
 		this.executionState = executionState;
-		this.cachedError = error;
-
 		if (error != null) {
-			try {
-				this.serializedError = InstantiationUtil.serializeObject(error);
-			}
-			catch (IOException e) {
-				throw new RuntimeException("Error while serializing task exception", e);
-			}
+			this.throwable = new SerializedThrowable(error);
 		} else {
-			this.serializedError = null;
+			this.throwable = null;
 		}
+		this.accumulators = accumulators;
+		this.ioMetrics = ioMetrics;
 	}
 
 	// --------------------------------------------------------------------------------------------
 
 	/**
-	 * Gets the attached exception. Requires to pass a classloader, because the
-	 * class of the exception may be user-defined and hence only accessible through
-	 * the user code classloader, not the default classloader.
-	 *
-	 * @param usercodeClassloader The class loader for the user code of the
-	 *                            job this update refers to.
+	 * Gets the attached exception, which is in serialized form. Returns null,
+	 * if the status update is no failure with an associated exception.
+	 * 
+	 * @param userCodeClassloader The classloader that can resolve user-defined exceptions.
+	 * @return The attached exception, or null, if none.
 	 */
-	public Throwable getError(ClassLoader usercodeClassloader) {
-		if (this.serializedError == null) {
+	public Throwable getError(ClassLoader userCodeClassloader) {
+		if (this.throwable == null) {
 			return null;
 		}
-
-		if (this.cachedError == null) {
-			try {
-				cachedError = (Throwable) InstantiationUtil.deserializeObject(this.serializedError, usercodeClassloader);
-			}
-			catch (Exception e) {
-				throw new RuntimeException("Error while deserializing the attached exception", e);
-			}
+		else {
+			return this.throwable.deserializeError(userCodeClassloader);
 		}
-		return this.cachedError;
 	}
 
 	/**
@@ -155,6 +160,17 @@ public class TaskExecutionState implements java.io.Serializable {
 		return this.jobID;
 	}
 
+	/**
+	 * Gets flink and user-defined accumulators in serialized form.
+	 */
+	public AccumulatorSnapshot getAccumulators() {
+		return accumulators;
+	}
+
+	public IOMetrics getIOMetrics() {
+		return ioMetrics;
+	}
+
 	// --------------------------------------------------------------------------------------------
 
 	@Override
@@ -164,8 +180,7 @@ public class TaskExecutionState implements java.io.Serializable {
 			return other.jobID.equals(this.jobID) &&
 					other.executionId.equals(this.executionId) &&
 					other.executionState == this.executionState &&
-					(other.serializedError == null ? this.serializedError == null :
-						(this.serializedError != null && Arrays.equals(this.serializedError, other.serializedError)));
+					(other.throwable == null) == (this.throwable == null);
 		}
 		else {
 			return false;
@@ -179,9 +194,8 @@ public class TaskExecutionState implements java.io.Serializable {
 	
 	@Override
 	public String toString() {
-		return String.format("TaskState jobId=%s, executionId=%s, state=%s, error=%s", 
+		return String.format("TaskState jobId=%s, jobID=%s, state=%s, error=%s",
 				jobID, executionId, executionState,
-				cachedError == null ? "(null)"
-									: cachedError.getClass().getName() + ": " + cachedError.getMessage());
+				throwable == null ? "(null)" : throwable.toString());
 	}
 }

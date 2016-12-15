@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkState;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * The result partition manager keeps track of all currently produced/consumed partitions of a
@@ -66,29 +66,34 @@ public class ResultPartitionManager implements ResultPartitionProvider {
 	public ResultSubpartitionView createSubpartitionView(
 			ResultPartitionID partitionId,
 			int subpartitionIndex,
-			BufferProvider bufferProvider) throws IOException {
+			BufferProvider bufferProvider,
+			BufferAvailabilityListener availabilityListener) throws IOException {
 
 		synchronized (registeredPartitions) {
 			final ResultPartition partition = registeredPartitions.get(partitionId.getProducerId(),
 					partitionId.getPartitionId());
 
 			if (partition == null) {
-				throw new IOException("Unknown partition " + partitionId + ".");
+				throw new PartitionNotFoundException(partitionId);
 			}
 
-			LOG.debug("Requested partition {}.", partition);
+			LOG.debug("Requesting subpartition {} of {}.", subpartitionIndex, partition);
 
-			return partition.createSubpartitionView(subpartitionIndex, bufferProvider);
+			return partition.createSubpartitionView(subpartitionIndex, bufferProvider, availabilityListener);
 		}
 	}
 
 	public void releasePartitionsProducedBy(ExecutionAttemptID executionId) {
+		releasePartitionsProducedBy(executionId, null);
+	}
+
+	public void releasePartitionsProducedBy(ExecutionAttemptID executionId, Throwable cause) {
 		synchronized (registeredPartitions) {
 			final Map<IntermediateResultPartitionID, ResultPartition> partitions =
 					registeredPartitions.row(executionId);
 
 			for (ResultPartition partition : partitions.values()) {
-				partition.release();
+				partition.release(cause);
 			}
 
 			for (IntermediateResultPartitionID partitionId : ImmutableList

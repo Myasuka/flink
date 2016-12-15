@@ -18,30 +18,31 @@
 
 package org.apache.flink.api.scala.runtime.taskmanager
 
-import akka.actor.Status.{Failure, Success}
 import akka.actor.{ActorSystem, Kill, PoisonPill}
 import akka.testkit.{ImplicitSender, TestKit}
-
 import org.apache.flink.configuration.ConfigConstants
 import org.apache.flink.configuration.Configuration
-import org.apache.flink.runtime.akka.AkkaUtils
+import org.apache.flink.runtime.akka.{AkkaUtils, ListeningBehaviour}
 import org.apache.flink.runtime.client.JobExecutionException
-import org.apache.flink.runtime.jobgraph.{AbstractJobVertex, DistributionPattern, JobGraph}
-import org.apache.flink.runtime.jobmanager.Tasks.{NoOpInvokable, BlockingNoOpInvokable, BlockingReceiver, Sender}
-import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultSuccess, RequestNumberRegisteredTaskManager, SubmitJob}
-import org.apache.flink.runtime.messages.TaskManagerMessages.{RegisteredAtJobManager, NotifyWhenRegisteredAtJobManager}
+import org.apache.flink.runtime.jobgraph.{DistributionPattern, JobGraph, JobVertex}
+import org.apache.flink.runtime.jobmanager.Tasks.{BlockingNoOpInvokable, BlockingReceiver, NoOpInvokable, Sender}
+import org.apache.flink.runtime.messages.JobManagerMessages._
+import org.apache.flink.runtime.messages.TaskManagerMessages.{NotifyWhenRegisteredAtJobManager, RegisteredAtJobManager}
 import org.apache.flink.runtime.testingUtils.TestingJobManagerMessages._
 import org.apache.flink.runtime.testingUtils.TestingMessages.DisableDisconnect
-import org.apache.flink.runtime.testingUtils.TestingUtils
-import org.apache.flink.test.util.ForkableFlinkMiniCluster
-
+import org.apache.flink.runtime.testingUtils.{ScalaTestingUtils, TestingCluster, TestingUtils}
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
 @RunWith(classOf[JUnitRunner])
-class TaskManagerFailsITCase(_system: ActorSystem) extends TestKit(_system) with ImplicitSender
-with WordSpecLike with Matchers with BeforeAndAfterAll {
+class TaskManagerFailsITCase(_system: ActorSystem)
+  extends TestKit(_system)
+  with ImplicitSender
+  with WordSpecLike
+  with Matchers
+  with BeforeAndAfterAll
+  with ScalaTestingUtils {
 
   def this() = this(ActorSystem("TestingActorSystem", AkkaUtils.getDefaultAkkaConfig))
 
@@ -54,25 +55,27 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
     "detect a failing task manager" in {
 
       val num_slots = 11
-      val cluster = startDeathwatchCluster(num_slots, 2)
+      val cluster = createDeathwatchCluster(num_slots, 2)
+
+      cluster.start()
 
       val taskManagers = cluster.getTaskManagers
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(TestingUtils.TESTING_DURATION)
 
-      jm ! DisableDisconnect
+      jmGateway.tell(DisableDisconnect)
 
       try{
         within(TestingUtils.TESTING_DURATION){
-          jm ! RequestNumberRegisteredTaskManager
+          jmGateway.tell(RequestNumberRegisteredTaskManager, self)
           expectMsg(2)
 
-          jm ! NotifyWhenTaskManagerTerminated(taskManagers(0))
+          jmGateway.tell(NotifyWhenTaskManagerTerminated(taskManagers(0)), self)
 
           taskManagers(0) ! PoisonPill
 
           val TaskManagerTerminated(tm) = expectMsgClass(classOf[TaskManagerTerminated])
 
-          jm ! RequestNumberRegisteredTaskManager
+          jmGateway.tell(RequestNumberRegisteredTaskManager, self)
           expectMsg(1)
         }
       }
@@ -84,8 +87,8 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
     "handle gracefully failing task manager" in {
 
       val num_tasks = 31
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
       sender.setInvokableClass(classOf[Sender])
       receiver.setInvokableClass(classOf[BlockingReceiver])
       sender.setParallelism(num_tasks)
@@ -95,28 +98,34 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
       val jobGraph = new JobGraph("Pointwise Job", sender, receiver)
       val jobID = jobGraph.getJobID
 
-      val cluster = ForkableFlinkMiniCluster.startCluster(num_tasks, 2)
+      val cluster = TestingUtils.startTestingCluster(num_tasks, 2)
 
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(TestingUtils.TESTING_DURATION)
 
       try {
         within(TestingUtils.TESTING_DURATION) {
-          jm ! SubmitJob(jobGraph, false)
-          expectMsg(Success(jobGraph.getJobID))
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID()))
 
-          jm ! WaitForAllVerticesToBeRunningOrFinished(jobID)
+          jmGateway.tell(WaitForAllVerticesToBeRunningOrFinished(jobID), self)
 
           expectMsg(AllVerticesRunning(jobID))
 
-          jm ! RequestWorkingTaskManager(jobID)
+          jmGateway.tell(RequestWorkingTaskManager(jobID), self)
 
-          val tm = expectMsgType[WorkingTaskManager].taskManager
-          // kill one task manager
-          tm ! PoisonPill
+          val gatewayOption = expectMsgType[WorkingTaskManager].gatewayOption
 
-          val failure = expectMsgType[Failure]
+          gatewayOption match {
+            case Some(gateway) =>
+              // kill one task manager
+              gateway.tell(PoisonPill)
 
-          failure.cause match {
+            case None => fail("Could not retrieve a working task manager.")
+          }
+
+          val failure = expectMsgType[JobResultFailure]
+          val exception = failure.cause.deserializeError(getClass.getClassLoader())
+          exception match {
             case e: JobExecutionException =>
               jobGraph.getJobID should equal(e.getJobID)
 
@@ -130,8 +139,8 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
 
     "handle hard failing task manager" in {
       val num_tasks = 31
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
       sender.setInvokableClass(classOf[Sender])
       receiver.setInvokableClass(classOf[BlockingReceiver])
       sender.setParallelism(num_tasks)
@@ -141,25 +150,25 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
       val jobGraph = new JobGraph("Pointwise Job", sender, receiver)
       val jobID = jobGraph.getJobID
 
-      val cluster = ForkableFlinkMiniCluster.startCluster(num_tasks, 2)
+      val cluster = TestingUtils.startTestingCluster(num_tasks, 2)
 
       val taskManagers = cluster.getTaskManagers
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(TestingUtils.TESTING_DURATION)
 
       try {
         within(TestingUtils.TESTING_DURATION) {
-          jm ! SubmitJob(jobGraph, false)
-          expectMsg(Success(jobGraph.getJobID))
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID()))
 
-          jm ! WaitForAllVerticesToBeRunningOrFinished(jobID)
+          jmGateway.tell(WaitForAllVerticesToBeRunningOrFinished(jobID), self)
           expectMsg(AllVerticesRunning(jobID))
 
           // kill one task manager
           taskManagers(0) ! Kill
 
-          val failure = expectMsgType[Failure]
-
-          failure.cause match {
+          val failure = expectMsgType[JobResultFailure]
+          val exception = failure.cause.deserializeError(getClass.getClassLoader())
+          exception match {
             case e: JobExecutionException =>
               jobGraph.getJobID should equal(e.getJobID)
 
@@ -174,31 +183,33 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
     "go into a clean state in case of a TaskManager failure" in {
       val num_slots = 20      
 
-      val sender = new AbstractJobVertex("BlockingSender")
+      val sender = new JobVertex("BlockingSender")
       sender.setParallelism(num_slots)
       sender.setInvokableClass(classOf[BlockingNoOpInvokable])
       val jobGraph = new JobGraph("Blocking Testjob", sender)
 
-      val noOp = new AbstractJobVertex("NoOpInvokable")
+      val noOp = new JobVertex("NoOpInvokable")
       noOp.setParallelism(num_slots)
       noOp.setInvokableClass(classOf[NoOpInvokable])
       val jobGraph2 = new JobGraph("NoOp Testjob", noOp)
 
-      val cluster = startDeathwatchCluster(num_slots/2, 2)
+      val cluster = createDeathwatchCluster(num_slots/2, 2)
+
+      cluster.start()
 
       var tm = cluster.getTaskManagers(0)
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(TestingUtils.TESTING_DURATION)
 
       try{
         within(TestingUtils.TESTING_DURATION){
-          jm ! SubmitJob(jobGraph, false)
-          expectMsg(Success(jobGraph.getJobID))
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID))
 
           tm ! PoisonPill
 
-          val failure = expectMsgType[Failure]
-
-          failure.cause match {
+          val failure = expectMsgType[JobResultFailure]
+          val exception = failure.cause.deserializeError(getClass.getClassLoader())
+          exception match {
             case e: JobExecutionException =>
               jobGraph.getJobID should equal(e.getJobID)
 
@@ -213,9 +224,9 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
 
           expectMsg(RegisteredAtJobManager)
 
-          jm ! SubmitJob(jobGraph2, false)
+          jmGateway.tell(SubmitJob(jobGraph2, ListeningBehaviour.EXECUTION_RESULT), self)
 
-          expectMsgType[Success]
+          expectMsg(JobSubmitSuccess(jobGraph2.getJobID()))
 
           val result = expectMsgType[JobResultSuccess]
           result.result.getJobId() should equal(jobGraph2.getJobID)
@@ -226,15 +237,11 @@ with WordSpecLike with Matchers with BeforeAndAfterAll {
     }
   }
 
-  def startDeathwatchCluster(numSlots: Int, numTaskmanagers: Int): ForkableFlinkMiniCluster = {
+  def createDeathwatchCluster(numSlots: Int, numTaskmanagers: Int): TestingCluster = {
     val config = new Configuration()
     config.setInteger(ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS, numSlots)
-    config.setInteger(ConfigConstants.LOCAL_INSTANCE_MANAGER_NUMBER_TASK_MANAGER, numTaskmanagers)
-    config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_INTERVAL, "1000 ms")
-    config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_PAUSE, "4000 ms")
-    config.setString(ConfigConstants.DEFAULT_EXECUTION_RETRY_DELAY_KEY, "4000 ms")
-    config.setDouble(ConfigConstants.AKKA_WATCH_THRESHOLD, 5)
+    config.setInteger(ConfigConstants.LOCAL_NUMBER_TASK_MANAGER, numTaskmanagers)
 
-    new ForkableFlinkMiniCluster(config, singleActorSystem = false)
+    new TestingCluster(config, singleActorSystem = false)
   }
 }

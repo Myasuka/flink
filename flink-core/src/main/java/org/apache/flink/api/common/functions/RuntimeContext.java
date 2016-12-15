@@ -18,10 +18,8 @@
 
 package org.apache.flink.api.common.functions;
 
-import java.io.Serializable;
-import java.util.HashMap;
-import java.util.List;
-
+import org.apache.flink.annotation.Public;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.accumulators.DoubleCounter;
@@ -29,6 +27,17 @@ import org.apache.flink.api.common.accumulators.Histogram;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.accumulators.LongCounter;
 import org.apache.flink.api.common.cache.DistributedCache;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.state.ReducingState;
+import org.apache.flink.api.common.state.ReducingStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.metrics.MetricGroup;
+
+import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
 
 /**
  * A RuntimeContext contains information about the context in which functions are executed. Each parallel instance
@@ -38,6 +47,7 @@ import org.apache.flink.api.common.cache.DistributedCache;
  * A function can, during runtime, obtain the RuntimeContext via a call to
  * {@link AbstractRichFunction#getRuntimeContext()}.
  */
+@Public
 public interface RuntimeContext {
 
 	/**
@@ -48,6 +58,14 @@ public interface RuntimeContext {
 	String getTaskName();
 
 	/**
+	 * Returns the metric group for this parallel subtask.
+	 * 
+	 * @return The metric group for this parallel subtask.
+	 */
+	@PublicEvolving
+	MetricGroup getMetricGroup();
+
+	/**
 	 * Gets the parallelism with which the parallel task runs.
 	 * 
 	 * @return The parallelism with which the parallel task runs.
@@ -55,12 +73,28 @@ public interface RuntimeContext {
 	int getNumberOfParallelSubtasks();
 
 	/**
-	 * Gets the number of the parallel subtask. The numbering starts from 1 and goes up to the parallelism,
-	 * as returned by {@link #getNumberOfParallelSubtasks()}.
+	 * Gets the number of this parallel subtask. The numbering starts from 0 and goes up to
+	 * parallelism-1 (parallelism as returned by {@link #getNumberOfParallelSubtasks()}).
 	 * 
-	 * @return The number of the parallel subtask.
+	 * @return The index of the parallel subtask.
 	 */
 	int getIndexOfThisSubtask();
+
+	/**
+	 * Gets the attempt number of this parallel subtask. First attempt is numbered 0.
+	 *
+	 * @return Attempt number of the subtask.
+	 */
+	int getAttemptNumber();
+
+	/**
+	 * Returns the name of the task, appended with the subtask indicator, such as "MyTask (3/6)",
+	 * where 3 would be ({@link #getIndexOfThisSubtask()} + 1), and 6 would be
+	 * {@link #getNumberOfParallelSubtasks()}.
+	 *
+	 * @return The name of the task, with subtask indicator.
+	 */
+	String getTaskNameWithSubtasks();
 
 	/**
 	 * Returns the {@link org.apache.flink.api.common.ExecutionConfig} for the currently executing
@@ -75,15 +109,14 @@ public interface RuntimeContext {
 	 * @return The ClassLoader for user code classes.
 	 */
 	ClassLoader getUserCodeClassLoader();
-	
+
 	// --------------------------------------------------------------------------------------------
 
 	/**
-	 * Add this accumulator. Throws an exception if the counter is already
-	 * existing.
-	 * 
-	 * This is only needed to support generic accumulators (e.g. for
-	 * Set<String>). Didn't find a way to get this work with getAccumulator.
+	 * Add this accumulator. Throws an exception if the accumulator already exists in the same Task.
+	 * Note that the Accumulator name must have an unique name across the Flink job. Otherwise you will
+	 * get an error when incompatible accumulators from different Tasks are combined at the JobManager
+	 * upon job completion.
 	 */
 	<V, A extends Serializable> void addAccumulator(String name, Accumulator<V, A> accumulator);
 
@@ -97,32 +130,49 @@ public interface RuntimeContext {
 	<V, A extends Serializable> Accumulator<V, A> getAccumulator(String name);
 
 	/**
-	 * For system internal usage only. Use getAccumulator(...) to obtain a
-	 * accumulator. Use this as read-only.
+	 * Returns a map of all registered accumulators for this task.
+	 * The returned map must not be modified.
+	 * @deprecated Use getAccumulator(..) to obtain the value of an accumulator.
 	 */
-	HashMap<String, Accumulator<?, ?>> getAllAccumulators();
+	@Deprecated
+	@PublicEvolving
+	Map<String, Accumulator<?, ?>> getAllAccumulators();
 
 	/**
 	 * Convenience function to create a counter object for integers.
 	 */
+	@PublicEvolving
 	IntCounter getIntCounter(String name);
 
 	/**
 	 * Convenience function to create a counter object for longs.
 	 */
+	@PublicEvolving
 	LongCounter getLongCounter(String name);
 
 	/**
 	 * Convenience function to create a counter object for doubles.
 	 */
+	@PublicEvolving
 	DoubleCounter getDoubleCounter(String name);
 
 	/**
 	 * Convenience function to create a counter object for histograms.
 	 */
+	@PublicEvolving
 	Histogram getHistogram(String name);
 	
 	// --------------------------------------------------------------------------------------------
+
+	/**
+	 * Tests for the existence of the broadcast variable identified by the
+	 * given {@code name}.
+	 *
+	 * @param name The name under which the broadcast variable is registered;
+	 * @return Whether a broadcast variable exists for the given name.
+	 */
+	@PublicEvolving
+	boolean hasBroadcastVariable(String name);
 
 	/**
 	 * Returns the result bound to the broadcast variable identified by the 
@@ -160,4 +210,139 @@ public interface RuntimeContext {
 	 * @return The distributed cache of the worker executing this instance.
 	 */
 	DistributedCache getDistributedCache();
+	
+	// ------------------------------------------------------------------------
+	//  Methods for accessing state
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Gets a handle to the system's key/value state. The key/value state is only accessible
+	 * if the function is executed on a KeyedStream. On each access, the state exposes the value
+	 * for the the key of the element currently processed by the function.
+	 * Each function may have multiple partitioned states, addressed with different names.
+	 *
+	 * <p>Because the scope of each value is the key of the currently processed element,
+	 * and the elements are distributed by the Flink runtime, the system can transparently
+	 * scale out and redistribute the state and KeyedStream.
+	 *
+	 * <p>The following code example shows how to implement a continuous counter that counts
+	 * how many times elements of a certain key occur, and emits an updated count for that
+	 * element on each occurrence.
+	 *
+	 * <pre>{@code
+	 * DataStream<MyType> stream = ...;
+	 * KeyedStream<MyType> keyedStream = stream.keyBy("id");
+	 *
+	 * keyedStream.map(new RichMapFunction<MyType, Tuple2<MyType, Long>>() {
+	 *
+	 *     private ValueState<Long> count;
+	 *
+	 *     public void open(Configuration cfg) {
+	 *         state = getRuntimeContext().getState(
+	 *                 new ValueStateDescriptor<Long>("count", LongSerializer.INSTANCE, 0L));
+	 *     }
+	 *
+	 *     public Tuple2<MyType, Long> map(MyType value) {
+	 *         long count = state.value() + 1;
+	 *         state.update(value);
+	 *         return new Tuple2<>(value, count);
+	 *     }
+	 * });
+	 * }</pre>
+	 *
+	 * @param stateProperties The descriptor defining the properties of the stats.
+	 *
+	 * @param <T> The type of value stored in the state.
+	 *
+	 * @return The partitioned state object.
+	 *
+	 * @throws UnsupportedOperationException Thrown, if no partitioned state is available for the
+	 *                                       function (function is not part of a KeyedStream).
+	 */
+	@PublicEvolving
+	<T> ValueState<T> getState(ValueStateDescriptor<T> stateProperties);
+
+	/**
+	 * Gets a handle to the system's key/value list state. This state is similar to the state
+	 * accessed via {@link #getState(ValueStateDescriptor)}, but is optimized for state that
+	 * holds lists. One can adds elements to the list, or retrieve the list as a whole. 
+	 * 
+	 * <p>This state is only accessible if the function is executed on a KeyedStream.
+	 *
+	 * <pre>{@code
+	 * DataStream<MyType> stream = ...;
+	 * KeyedStream<MyType> keyedStream = stream.keyBy("id");
+	 *
+	 * keyedStream.map(new RichFlatMapFunction<MyType, List<MyType>>() {
+	 *
+	 *     private ListState<MyType> state;
+	 *
+	 *     public void open(Configuration cfg) {
+	 *         state = getRuntimeContext().getListState(
+	 *                 new ListStateDescriptor<>("myState", MyType.class));
+	 *     }
+	 *
+	 *     public void flatMap(MyType value, Collector<MyType> out) {
+	 *         if (value.isDivider()) {
+	 *             for (MyType t : state.get()) {
+	 *                 out.collect(t);
+	 *             }
+	 *         } else {
+	 *             state.add(value);
+	 *         }
+	 *     }
+	 * });
+	 * }</pre>
+	 *
+	 * @param stateProperties The descriptor defining the properties of the stats.
+	 *
+	 * @param <T> The type of value stored in the state.
+	 *
+	 * @return The partitioned state object.
+	 *
+	 * @throws UnsupportedOperationException Thrown, if no partitioned state is available for the
+	 *                                       function (function is not part os a KeyedStream).
+	 */
+	@PublicEvolving
+	<T> ListState<T> getListState(ListStateDescriptor<T> stateProperties);
+
+	/**
+	 * Gets a handle to the system's key/value list state. This state is similar to the state
+	 * accessed via {@link #getState(ValueStateDescriptor)}, but is optimized for state that
+	 * aggregates values.
+	 *
+	 * <p>This state is only accessible if the function is executed on a KeyedStream.
+	 *
+	 * <pre>{@code
+	 * DataStream<MyType> stream = ...;
+	 * KeyedStream<MyType> keyedStream = stream.keyBy("id");
+	 *
+	 * keyedStream.map(new RichMapFunction<MyType, List<MyType>>() {
+	 *
+	 *     private ReducingState<Long> sum;
+	 *
+	 *     public void open(Configuration cfg) {
+	 *         state = getRuntimeContext().getReducingState(
+	 *                 new ReducingStateDescriptor<>("sum", MyType.class, 0L, (a, b) -> a + b));
+	 *     }
+	 *
+	 *     public Tuple2<MyType, Long> map(MyType value) {
+	 *         sum.add(value.count());
+	 *         return new Tuple2<>(value, sum.get());
+	 *     }
+	 * });
+	 * 
+	 * }</pre>
+	 *
+	 * @param stateProperties The descriptor defining the properties of the stats.
+	 *
+	 * @param <T> The type of value stored in the state.
+	 *
+	 * @return The partitioned state object.
+	 *
+	 * @throws UnsupportedOperationException Thrown, if no partitioned state is available for the
+	 *                                       function (function is not part of a KeyedStream).
+	 */
+	@PublicEvolving
+	<T> ReducingState<T> getReducingState(ReducingStateDescriptor<T> stateProperties);
 }

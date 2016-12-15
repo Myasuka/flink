@@ -25,9 +25,9 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Queue;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * A buffer pool used to manage a number of {@link Buffer} instances from the
@@ -111,6 +111,11 @@ class LocalBufferPool implements BufferPool {
 	}
 
 	@Override
+	public int bestEffortGetNumOfUsedBuffers() {
+		return Math.max(0, numberOfRequestedMemorySegments - availableMemorySegments.size());
+	}
+
+	@Override
 	public void setBufferPoolOwner(BufferPoolOwner owner) {
 		synchronized (availableMemorySegments) {
 			checkState(this.owner == null, "Buffer pool owner has already been set.");
@@ -141,7 +146,7 @@ class LocalBufferPool implements BufferPool {
 
 			while (availableMemorySegments.isEmpty()) {
 				if (isDestroyed) {
-					return null;
+					throw new IllegalStateException("Buffer pool is destroyed.");
 				}
 
 				if (numberOfRequestedMemorySegments < currentPoolSize) {

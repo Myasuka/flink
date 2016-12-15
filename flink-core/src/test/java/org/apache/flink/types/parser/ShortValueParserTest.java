@@ -20,8 +20,6 @@
 package org.apache.flink.types.parser;
 
 import org.apache.flink.types.ShortValue;
-import org.apache.flink.types.parser.ShortValueParser;
-import org.apache.flink.types.parser.FieldParser;
 
 
 public class ShortValueParserTest extends ParserTestBase<ShortValue> {
@@ -46,8 +44,13 @@ public class ShortValueParserTest extends ParserTestBase<ShortValue> {
 	public String[] getInvalidTestValues() {
 		return new String[] {
 			"a", "1569a86", "-57-6", "7-877678", String.valueOf(Short.MAX_VALUE) + "0", String.valueOf(Integer.MIN_VALUE),
-			String.valueOf(Short.MAX_VALUE + 1), String.valueOf(Short.MIN_VALUE - 1)
+			String.valueOf(Short.MAX_VALUE + 1), String.valueOf(Short.MIN_VALUE - 1), " 1", "2 ", " ", "\t"
 		};
+	}
+
+	@Override
+	public boolean allowsEmptyField() {
+		return false;
 	}
 
 	@Override

@@ -21,6 +21,7 @@ package org.apache.flink.runtime.io.disk.iomanager;
 import org.apache.commons.io.FileUtils;
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,9 +64,6 @@ public abstract class IOManager {
 	/** The number of the next path to use. */
 	private volatile int nextPath;
 
-	/** Shutdown hook to make sure that the directories are removed on exit */
-	private final Thread shutdownHook;
-
 	// -------------------------------------------------------------------------
 	//               Constructors / Destructors
 	// -------------------------------------------------------------------------
@@ -96,21 +94,6 @@ public abstract class IOManager {
 			paths[i] = storageDir;
 			LOG.info("I/O manager uses directory {} for spill files.", storageDir.getAbsolutePath());
 		}
-
-		this.shutdownHook = new Thread("I/O manager shutdown hook") {
-			@Override
-			public void run() {
-				shutdown();
-			}
-		};
-		try {
-			Runtime.getRuntime().addShutdownHook(this.shutdownHook);
-		} catch (IllegalStateException e) {
-			// race, JVM is in shutdown already, we can safely ignore this
-			LOG.debug("Unable to add shutdown hook, shutdown already in progress", e);
-		} catch (Throwable t) {
-			LOG.warn("Error while adding shutdown hook for IOManager", t);
-		}
 	}
 
 	/**
@@ -129,20 +112,6 @@ public abstract class IOManager {
 				}
 			} catch (Throwable t) {
 				LOG.error("IOManager failed to properly clean up temp file directory: " + path, t);
-			}
-		}
-
-		// Remove shutdown hook to prevent resource leaks, unless this is invoked by the shutdown hook itself
-		if (shutdownHook != Thread.currentThread()) {
-			try {
-				Runtime.getRuntime().removeShutdownHook(shutdownHook);
-			}
-			catch (IllegalStateException e) {
-				// race, JVM is in shutdown already, we can safely ignore this
-				LOG.debug("Unable to remove shutdown hook, shutdown already in progress", e);
-			}
-			catch (Throwable t) {
-				LOG.warn("Exception while unregistering IOManager's shutdown hook.", t);
 			}
 		}
 	}
@@ -301,8 +270,30 @@ public abstract class IOManager {
 	 * 
 	 * @return The number of temporary file directories.
 	 */
-	public int getNumberOfTempDirs() {
+	public int getNumberOfSpillingDirectories() {
 		return this.paths.length;
+	}
+
+	/**
+	 * Gets the directories that the I/O manager spills to.
+	 * 
+	 * @return The directories that the I/O manager spills to.
+	 */
+	public File[] getSpillingDirectories() {
+		return this.paths;
+	}
+
+	/**
+	 * Gets the directories that the I/O manager spills to, as path strings.
+	 *
+	 * @return The directories that the I/O manager spills to, as path strings.
+	 */
+	public String[] getSpillingDirectoriesPaths() {
+		String[] strings = new String[this.paths.length];
+		for (int i = 0; i < strings.length; i++) {
+			strings[i] = paths[i].getAbsolutePath();
+		}
+		return strings;
 	}
 	
 	protected int getNextPathNum() {

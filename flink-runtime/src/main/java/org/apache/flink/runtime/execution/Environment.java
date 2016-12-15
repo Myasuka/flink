@@ -18,75 +18,100 @@
 
 package org.apache.flink.runtime.execution;
 
-import akka.actor.ActorRef;
-import org.apache.flink.api.common.accumulators.Accumulator;
+import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.accumulators.AccumulatorRegistry;
 import org.apache.flink.runtime.broadcast.BroadcastVariableManager;
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.SubtaskState;
+import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
-import org.apache.flink.runtime.jobgraph.JobGraph;
-import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
-import org.apache.flink.runtime.memorymanager.MemoryManager;
+import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
+import org.apache.flink.runtime.query.TaskKvStateRegistry;
+import org.apache.flink.runtime.state.KvState;
+import org.apache.flink.runtime.taskmanager.TaskManagerRuntimeInfo;
 
 import java.util.Map;
-import java.util.concurrent.FutureTask;
+import java.util.concurrent.Future;
 
 /**
- * The user code of every task runs inside an <code>Environment</code> object.
- * The environment provides important services to the task. It keeps track of
- * setting up the communication channels and provides access to input splits,
- * memory manager, etc.
+ * The Environment gives the code executed in a task access to the task's properties
+ * (such as name, parallelism), the configurations, the data stream readers and writers,
+ * as well as the various components that are provided by the TaskManager, such as
+ * memory manager, I/O manager, ...
  */
 public interface Environment {
 
 	/**
-	 * Returns the ID of the job from the original job graph. It is used by the library cache manager to find the
-	 * required
-	 * libraries for executing the assigned Nephele task.
+	 * Returns the job specific {@link ExecutionConfig}.
+	 *
+	 * @return The execution configuration associated with the current job.
+	 * */
+	ExecutionConfig getExecutionConfig();
+
+	/**
+	 * Returns the ID of the job that the task belongs to.
 	 *
 	 * @return the ID of the job from the original job graph
 	 */
 	JobID getJobID();
 
 	/**
-	 * Gets the ID of the jobVertex that this task corresponds to.
+	 * Gets the ID of the JobVertex for which this task executes a parallel subtask.
 	 *
 	 * @return The JobVertexID of this task.
 	 */
 	JobVertexID getJobVertexId();
 
 	/**
-	 * Returns the task configuration object which was attached to the original JobVertex.
+	 * Gets the ID of the task execution attempt.
 	 *
-	 * @return the task configuration object which was attached to the original JobVertex.
+	 * @return The ID of the task execution attempt.
+	 */
+	ExecutionAttemptID getExecutionId();
+
+	/**
+	 * Returns the task-wide configuration object, originally attached to the job vertex.
+	 *
+	 * @return The task-wide configuration
 	 */
 	Configuration getTaskConfiguration();
 
 	/**
-	 * Returns the job configuration object which was attached to the original {@link JobGraph}.
+	 * Gets the task manager info, with configuration and hostname.
+	 * 
+	 * @return The task manager info, with configuration and hostname. 
+	 */
+	TaskManagerRuntimeInfo getTaskManagerInfo();
+
+	/**
+	 * Returns the task specific metric group.
+	 * 
+	 * @return The MetricGroup of this task.
+     */
+	TaskMetricGroup getMetricGroup();
+
+	/**
+	 * Returns the job-wide configuration object that was attached to the JobGraph.
 	 *
-	 * @return the job configuration object which was attached to the original {@link JobGraph}
+	 * @return The job-wide configuration
 	 */
 	Configuration getJobConfiguration();
 
 	/**
-	 * Returns the current number of subtasks the respective task is split into.
+	 * Returns the {@link TaskInfo} object associated with this subtask
 	 *
-	 * @return the current number of subtasks the respective task is split into
+	 * @return TaskInfo for this subtask
 	 */
-	int getNumberOfSubtasks();
-
-	/**
-	 * Returns the index of this subtask in the subtask group. The index
-	 * is between 0 and {@link #getNumberOfSubtasks()} - 1.
-	 *
-	 * @return the index of this subtask in the subtask group
-	 */
-	int getIndexInSubtaskGroup();
+	TaskInfo getTaskInfo();
 
 	/**
 	 * Returns the input split provider assigned to this environment.
@@ -111,37 +136,65 @@ public interface Environment {
 	MemoryManager getMemoryManager();
 
 	/**
-	 * Returns the name of the task running in this environment.
-	 *
-	 * @return the name of the task running in this environment
-	 */
-	String getTaskName();
-
-	/**
-	 * Returns the name of the task running in this environment, appended
-	 * with the subtask indicator, such as "MyTask (3/6)", where
-	 * 3 would be ({@link #getIndexInSubtaskGroup()} + 1), and 6 would be
-	 * {@link #getNumberOfSubtasks()}.
-	 *
-	 * @return The name of the task running in this environment, with subtask indicator.
-	 */
-	String getTaskNameWithSubtasks();
-
-	/**
 	 * Returns the user code class loader
 	 */
 	ClassLoader getUserClassLoader();
 
-	Map<String, FutureTask<Path>> getCopyTask();
+	Map<String, Future<Path>> getDistributedCacheEntries();
 
 	BroadcastVariableManager getBroadcastVariableManager();
 
 	/**
-	 * Reports the given set of accumulators to the JobManager.
-	 *
-	 * @param accumulators The accumulators to report.
+	 * Return the registry for accumulators which are periodically sent to the job manager.
+	 * @return the registry
 	 */
-	void reportAccumulators(Map<String, Accumulator<?, ?>> accumulators);
+	AccumulatorRegistry getAccumulatorRegistry();
+
+	/**
+	 * Returns the registry for {@link KvState} instances.
+	 *
+	 * @return KvState registry
+	 */
+	TaskKvStateRegistry getTaskKvStateRegistry();
+
+	/**
+	 * Confirms that the invokable has successfully completed all steps it needed to
+	 * to for the checkpoint with the give checkpoint-ID. This method does not include
+	 * any state in the checkpoint.
+	 * 
+	 * @param checkpointMetaData the meta data for this checkpoint
+	 */
+	void acknowledgeCheckpoint(CheckpointMetaData checkpointMetaData);
+
+	/**
+	 * Confirms that the invokable has successfully completed all required steps for
+	 * the checkpoint with the give checkpoint-ID. This method does include
+	 * the given state in the checkpoint.
+	 *
+	 * @param checkpointMetaData the meta data for this checkpoint
+	 * @param subtaskState All state handles for the checkpointed state
+	 */
+	void acknowledgeCheckpoint(CheckpointMetaData checkpointMetaData, SubtaskState subtaskState);
+
+	/**
+	 * Declines a checkpoint. This tells the checkpoint coordinator that this task will
+	 * not be able to successfully complete a certain checkpoint.
+	 * 
+	 * @param checkpointId The ID of the declined checkpoint.
+	 * @param cause An optional reason why the checkpoint was declined.
+	 */
+	void declineCheckpoint(long checkpointId, Throwable cause);
+
+	/**
+	 * Marks task execution failed for an external reason (a reason other than the task code itself
+	 * throwing an exception). If the task is already in a terminal state
+	 * (such as FINISHED, CANCELED, FAILED), or if the task is already canceling this does nothing.
+	 * Otherwise it sets the state to FAILED, and, if the invokable code is running,
+	 * starts an asynchronous thread that aborts that code.
+	 *
+	 * <p>This method never blocks.
+	 */
+	void failExternally(Throwable cause);
 
 	// --------------------------------------------------------------------------------------------
 	//  Fields relevant to the I/O system. Should go into Task
@@ -154,14 +207,4 @@ public interface Environment {
 	InputGate getInputGate(int index);
 
 	InputGate[] getAllInputGates();
-
-
-	/**
-	 * Returns the proxy object for the accumulator protocol.
-	 */
-	// THIS DOES NOT BELONG HERE, THIS TOTALLY BREAKS COMPONENTIZATION.
-	// THE EXECUTED TASKS HAVE BEEN KEPT INDEPENDENT OF ANY RPC OR ACTOR
-	// COMMUNICATION !!!
-	ActorRef getJobManager();
-
 }

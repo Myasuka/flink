@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.aggregators.AggregatorRegistry;
 import org.apache.flink.api.common.functions.AbstractRichFunction;
@@ -53,6 +54,7 @@ import org.apache.flink.util.Visitor;
  * This class is a subclass of {@code DualInputOperator}. The solution set is considered the first input, the
  * workset is considered the second input.
  */
+@Internal
 public class DeltaIterationBase<ST, WT> extends DualInputOperator<ST, WT, ST, AbstractRichFunction> implements IterationOperator {
 	
 	private final Operator<ST> solutionSetPlaceholder;
@@ -84,7 +86,7 @@ public class DeltaIterationBase<ST, WT> extends DualInputOperator<ST, WT, ST, Ab
 	}
 
 	public DeltaIterationBase(BinaryOperatorInformation<ST, WT, ST> operatorInfo, int[] keyPositions) {
-		this(operatorInfo, keyPositions, "<Unnamed Workset-Iteration>");
+		this(operatorInfo, keyPositions, "<Unnamed Delta Iteration>");
 	}
 
 	public DeltaIterationBase(BinaryOperatorInformation<ST, WT, ST> operatorInfo, int keyPosition, String name) {
@@ -283,7 +285,7 @@ public class DeltaIterationBase<ST, WT> extends DualInputOperator<ST, WT, ST, Ab
 		private final DeltaIterationBase<?, WT> containingIteration;
 
 		public WorksetPlaceHolder(DeltaIterationBase<?, WT> container, OperatorInformation<WT> operatorInfo) {
-			super(operatorInfo, "Workset Place Holder");
+			super(operatorInfo, "Workset");
 			this.containingIteration = container;
 		}
 
@@ -312,7 +314,7 @@ public class DeltaIterationBase<ST, WT> extends DualInputOperator<ST, WT, ST, Ab
 		protected final DeltaIterationBase<ST, ?> containingIteration;
 
 		public SolutionSetPlaceHolder(DeltaIterationBase<ST, ?> container, OperatorInformation<ST> operatorInfo) {
-			super(operatorInfo, "Solution Set Place Holder");
+			super(operatorInfo, "Solution Set");
 			this.containingIteration = container;
 		}
 

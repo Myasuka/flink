@@ -19,21 +19,23 @@
 package org.apache.flink.runtime.operators;
 
 import org.apache.flink.api.common.functions.Function;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.operators.util.metrics.CountingCollector;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.MutableObjectIterator;
 
-public class UnionWithTempOperator<T> implements PactDriver<Function, T> {
+public class UnionWithTempOperator<T> implements Driver<Function, T> {
 	
 	private static final int CACHED_INPUT = 0;
 	private static final int STREAMED_INPUT = 1;
 	
-	private PactTaskContext<Function, T> taskContext;
+	private TaskContext<Function, T> taskContext;
 	
 	private volatile boolean running;
 	
 	
 	@Override
-	public void setup(PactTaskContext<Function, T> context) {
+	public void setup(TaskContext<Function, T> context) {
 		this.taskContext = context;
 		this.running = true;
 	}
@@ -58,17 +60,22 @@ public class UnionWithTempOperator<T> implements PactDriver<Function, T> {
 
 	@Override
 	public void run() throws Exception {
+		final Counter numRecordsIn = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
 		
-		final Collector<T> output = this.taskContext.getOutputCollector();
-		T record = this.taskContext.<T>getInputSerializer(STREAMED_INPUT).getSerializer().createInstance();
+		final Collector<T> output = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
+		T reuse = this.taskContext.<T>getInputSerializer(STREAMED_INPUT).getSerializer().createInstance();
+		T record;
 		
 		final MutableObjectIterator<T> input = this.taskContext.getInput(STREAMED_INPUT);
-		while (this.running && ((record = input.next(record)) != null)) {
+		while (this.running && ((record = input.next(reuse)) != null)) {
+			numRecordsIn.inc();
 			output.collect(record);
 		}
 		
 		final MutableObjectIterator<T> cache = this.taskContext.getInput(CACHED_INPUT);
-		while (this.running && ((record = cache.next(record)) != null)) {
+		while (this.running && ((record = cache.next(reuse)) != null)) {
+			numRecordsIn.inc();
 			output.collect(record);
 		}
 	}

@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.io.network.buffer;
 
 import com.google.common.collect.Lists;
+import org.apache.flink.core.memory.MemoryType;
 import org.apache.flink.runtime.util.event.EventListener;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -61,7 +62,7 @@ public class LocalBufferPoolTest {
 
 	@Before
 	public void setupLocalBufferPool() {
-		networkBufferPool = new NetworkBufferPool(numBuffers, memorySegmentSize);
+		networkBufferPool = new NetworkBufferPool(numBuffers, memorySegmentSize, MemoryType.HEAP);
 		localBufferPool = new LocalBufferPool(networkBufferPool, 1);
 
 		assertEquals(0, localBufferPool.getNumberOfAvailableMemorySegments());
@@ -113,7 +114,13 @@ public class LocalBufferPoolTest {
 	public void testRequestAfterDestroy() throws IOException {
 		localBufferPool.lazyDestroy();
 
-		assertNull(localBufferPool.requestBuffer());
+		try {
+			localBufferPool.requestBuffer();
+			fail("Call should have failed with an IllegalStateException");
+		}
+		catch (IllegalStateException e) {
+			// we expect exactly that
+		}
 	}
 
 	@Test
@@ -292,7 +299,13 @@ public class LocalBufferPoolTest {
 
 				// Try to request the next buffer (but pool should be destroyed either right before
 				// the request or more likely during the request).
-				assertNull(localBufferPool.requestBufferBlocking());
+				try {
+					localBufferPool.requestBufferBlocking();
+					fail("Call should have failed with an IllegalStateException");
+				}
+				catch (IllegalStateException e) {
+					// we expect exactly that
+				}
 
 				return requested;
 			}

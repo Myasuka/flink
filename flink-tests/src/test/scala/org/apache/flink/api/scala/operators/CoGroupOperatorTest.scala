@@ -17,7 +17,11 @@
  */
 package org.apache.flink.api.scala.operators
 
-import org.apache.flink.api.java.operators.Keys.IncompatibleKeysException
+import java.util
+
+import org.apache.flink.api.common.InvalidProgramException
+import org.apache.flink.api.common.operators.Keys
+import Keys.IncompatibleKeysException
 import org.junit.Assert
 import org.junit.Test
 import org.apache.flink.api.scala._
@@ -63,7 +67,7 @@ class CoGroupOperatorTest {
     ds1.coGroup(ds2).where(0, 1).equalTo(2)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[IndexOutOfBoundsException])
   def testCoGroupKeyFields4(): Unit =  {
     val env = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
@@ -73,7 +77,7 @@ class CoGroupOperatorTest {
     ds1.coGroup(ds2).where(5).equalTo(0)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[IndexOutOfBoundsException])
   def testCoGroupKeyFields5(): Unit =  {
     val env = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
@@ -83,14 +87,14 @@ class CoGroupOperatorTest {
     ds1.coGroup(ds2).where(-1).equalTo(-1)
   }
 
-  @Test(expected = classOf[IllegalArgumentException])
+  @Test(expected = classOf[InvalidProgramException])
   def testCoGroupKeyFields6(): Unit = {
     val env: ExecutionEnvironment = ExecutionEnvironment.getExecutionEnvironment
     val ds1 = env.fromCollection(emptyTupleData)
     val ds2 = env.fromCollection(customTypeData)
 
     // Should not work, field position key on custom data type
-    ds1.coGroup(ds2).where(5).equalTo(0)
+    ds1.coGroup(ds2).where(4).equalTo(0)
   }
 
   @Test
@@ -267,6 +271,60 @@ class CoGroupOperatorTest {
 
     // Should not work, more than one field position key
     ds1.coGroup(ds2).where(1, 3).equalTo { _.myLong }
+  }
+
+  @Test
+  def testCoGroupWithAtomic1(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyTupleData)
+    val ds2 = env.fromElements(0, 1, 2)
+
+    ds1.coGroup(ds2).where(0).equalTo("*")
+  }
+
+  @Test
+  def testCoGroupWithAtomic2(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromElements(0, 1, 2)
+    val ds2 = env.fromCollection(emptyTupleData)
+
+    ds1.coGroup(ds2).where("*").equalTo(0)
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testCoGroupWithInvalidAtomic1(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromElements(0, 1, 2)
+    val ds2 = env.fromCollection(emptyTupleData)
+
+    ds1.coGroup(ds2).where("invalidKey")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testCoGroupWithInvalidAtomic2(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromCollection(emptyTupleData)
+    val ds2 = env.fromElements(0, 1, 2)
+
+    ds1.coGroup(ds2).where(0).equalTo("invalidKey")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testCoGroupWithInvalidAtomic3(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromElements(new util.ArrayList[Integer]())
+    val ds2 = env.fromElements(0, 0, 0)
+
+    ds1.coGroup(ds2).where("*")
+  }
+
+  @Test(expected = classOf[InvalidProgramException])
+  def testCoGroupWithInvalidAtomic4(): Unit = {
+    val env = ExecutionEnvironment.getExecutionEnvironment
+    val ds1 = env.fromElements(0, 0, 0)
+    val ds2 = env.fromElements(new util.ArrayList[Integer]())
+
+    ds1.coGroup(ds2).where("*").equalTo("*")
   }
 }
 

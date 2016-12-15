@@ -21,6 +21,7 @@ package org.apache.flink.api.java.operators.translation;
 
 import static org.junit.Assert.*;
 
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.common.operators.GenericDataSinkBase;
 import org.apache.flink.api.common.operators.GenericDataSourceBase;
@@ -29,6 +30,7 @@ import org.apache.flink.api.common.operators.base.ReduceOperatorBase;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.common.functions.RichReduceFunction;
+import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
@@ -54,7 +56,7 @@ public class ReduceTranslationTests implements java.io.Serializable {
 				public Tuple3<Double, StringValue, LongValue> reduce(Tuple3<Double, StringValue, LongValue> value1, Tuple3<Double, StringValue, LongValue> value2) {
 					return value1;
 				}
-			}).print();
+			}).output(new DiscardingOutputFormat<Tuple3<Double, StringValue, LongValue>>());
 			
 			Plan p = env.createProgramPlan();
 			
@@ -70,7 +72,7 @@ public class ReduceTranslationTests implements java.io.Serializable {
 			assertTrue(reducer.getKeyColumns(0) == null || reducer.getKeyColumns(0).length == 0);
 			
 			// parallelism was not configured on the operator
-			assertTrue(reducer.getParallelism() == 1 || reducer.getParallelism() == -1);
+			assertTrue(reducer.getParallelism() == 1 || reducer.getParallelism() == ExecutionConfig.PARALLELISM_DEFAULT);
 			
 			assertTrue(reducer.getInput() instanceof GenericDataSourceBase<?, ?>);
 		}
@@ -96,7 +98,7 @@ public class ReduceTranslationTests implements java.io.Serializable {
 						return value1;
 					}
 				})
-				.print();
+				.output(new DiscardingOutputFormat<Tuple3<Double, StringValue, LongValue>>());
 			
 			Plan p = env.createProgramPlan();
 			
@@ -109,7 +111,7 @@ public class ReduceTranslationTests implements java.io.Serializable {
 			assertEquals(initialData.getType(), reducer.getOperatorInfo().getOutputType());
 			
 			// parallelism was not configured on the operator
-			assertTrue(reducer.getParallelism() == parallelism || reducer.getParallelism() == -1);
+			assertTrue(reducer.getParallelism() == parallelism || reducer.getParallelism() == ExecutionConfig.PARALLELISM_DEFAULT);
 			
 			// check keys
 			assertArrayEquals(new int[] {2}, reducer.getKeyColumns(0));
@@ -143,7 +145,7 @@ public class ReduceTranslationTests implements java.io.Serializable {
 						return value1;
 					}
 				}).setParallelism(4)
-				.print();
+				.output(new DiscardingOutputFormat<Tuple3<Double, StringValue, LongValue>>());
 			
 			Plan p = env.createProgramPlan();
 			

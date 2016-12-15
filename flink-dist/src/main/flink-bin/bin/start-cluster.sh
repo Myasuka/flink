@@ -17,32 +17,47 @@
 # limitations under the License.
 ################################################################################
 
+# Start a Flink cluster in batch or streaming mode
+USAGE="Usage: start-cluster.sh [batch|streaming]"
+
+STREAMING_MODE=$1
 
 bin=`dirname "$0"`
 bin=`cd "$bin"; pwd`
 
 . "$bin"/config.sh
 
-HOSTLIST=$FLINK_SLAVES
+# Start the JobManager instance(s)
+shopt -s nocasematch
+if [[ $HIGH_AVAILABILITY == "zookeeper" ]]; then
+    # HA Mode
+    readMasters
 
-if [ "$HOSTLIST" = "" ]; then
-    HOSTLIST="${FLINK_CONF_DIR}/slaves"
+    echo "Starting HA cluster with ${#MASTERS[@]} masters."
+
+    for ((i=0;i<${#MASTERS[@]};++i)); do
+        master=${MASTERS[i]}
+        webuiport=${WEBUIPORTS[i]}
+        ssh -n $FLINK_SSH_OPTS $master -- "nohup /bin/bash -l \"${FLINK_BIN_DIR}/jobmanager.sh\" start cluster ${master} ${webuiport} &"
+    done
+
+else
+    echo "Starting cluster."
+
+    # Start single JobManager on this machine
+    "$FLINK_BIN_DIR"/jobmanager.sh start cluster
 fi
+shopt -u nocasematch
 
-if [ ! -f "$HOSTLIST" ]; then
-    echo $HOSTLIST is not a valid slave list
-    exit 1
+# Start TaskManager instance(s) using pdsh (Parallel Distributed Shell) when available
+readSlaves
+
+command -v pdsh >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    for slave in ${SLAVES[@]}; do
+        ssh -n $FLINK_SSH_OPTS $slave -- "nohup /bin/bash -l \"${FLINK_BIN_DIR}/taskmanager.sh\" start &"
+    done
+else
+    PDSH_SSH_ARGS="" PDSH_SSH_ARGS_APPEND="${FLINK_SSH_OPTS}" pdsh -w $(IFS=, ; echo "${SLAVES[*]}") \
+        "nohup /bin/bash -l \"${FLINK_BIN_DIR}/taskmanager.sh\" start"
 fi
-
-# cluster mode, bring up job manager locally and a task manager on every slave host
-"$FLINK_BIN_DIR"/jobmanager.sh start cluster
-
-GOON=true
-while $GOON
-do
-    read line || GOON=false
-    if [ -n "$line" ]; then
-        HOST=$( extractHostName $line)
-        ssh -n $FLINK_SSH_OPTS $HOST -- "nohup /bin/bash -l $FLINK_BIN_DIR/taskmanager.sh start &"
-    fi
-done < "$HOSTLIST"

@@ -18,23 +18,32 @@
 
 package org.apache.flink.runtime.jobmanager
 
-import akka.actor.Status.Success
-import akka.actor.{ActorRef, PoisonPill, ActorSystem}
+import akka.actor.{PoisonPill, ActorSystem}
 import akka.testkit.{ImplicitSender, TestKit}
+import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.configuration.{ConfigConstants, Configuration}
-import org.apache.flink.runtime.jobgraph.{JobStatus, JobGraph, DistributionPattern,AbstractJobVertex}
+import org.apache.flink.runtime.akka.ListeningBehaviour
+import org.apache.flink.runtime.jobgraph.{JobStatus, JobGraph, DistributionPattern, JobVertex}
 import org.apache.flink.runtime.jobmanager.Tasks.{BlockingOnceReceiver, FailingOnceReceiver}
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup
-import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultSuccess, SubmitJob}
+import org.apache.flink.runtime.messages.JobManagerMessages.{JobSubmitSuccess, JobResultSuccess, SubmitJob}
 import org.apache.flink.runtime.testingUtils.TestingJobManagerMessages._
-import org.apache.flink.runtime.testingUtils.{TestingCluster, TestingUtils}
+import org.apache.flink.runtime.testingUtils.{ScalaTestingUtils, TestingCluster, TestingUtils}
 import org.junit.runner.RunWith
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import org.scalatest.junit.JUnitRunner
+import scala.concurrent.duration._
+
+import language.postfixOps
 
 @RunWith(classOf[JUnitRunner])
-class RecoveryITCase(_system: ActorSystem) extends TestKit(_system) with ImplicitSender with
-WordSpecLike with Matchers with BeforeAndAfterAll {
+class RecoveryITCase(_system: ActorSystem)
+  extends TestKit(_system)
+  with ImplicitSender
+  with WordSpecLike
+  with Matchers
+  with BeforeAndAfterAll
+  with ScalaTestingUtils {
 
   def this() = this(ActorSystem("TestingActorSystem", TestingUtils.testConfig))
 
@@ -42,14 +51,18 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
     TestKit.shutdownActorSystem(system)
   }
 
-  def startTestClusterWithHeartbeatTimeout(numSlots: Int,
-                                                numTaskManagers: Int,
-                                                heartbeatTimeout: String): TestingCluster = {
+  def createTestClusterWithHeartbeatTimeout(
+      numSlots: Int,
+      numTaskManagers: Int,
+      heartbeatTimeout: String)
+    : TestingCluster = {
     val config = new Configuration()
     config.setInteger(ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS, numSlots)
-    config.setInteger(ConfigConstants.LOCAL_INSTANCE_MANAGER_NUMBER_TASK_MANAGER, numTaskManagers)
+    config.setInteger(ConfigConstants.LOCAL_NUMBER_TASK_MANAGER, numTaskManagers)
     config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_PAUSE, heartbeatTimeout)
-    config.setString(ConfigConstants.DEFAULT_EXECUTION_RETRY_DELAY_KEY, heartbeatTimeout)
+    config.setString(ConfigConstants.RESTART_STRATEGY, "fixeddelay")
+    config.setInteger(ConfigConstants.RESTART_STRATEGY_FIXED_DELAY_ATTEMPTS, 1)
+    config.setString(ConfigConstants.RESTART_STRATEGY_FIXED_DELAY_DELAY, heartbeatTimeout)
     new TestingCluster(config)
   }
 
@@ -59,8 +72,8 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
     "recover once failing forward job" in {
       FailingOnceReceiver.failed = false
 
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
 
       sender.setInvokableClass(classOf[Tasks.Sender])
       receiver.setInvokableClass(classOf[Tasks.FailingOnceReceiver])
@@ -70,17 +83,22 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
 
       receiver.connectNewDataSetAsInput(sender, DistributionPattern.POINTWISE)
 
-      val jobGraph = new JobGraph("Pointwise job", sender, receiver)
-      jobGraph.setNumberOfExecutionRetries(1)
+      val executionConfig = new ExecutionConfig()
+      executionConfig.setNumberOfExecutionRetries(1);
 
-      val cluster = startTestClusterWithHeartbeatTimeout(2 * NUM_TASKS, 1, "2 s")
-      val jm = cluster.getJobManager
+      val jobGraph = new JobGraph("Pointwise job", sender, receiver)
+      jobGraph.setExecutionConfig(executionConfig)
+
+      val cluster = createTestClusterWithHeartbeatTimeout(2 * NUM_TASKS, 1, "2 s")
+      cluster.start()
+
+      val jmGateway = cluster.getLeaderGateway(1 seconds)
 
       try {
         within(TestingUtils.TESTING_DURATION){
-          jm ! SubmitJob(jobGraph, false)
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
 
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID))
 
           val result = expectMsgType[JobResultSuccess]
 
@@ -98,8 +116,8 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
     "recover once failing forward job with slot sharing" in {
       FailingOnceReceiver.failed = false
 
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
 
       sender.setInvokableClass(classOf[Tasks.Sender])
       receiver.setInvokableClass(classOf[Tasks.FailingOnceReceiver])
@@ -113,17 +131,22 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
       sender.setSlotSharingGroup(sharingGroup)
       receiver.setSlotSharingGroup(sharingGroup)
 
-      val jobGraph = new JobGraph("Pointwise job", sender, receiver)
-      jobGraph.setNumberOfExecutionRetries(1)
+      val executionConfig = new ExecutionConfig()
+      executionConfig.setNumberOfExecutionRetries(1);
 
-      val cluster = startTestClusterWithHeartbeatTimeout(NUM_TASKS, 1, "2 s")
-      val jm = cluster.getJobManager
+      val jobGraph = new JobGraph("Pointwise job", sender, receiver)
+      jobGraph.setExecutionConfig(executionConfig)
+
+      val cluster = createTestClusterWithHeartbeatTimeout(NUM_TASKS, 1, "2 s")
+      cluster.start()
+
+      val jmGateway = cluster.getLeaderGateway(1 seconds)
 
       try {
         within(TestingUtils.TESTING_DURATION){
-          jm ! SubmitJob(jobGraph, false)
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
 
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID))
 
           val result = expectMsgType[JobResultSuccess]
 
@@ -141,8 +164,8 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
     "recover a task manager failure" in {
       BlockingOnceReceiver.blocking = true
 
-      val sender = new AbstractJobVertex("Sender")
-      val receiver = new AbstractJobVertex("Receiver")
+      val sender = new JobVertex("Sender")
+      val receiver = new JobVertex("Receiver")
 
       sender.setInvokableClass(classOf[Tasks.Sender])
       receiver.setInvokableClass(classOf[Tasks.BlockingOnceReceiver])
@@ -156,33 +179,37 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
       sender.setSlotSharingGroup(sharingGroup)
       receiver.setSlotSharingGroup(sharingGroup)
 
+      val executionConfig = new ExecutionConfig()
+      executionConfig.setNumberOfExecutionRetries(1);
+
       val jobGraph = new JobGraph("Pointwise job", sender, receiver)
-      jobGraph.setNumberOfExecutionRetries(1)
+      jobGraph.setExecutionConfig(executionConfig)
 
-      val cluster = startTestClusterWithHeartbeatTimeout(NUM_TASKS, 2, "2 s")
+      val cluster = createTestClusterWithHeartbeatTimeout(NUM_TASKS, 2, "2 s")
+      cluster.start()
 
-      val jm = cluster.getJobManager
+      val jmGateway = cluster.getLeaderGateway(1 seconds)
 
       try {
         within(TestingUtils.TESTING_DURATION){
-          jm ! SubmitJob(jobGraph, false)
+          jmGateway.tell(SubmitJob(jobGraph, ListeningBehaviour.EXECUTION_RESULT), self)
 
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(JobSubmitSuccess(jobGraph.getJobID))
 
-          jm ! WaitForAllVerticesToBeRunningOrFinished(jobGraph.getJobID)
+          jmGateway.tell(WaitForAllVerticesToBeRunningOrFinished(jobGraph.getJobID), self)
 
           expectMsg(AllVerticesRunning(jobGraph.getJobID))
 
           BlockingOnceReceiver.blocking = false
-          jm ! NotifyWhenJobStatus(jobGraph.getJobID, JobStatus.RESTARTING)
-          jm ! RequestWorkingTaskManager(jobGraph.getJobID)
+          jmGateway.tell(NotifyWhenJobStatus(jobGraph.getJobID, JobStatus.RESTARTING), self)
+          jmGateway.tell(RequestWorkingTaskManager(jobGraph.getJobID), self)
 
-          val WorkingTaskManager(tm) = expectMsgType[WorkingTaskManager]
+          val WorkingTaskManager(gatewayOption) = expectMsgType[WorkingTaskManager]
 
-          tm match {
-            case ActorRef.noSender => fail("There has to be at least one task manager on which" +
+          gatewayOption match {
+            case None => fail("There has to be at least one task manager on which" +
               "the tasks are running.")
-            case t => t ! PoisonPill
+            case Some(gateway) => gateway.tell(PoisonPill)
           }
 
           expectMsg(JobStatusIs(jobGraph.getJobID, JobStatus.RESTARTING))

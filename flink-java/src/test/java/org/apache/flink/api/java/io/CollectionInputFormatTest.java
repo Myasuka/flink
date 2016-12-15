@@ -43,6 +43,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public class CollectionInputFormatTest {
 	
@@ -75,11 +76,19 @@ public class CollectionInputFormatTest {
 		public int hashCode() {
 			return id;
 		}
+
+		@Override
+		public String toString() {
+			return "ElementType{" +
+				"id=" + id +
+				'}';
+		}
 	}
 
 	@Test
 	public void testSerializability() {
-		try {
+		try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+			 ObjectOutputStream out = new ObjectOutputStream(buffer)) {
 			Collection<ElementType> inputCollection = new ArrayList<ElementType>();
 			ElementType element1 = new ElementType(1);
 			ElementType element2 = new ElementType(2);
@@ -94,9 +103,6 @@ public class CollectionInputFormatTest {
 			CollectionInputFormat<ElementType> inputFormat = new CollectionInputFormat<ElementType>(inputCollection,
 					info.createSerializer(new ExecutionConfig()));
 
-			ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-			ObjectOutputStream out = new ObjectOutputStream(buffer);
-
 			out.writeObject(inputFormat);
 
 			ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(buffer.toByteArray()));
@@ -109,7 +115,7 @@ public class CollectionInputFormatTest {
 			@SuppressWarnings("unchecked")
 			CollectionInputFormat<ElementType> result = (CollectionInputFormat<ElementType>) serializationResult;
 
-			GenericInputSplit inputSplit = new GenericInputSplit();
+			GenericInputSplit inputSplit = new GenericInputSplit(0, 1);
 			inputFormat.open(inputSplit);
 			result.open(inputSplit);
 
@@ -124,6 +130,7 @@ public class CollectionInputFormatTest {
 			e.printStackTrace();
 			fail(e.toString());
 		}
+
 	}
 	
 	@Test
@@ -187,7 +194,7 @@ public class CollectionInputFormatTest {
 			int i = 0;
 			@SuppressWarnings("unchecked")
 			CollectionInputFormat<String> in = (CollectionInputFormat<String>) result;
-			in.open(new GenericInputSplit());
+			in.open(new GenericInputSplit(0, 1));
 			
 			while (!in.reachedEnd()) {
 				assertEquals(data[i++], in.nextRecord(""));
@@ -203,13 +210,11 @@ public class CollectionInputFormatTest {
 	
 	@Test
 	public void testSerializationFailure() {
-		try {
+		try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+			ObjectOutputStream out = new ObjectOutputStream(buffer)) {
 			// a mock serializer that fails when writing
 			CollectionInputFormat<ElementType> inFormat = new CollectionInputFormat<ElementType>(
 					Collections.singleton(new ElementType()), new TestSerializer(false, true));
-			
-			ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-			ObjectOutputStream out = new ObjectOutputStream(buffer);
 			
 			try {
 				out.writeObject(inFormat);
@@ -230,13 +235,12 @@ public class CollectionInputFormatTest {
 	
 	@Test
 	public void testDeserializationFailure() {
-		try {
+		try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+			 ObjectOutputStream out = new ObjectOutputStream(buffer)) {
 			// a mock serializer that fails when writing
 			CollectionInputFormat<ElementType> inFormat = new CollectionInputFormat<ElementType>(
 					Collections.singleton(new ElementType()), new TestSerializer(true, false));
-			
-			ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-			ObjectOutputStream out = new ObjectOutputStream(buffer);
+
 			out.writeObject(inFormat);
 			out.close();
 			
@@ -256,7 +260,37 @@ public class CollectionInputFormatTest {
 			fail(e.getMessage());
 		}
 	}
-	
+
+	@Test
+	public void testToStringOnSmallCollection() {
+		ArrayList<ElementType> smallList = new ArrayList<>();
+		smallList.add(new ElementType(1));
+		smallList.add(new ElementType(2));
+		CollectionInputFormat<ElementType> inputFormat = new CollectionInputFormat<>(
+			smallList,
+			new TestSerializer(true, false)
+		);
+
+		assertEquals("[ElementType{id=1}, ElementType{id=2}]", inputFormat.toString());
+	}
+
+	@Test
+	public void testToStringOnBigCollection() {
+		ArrayList<ElementType> list = new ArrayList<>();
+		for (int i = 0; i < 10; i++) {
+			list.add(new ElementType(i));
+		}
+		CollectionInputFormat<ElementType> inputFormat = new CollectionInputFormat<>(
+			list,
+			new TestSerializer(true, false)
+		);
+
+		assertEquals(
+			"[ElementType{id=0}, ElementType{id=1}, ElementType{id=2}, " +
+			"ElementType{id=3}, ElementType{id=4}, ElementType{id=5}, ...]",
+			inputFormat.toString());
+	}
+
 	private static class TestException extends IOException{
 		private static final long serialVersionUID = 1L;
 	}
@@ -265,8 +299,8 @@ public class CollectionInputFormatTest {
 
 		private static final long serialVersionUID = 1L;
 		
-		private boolean failOnRead;
-		private boolean failOnWrite;
+		private final boolean failOnRead;
+		private final boolean failOnWrite;
 		
 		public TestSerializer(boolean failOnRead, boolean failOnWrite) {
 			this.failOnRead = failOnRead;
@@ -330,6 +364,27 @@ public class CollectionInputFormatTest {
 		@Override
 		public void copy(DataInputView source, DataOutputView target) throws IOException {
 			target.writeInt(source.readInt());
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj instanceof TestSerializer) {
+				TestSerializer other = (TestSerializer) obj;
+
+				return other.canEqual(this) && failOnRead == other.failOnRead && failOnWrite == other.failOnWrite;
+			} else {
+				return false;
+			}
+		}
+
+		@Override
+		public boolean canEqual(Object obj) {
+			return obj instanceof TestSerializer;
+		}
+
+		@Override
+		public int hashCode() {
+			return Objects.hash(failOnRead, failOnWrite);
 		}
 	}
 }

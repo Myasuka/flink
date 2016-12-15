@@ -19,14 +19,24 @@
 package org.apache.flink.api.common.typeinfo;
 
 import java.lang.reflect.Constructor;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
+import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.Public;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.typeutils.TypeComparator;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.base.BigDecComparator;
+import org.apache.flink.api.common.typeutils.base.BigDecSerializer;
+import org.apache.flink.api.common.typeutils.base.BigIntComparator;
+import org.apache.flink.api.common.typeutils.base.BigIntSerializer;
 import org.apache.flink.api.common.typeutils.base.BooleanComparator;
 import org.apache.flink.api.common.typeutils.base.BooleanSerializer;
 import org.apache.flink.api.common.typeutils.base.ByteComparator;
@@ -49,11 +59,16 @@ import org.apache.flink.api.common.typeutils.base.StringComparator;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.api.common.typeutils.base.VoidSerializer;
 
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
- * Type information for primitive types (int, long, double, byte, ...), String, Date, and Void.
+ * Type information for primitive types (int, long, double, byte, ...), String, Date, Void,
+ * BigInteger, and BigDecimal.
  */
+@Public
 public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T> {
+
+	private static final long serialVersionUID = -430955220409131770L;
 
 	public static final BasicTypeInfo<String> STRING_TYPE_INFO = new BasicTypeInfo<String>(String.class, new Class<?>[]{}, StringSerializer.INSTANCE, StringComparator.class);
 	public static final BasicTypeInfo<Boolean> BOOLEAN_TYPE_INFO = new BasicTypeInfo<Boolean>(Boolean.class, new Class<?>[]{}, BooleanSerializer.INSTANCE, BooleanComparator.class);
@@ -66,7 +81,9 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	public static final BasicTypeInfo<Character> CHAR_TYPE_INFO = new BasicTypeInfo<Character>(Character.class, new Class<?>[]{}, CharSerializer.INSTANCE, CharComparator.class);
 	public static final BasicTypeInfo<Date> DATE_TYPE_INFO = new BasicTypeInfo<Date>(Date.class, new Class<?>[]{}, DateSerializer.INSTANCE, DateComparator.class);
 	public static final BasicTypeInfo<Void> VOID_TYPE_INFO = new BasicTypeInfo<Void>(Void.class, new Class<?>[]{}, VoidSerializer.INSTANCE, null);
-	
+	public static final BasicTypeInfo<BigInteger> BIG_INT_TYPE_INFO = new BasicTypeInfo<BigInteger>(BigInteger.class, new Class<?>[]{}, BigIntSerializer.INSTANCE, BigIntComparator.class);
+	public static final BasicTypeInfo<BigDecimal> BIG_DEC_TYPE_INFO = new BasicTypeInfo<BigDecimal>(BigDecimal.class, new Class<?>[]{}, BigDecSerializer.INSTANCE, BigDecComparator.class);
+
 	// --------------------------------------------------------------------------------------------
 
 	private final Class<T> clazz;
@@ -79,9 +96,10 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	
 	
 	protected BasicTypeInfo(Class<T> clazz, Class<?>[] possibleCastTargetTypes, TypeSerializer<T> serializer, Class<? extends TypeComparator<T>> comparatorClass) {
-		this.clazz = clazz;
-		this.possibleCastTargetTypes = possibleCastTargetTypes;
-		this.serializer = serializer;
+		this.clazz = checkNotNull(clazz);
+		this.possibleCastTargetTypes = checkNotNull(possibleCastTargetTypes);
+		this.serializer = checkNotNull(serializer);
+		// comparator can be null as in VOID_TYPE_INFO
 		this.comparatorClass = comparatorClass;
 	}
 	
@@ -91,7 +109,8 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	 * Returns whether this type should be automatically casted to
 	 * the target type in an arithmetic operation.
 	 */
-	public boolean canCastTo(BasicTypeInfo<?> to) {
+	@PublicEvolving
+	public boolean shouldAutocastTo(BasicTypeInfo<?> to) {
 		for (Class<?> possibleTo: possibleCastTargetTypes) {
 			if (possibleTo.equals(to.getTypeClass())) {
 				return true;
@@ -101,41 +120,49 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	}
 
 	@Override
+	@PublicEvolving
 	public boolean isBasicType() {
 		return true;
 	}
 
 	@Override
+	@PublicEvolving
 	public boolean isTupleType() {
 		return false;
 	}
 
 	@Override
+	@PublicEvolving
 	public int getArity() {
 		return 1;
 	}
 
 	@Override
+	@PublicEvolving
 	public int getTotalFields() {
 		return 1;
 	}
 	
 	@Override
+	@PublicEvolving
 	public Class<T> getTypeClass() {
 		return this.clazz;
 	}
 	
 	@Override
+	@PublicEvolving
 	public boolean isKeyType() {
 		return true;
 	}
 	
 	@Override
+	@PublicEvolving
 	public TypeSerializer<T> createSerializer(ExecutionConfig executionConfig) {
 		return this.serializer;
 	}
 	
 	@Override
+	@PublicEvolving
 	public TypeComparator<T> createComparator(boolean sortOrderAscending, ExecutionConfig executionConfig) {
 		if (comparatorClass != null) {
 			return instantiateComparator(comparatorClass, sortOrderAscending);
@@ -148,15 +175,24 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	
 	@Override
 	public int hashCode() {
-		return this.clazz.hashCode();
+		return (31 * Objects.hash(clazz, serializer, comparatorClass)) + Arrays.hashCode(possibleCastTargetTypes);
 	}
-	
+
+	@Override
+	public boolean canEqual(Object obj) {
+		return obj instanceof BasicTypeInfo;
+	}
+
 	@Override
 	public boolean equals(Object obj) {
 		if (obj instanceof BasicTypeInfo) {
 			@SuppressWarnings("unchecked")
 			BasicTypeInfo<T> other = (BasicTypeInfo<T>) obj;
-			return this.clazz.equals(other.clazz);
+
+			return other.canEqual(this) &&
+				this.clazz == other.clazz &&
+				serializer.equals(other.serializer) &&
+				this.comparatorClass == other.comparatorClass;
 		} else {
 			return false;
 		}
@@ -168,7 +204,8 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 	}
 	
 	// --------------------------------------------------------------------------------------------
-	
+
+	@PublicEvolving
 	public static <X> BasicTypeInfo<X> getInfoFor(Class<X> type) {
 		if (type == null) {
 			throw new NullPointerException();
@@ -212,5 +249,7 @@ public class BasicTypeInfo<T> extends TypeInformation<T> implements AtomicType<T
 		TYPES.put(Date.class, DATE_TYPE_INFO);
 		TYPES.put(Void.class, VOID_TYPE_INFO);
 		TYPES.put(void.class, VOID_TYPE_INFO);
+		TYPES.put(BigInteger.class, BIG_INT_TYPE_INFO);
+		TYPES.put(BigDecimal.class, BIG_DEC_TYPE_INFO);
 	}
 }

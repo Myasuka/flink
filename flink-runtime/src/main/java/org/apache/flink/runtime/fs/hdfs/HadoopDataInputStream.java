@@ -16,37 +16,40 @@
  * limitations under the License.
  */
 
-
 package org.apache.flink.runtime.fs.hdfs;
-
-import java.io.IOException;
 
 import org.apache.flink.core.fs.FSDataInputStream;
 
+import javax.annotation.Nonnull;
+import java.io.IOException;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
+
 /**
- * Concrete implementation of the {@link FSDataInputStream} for the
- * Hadoop Distributed File System.
- * 
+ * Concrete implementation of the {@link FSDataInputStream} for the Hadoop's input streams.
+ * This supports all file systems supported by Hadoop, such as HDFS and S3 (S3a/S3n).
  */
 public final class HadoopDataInputStream extends FSDataInputStream {
 
-	private org.apache.hadoop.fs.FSDataInputStream fsDataInputStream = null;
+	private final org.apache.hadoop.fs.FSDataInputStream fsDataInputStream;
 
 	/**
-	 * Creates a new data input stream from the given HDFS input stream
+	 * Creates a new data input stream from the given Hadoop input stream
 	 * 
-	 * @param fsDataInputStream
-	 *        the HDFS input stream
+	 * @param fsDataInputStream The Hadoop input stream
 	 */
 	public HadoopDataInputStream(org.apache.hadoop.fs.FSDataInputStream fsDataInputStream) {
-		this.fsDataInputStream = fsDataInputStream;
+		this.fsDataInputStream = checkNotNull(fsDataInputStream);
 	}
 
 
 	@Override
-	public synchronized void seek(long desired) throws IOException {
-
-		fsDataInputStream.seek(desired);
+	public void seek(long desired) throws IOException {
+		// This optimization prevents some implementations of distributed FS to perform expensive seeks when they are
+		// actually not needed
+		if (desired != getPos()) {
+			fsDataInputStream.seek(desired);
+		}
 	}
 
 	@Override
@@ -65,20 +68,25 @@ public final class HadoopDataInputStream extends FSDataInputStream {
 	}
 
 	@Override
-	public int read(byte[] buffer, int offset, int length) throws IOException {
+	public int read(@Nonnull byte[] buffer, int offset, int length) throws IOException {
 		return fsDataInputStream.read(buffer, offset, length);
 	}
-
-
+	
 	@Override
 	public int available() throws IOException {
 		return fsDataInputStream.available();
 	}
-
 
 	@Override
 	public long skip(long n) throws IOException {
 		return fsDataInputStream.skip(n);
 	}
 
+	/**
+	 * Gets the wrapped Hadoop input stream.
+	 * @return The wrapped Hadoop input stream.
+	 */
+	public org.apache.hadoop.fs.FSDataInputStream getHadoopInputStream() {
+		return fsDataInputStream;
+	}
 }

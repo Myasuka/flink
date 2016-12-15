@@ -17,26 +17,19 @@
  */
 package org.apache.flink.api.scala.codegen
 
+import org.apache.flink.annotation.Internal
+import org.apache.flink.types.{BooleanValue, ByteValue, CharValue, DoubleValue, FloatValue, IntValue, LongValue, ShortValue, StringValue}
+
 import scala.collection._
 import scala.collection.generic.CanBuildFrom
 import scala.reflect.macros.Context
 import scala.util.DynamicVariable
 
-import org.apache.flink.types.BooleanValue
-import org.apache.flink.types.ByteValue
-import org.apache.flink.types.CharValue
-import org.apache.flink.types.DoubleValue
-import org.apache.flink.types.FloatValue
-import org.apache.flink.types.IntValue
-import org.apache.flink.types.StringValue
-import org.apache.flink.types.LongValue
-import org.apache.flink.types.ShortValue
-
+@Internal
 private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
   with TypeDescriptors[C] =>
 
   import c.universe._
-  import compat._
 
   // This value is controlled by the udtRecycling compiler option
   var enableMutableUDTs = false
@@ -58,6 +51,9 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           case TypeParameter() => TypeParameterDescriptor(id, tpe)
 
+          // type or super type defines type information factory
+          case FactoryType(baseType) => analyzeFactoryType(id, tpe, baseType)
+
           case PrimitiveType(default, wrapper) => PrimitiveDescriptor(id, tpe, default, wrapper)
 
           case BoxedPrimitiveType(default, wrapper, box, unbox) =>
@@ -65,9 +61,13 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           case ArrayType(elemTpe) => analyzeArray(id, tpe, elemTpe)
 
-          case NothingType() => NothingDesciptor(id, tpe)
+          case NothingType() => NothingDescriptor(id, tpe)
+
+          case UnitType() => UnitDescriptor(id, tpe)
 
           case EitherType(leftTpe, rightTpe) => analyzeEither(id, tpe, leftTpe, rightTpe)
+
+          case EnumValueType(enum) => EnumValueDescriptor(id, tpe, enum)
 
           case TryType(elemTpe) => analyzeTry(id, tpe, elemTpe)
 
@@ -81,6 +81,10 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           case WritableType() => WritableDescriptor(id, tpe)
 
+          case TraitType() => GenericClassDescriptor(id, tpe)
+
+          case JavaTupleType() => analyzeJavaTuple(id, tpe)
+
           case JavaType() =>
             // It's a Java Class, let the TypeExtractor deal with it...
             GenericClassDescriptor(id, tpe)
@@ -88,6 +92,19 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
           case _ => analyzePojo(id, tpe)
         }
       }
+    }
+
+    private def analyzeFactoryType(
+        id: Int,
+        tpe: Type,
+        baseType: Type): UDTDescriptor = {
+      val params: Seq[UDTDescriptor] = baseType match {
+        case TypeRef(_, _, args) =>
+          args.map(analyze)
+        case _ =>
+          Seq[UDTDescriptor]()
+      }
+      FactoryTypeDescriptor(id, tpe, baseType, params)
     }
 
     private def analyzeArray(
@@ -134,13 +151,24 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
       case elemDesc => OptionDescriptor(id, tpe, elemDesc)
     }
 
+    private def analyzeJavaTuple(id: Int, tpe: Type): UDTDescriptor = {
+      // check how many tuple fields we have and determine type
+      val fields = (0 until org.apache.flink.api.java.tuple.Tuple.MAX_ARITY ) flatMap { i =>
+        tpe.members find { m => m.name.toString.equals("f" + i)} match {
+          case Some(m) => Some(analyze(m.typeSignatureIn(tpe)))
+
+          case _ => None
+        }
+      }
+
+      JavaTupleDescriptor(id, tpe, fields)
+    }
+
+
     private def analyzePojo(id: Int, tpe: Type): UDTDescriptor = {
       val immutableFields = tpe.members filter { _.isTerm } map { _.asTerm } filter { _.isVal }
       if (immutableFields.nonEmpty) {
         // We don't support POJOs with immutable fields
-        c.warning(
-          c.enclosingPosition,
-          s"Type $tpe is no POJO, has immutable fields: ${immutableFields.mkString(", ")}.")
         return GenericClassDescriptor(id, tpe)
       }
 
@@ -148,6 +176,7 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
         .filter { _.isTerm }
         .map { _.asTerm }
         .filter { _.isVar }
+        .filter { !_.isStatic }
         .filterNot { _.annotations.exists( _.tpe <:< typeOf[scala.transient]) }
 
       if (fields.isEmpty) {
@@ -164,8 +193,6 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
       }
 
       if (invalidFields.nonEmpty) {
-        c.warning(c.enclosingPosition, s"Type $tpe is no POJO because it has non-public fields '" +
-          s"${invalidFields.mkString(", ")}' that don't have public getters/setters.")
         return GenericClassDescriptor(id, tpe)
       }
 
@@ -178,15 +205,12 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
       if (!hasZeroCtor) {
         // We don't support POJOs without zero-paramter ctor
-        c.warning(
-          c.enclosingPosition,
-          s"Class $tpe is no POJO, has no zero-parameters constructor.")
         return GenericClassDescriptor(id, tpe)
       }
 
       val fieldDescriptors = fields map {
         f =>
-          val fieldTpe = f.getter.asMethod.returnType.asSeenFrom(tpe, tpe.typeSymbol)
+          val fieldTpe = f.typeSignatureIn(tpe)
           FieldDescriptor(f.name.toString.trim, f.getter, f.setter, fieldTpe, analyze(fieldTpe))
       }
 
@@ -291,6 +315,8 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
           traversable match {
             case TypeRef(_, _, elemTpe :: Nil) =>
 
+              import compat._ // this is needed in order to compile in Scala 2.11
+
               // determine whether we can find an implicit for the CanBuildFrom because
               // TypeInformationGen requires this. This catches the case where a user
               // has a custom class that implements Iterable[], for example.
@@ -325,6 +351,10 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
       def unapply(tpe: Type): Boolean = tpe =:= typeOf[Nothing]
     }
 
+    private object UnitType {
+      def unapply(tpe: Type): Boolean = tpe =:= typeOf[Unit]
+    }
+
     private object EitherType {
       def unapply(tpe: Type): Option[(Type, Type)] = {
         if (tpe <:< typeOf[Either[_, _]]) {
@@ -336,6 +366,37 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
         } else {
           None
         }
+      }
+    }
+
+    private object EnumValueType {
+      def unapply(tpe: Type): Option[ModuleSymbol] = {
+        // somewhat hacky solution based on the 'org.example.MyEnum.Value' FQN
+        // convention, compatible with Scala 2.10
+        try {
+          val m = c.universe.rootMirror
+          // get fully-qualified type name, e.g. org.example.MyEnum.Value
+          val fqn = tpe.normalize.toString.split('.')
+          // get FQN parent
+          val owner = m.staticModule(fqn.slice(0, fqn.size - 1).mkString("."))
+
+          val enumerationSymbol = typeOf[scala.Enumeration].typeSymbol
+          if (owner.typeSignature.baseClasses.contains(enumerationSymbol)) {
+            Some(owner)
+          } else {
+            None
+          }
+        } catch {
+          case e: Throwable => None
+        }
+        // TODO: use this once 2.10 is no longer supported
+        // tpe is the Enumeration.Value alias, get the owner
+        // val owner = tpe.typeSymbol.owner
+        // if (owner.isModule &&
+        //     owner.typeSignature.baseClasses.contains(typeOf[scala.Enumeration].typeSymbol))
+        //   Some(owner.asModule)
+        // else
+        //   None
       }
     }
 
@@ -381,8 +442,25 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
         }
     }
 
+    private object TraitType {
+      def unapply(tpe: Type): Boolean = tpe.typeSymbol.asClass.isTrait
+    }
+
     private object JavaType {
       def unapply(tpe: Type): Boolean = tpe.typeSymbol.asClass.isJava
+    }
+
+    private object JavaTupleType {
+      def unapply(tpe: Type): Boolean = tpe <:< typeOf[org.apache.flink.api.java.tuple.Tuple]
+    }
+
+    private object FactoryType {
+      def unapply(tpe: Type): Option[Type] = {
+        val definingType = tpe.typeSymbol.asClass.baseClasses find {
+          _.annotations.exists(_.tpe =:= typeOf[org.apache.flink.api.common.typeinfo.TypeInfo])
+        }
+        definingType.map(tpe.baseType)
+      }
     }
 
     private class UDTAnalyzerCache {
@@ -422,7 +500,7 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
     def getBoxInfo(prim: Symbol, primName: String, boxName: String) = {
       val (default, wrapper) = primitives(prim)
-      val box = { t: Tree => 
+      val box = { t: Tree =>
         Apply(
           Select(
             Select(Ident(newTermName("scala")), newTermName("Predef")),

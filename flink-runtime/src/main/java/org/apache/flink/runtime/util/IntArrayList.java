@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.util;
 
+import java.util.Arrays;
 import java.util.NoSuchElementException;
 
 /**
@@ -69,12 +70,18 @@ public class IntArrayList {
 		}
 	}
 
+	public int[] toArray() {
+		return Arrays.copyOf(array, size);
+	}
+
 	public static final IntArrayList EMPTY = new IntArrayList(0) {
 		
+		@Override
 		public boolean add(int number) {
 			throw new UnsupportedOperationException();
 		}
-		
+
+		@Override
 		public int removeLast() {
 			throw new UnsupportedOperationException();
 		};

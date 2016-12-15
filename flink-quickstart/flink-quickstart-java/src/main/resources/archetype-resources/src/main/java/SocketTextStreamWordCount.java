@@ -36,15 +36,15 @@ import org.apache.flink.util.Collector;
  * 
  * <p>
  * Usage:
- * <code>SocketTextStreamWordCount &lt;hostname&gt; &lt;port&gt; &lt;result path&gt;</code>
+ * <code>SocketTextStreamWordCount &lt;hostname&gt; &lt;port&gt;</code>
  * <br>
  * 
  * <p>
  * This example shows how to:
  * <ul>
  * <li>use StreamExecutionEnvironment.socketTextStream
- * <li>write a simple Flink program,
- * <li>write and use user-defined functions.
+ * <li>write a simple Flink program
+ * <li>write and use user-defined functions
  * </ul>
  * 
  * @see <a href="www.openbsd.org/cgi-bin/man.cgi?query=nc">netcat</a>
@@ -76,13 +76,13 @@ public class SocketTextStreamWordCount {
 		// split up the lines in pairs (2-tuples) containing: (word,1)
 		text.flatMap(new LineSplitter())
 		// group by the tuple field "0" and sum up tuple field "1"
-				.groupBy(0)
+				.keyBy(0)
 				.sum(1);
 
 		counts.print();
 
 		// execute program
-		env.execute("WordCount from SocketTextStream Example");
+		env.execute("Java WordCount from SocketTextStream Example");
 	}
 
 	//

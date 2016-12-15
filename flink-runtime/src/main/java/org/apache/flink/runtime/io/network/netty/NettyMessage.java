@@ -28,15 +28,13 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
-import org.apache.flink.api.java.typeutils.runtime.DataInputViewStream;
-import org.apache.flink.api.java.typeutils.runtime.DataOutputViewStream;
-import org.apache.flink.core.memory.DataInputView;
-import org.apache.flink.core.memory.DataOutputView;
-import org.apache.flink.runtime.event.task.TaskEvent;
+
+import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
+import org.apache.flink.runtime.io.network.partition.consumer.InputChannel;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 
@@ -89,11 +87,19 @@ abstract class NettyMessage {
 		@Override
 		public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
 			if (msg instanceof NettyMessage) {
+
+				ByteBuf serialized = null;
+
 				try {
-					ctx.write(((NettyMessage) msg).write(ctx.alloc()), promise);
+					serialized = ((NettyMessage) msg).write(ctx.alloc());
 				}
 				catch (Throwable t) {
 					throw new IOException("Error while serializing message: " + msg, t);
+				}
+				finally {
+					if (serialized != null) {
+						ctx.write(serialized, promise);
+					}
 				}
 			}
 			else {
@@ -138,8 +144,14 @@ abstract class NettyMessage {
 			else if (msgId == ErrorResponse.ID) {
 				decodedMsg = new ErrorResponse();
 			}
+			else if (msgId == CancelPartitionRequest.ID) {
+				decodedMsg = new CancelPartitionRequest();
+			}
+			else if (msgId == CloseRequest.ID) {
+				decodedMsg = new CloseRequest();
+			}
 			else {
-				throw new IllegalStateException("Received unknown message from producer: " + decodedMsg.getClass());
+				throw new IllegalStateException("Received unknown message from producer: " + msg);
 			}
 
 			if (decodedMsg != null) {
@@ -177,7 +189,7 @@ abstract class NettyMessage {
 			buffer = null;
 		}
 
-		BufferResponse(Buffer buffer, int sequenceNumber, InputChannelID receiverId) {
+		public BufferResponse(Buffer buffer, int sequenceNumber, InputChannelID receiverId) {
 			this.buffer = buffer;
 			this.sequenceNumber = sequenceNumber;
 			this.receiverId = receiverId;
@@ -252,19 +264,19 @@ abstract class NettyMessage {
 
 		private static final byte ID = 1;
 
-		Throwable error;
+		Throwable cause;
 
 		InputChannelID receiverId;
 
 		public ErrorResponse() {
 		}
 
-		ErrorResponse(Throwable error) {
-			this.error = error;
+		ErrorResponse(Throwable cause) {
+			this.cause = cause;
 		}
 
-		ErrorResponse(Throwable error, InputChannelID receiverId) {
-			this.error = error;
+		ErrorResponse(Throwable cause, InputChannelID receiverId) {
+			this.cause = cause;
 			this.receiverId = receiverId;
 		}
 
@@ -274,18 +286,10 @@ abstract class NettyMessage {
 
 		@Override
 		ByteBuf write(ByteBufAllocator allocator) throws IOException {
-			ByteBuf result = null;
+			final ByteBuf result = allocateBuffer(allocator, ID);
 
-			ObjectOutputStream oos = null;
-
-			try {
-				result = allocateBuffer(allocator, ID);
-
-				DataOutputView outputView = new ByteBufDataOutputView(result);
-
-				oos = new ObjectOutputStream(new DataOutputViewStream(outputView));
-
-				oos.writeObject(error);
+			try (ObjectOutputStream oos = new ObjectOutputStream(new ByteBufOutputStream(result))) {
+				oos.writeObject(cause);
 
 				if (receiverId != null) {
 					result.writeBoolean(true);
@@ -296,44 +300,33 @@ abstract class NettyMessage {
 
 				// Update frame length...
 				result.setInt(0, result.readableBytes());
+				return result;
 			}
 			catch (Throwable t) {
-				if (result != null) {
-					result.release();
-				}
+				result.release();
 
-				throw new IOException(t);
-			} finally {
-				if(oos != null) {
-					oos.close();
+				if (t instanceof IOException) {
+					throw (IOException) t;
+				} else {
+					throw new IOException(t);
 				}
 			}
-
-			return result;
 		}
+
 		@Override
 		void readFrom(ByteBuf buffer) throws Exception {
-			DataInputView inputView = new ByteBufDataInputView(buffer);
-			ObjectInputStream ois = null;
-
-			try {
-				ois = new ObjectInputStream(new DataInputViewStream(inputView));
-
+			try (ObjectInputStream ois = new ObjectInputStream(new ByteBufInputStream(buffer))) {
 				Object obj = ois.readObject();
 
 				if (!(obj instanceof Throwable)) {
 					throw new ClassCastException("Read object expected to be of type Throwable, " +
 							"actual type is " + obj.getClass() + ".");
 				} else {
-					error = (Throwable) obj;
+					cause = (Throwable) obj;
 
 					if (buffer.readBoolean()) {
 						receiverId = InputChannelID.fromByteBuf(buffer);
 					}
-				}
-			} finally {
-				if (ois != null) {
-					ois.close();
 				}
 			}
 		}
@@ -394,7 +387,7 @@ abstract class NettyMessage {
 
 		@Override
 		public String toString() {
-			return String.format("PartitionRequest(%s)", partitionId);
+			return String.format("PartitionRequest(%s:%d)", partitionId, queueIndex);
 		}
 	}
 
@@ -447,7 +440,7 @@ abstract class NettyMessage {
 		}
 
 		@Override
-		public void readFrom(ByteBuf buffer) {
+		public void readFrom(ByteBuf buffer) throws IOException {
 			// TODO Directly deserialize fromNetty's buffer
 			int length = buffer.readInt();
 			ByteBuffer serializedEvent = ByteBuffer.allocate(length);
@@ -463,193 +456,65 @@ abstract class NettyMessage {
 		}
 	}
 
-	// ------------------------------------------------------------------------
+	/**
+	 * Cancels the partition request of the {@link InputChannel} identified by
+	 * {@link InputChannelID}.
+	 *
+	 * <p> There is a 1:1 mapping between the input channel and partition per physical channel.
+	 * Therefore, the {@link InputChannelID} instance is enough to identify which request to cancel.
+	 */
+	static class CancelPartitionRequest extends NettyMessage {
 
-	private static class ByteBufDataInputView implements DataInputView {
+		final static byte ID = 4;
 
-		private final ByteBufInputStream inputView;
+		InputChannelID receiverId;
 
-		public ByteBufDataInputView(ByteBuf buffer) {
-			this.inputView = new ByteBufInputStream(buffer);
+		public CancelPartitionRequest() {
+		}
+
+		public CancelPartitionRequest(InputChannelID receiverId) {
+			this.receiverId = receiverId;
 		}
 
 		@Override
-		public void skipBytesToRead(int numBytes) throws IOException {
-			throw new UnsupportedOperationException();
+		ByteBuf write(ByteBufAllocator allocator) throws Exception {
+			ByteBuf result = null;
+
+			try {
+				result = allocateBuffer(allocator, ID, 16);
+				receiverId.writeTo(result);
+			}
+			catch (Throwable t) {
+				if (result != null) {
+					result.release();
+				}
+
+				throw new IOException(t);
+			}
+
+			return result;
 		}
 
 		@Override
-		public int read(byte[] b, int off, int len) throws IOException {
-			return inputView.read(b, off, len);
-		}
-
-		@Override
-		public int read(byte[] b) throws IOException {
-			return inputView.read(b);
-		}
-
-		@Override
-		public void readFully(byte[] b) throws IOException {
-			inputView.readFully(b);
-		}
-
-		@Override
-		public void readFully(byte[] b, int off, int len) throws IOException {
-			inputView.readFully(b, off, len);
-		}
-
-		@Override
-		public int skipBytes(int n) throws IOException {
-			return inputView.skipBytes(n);
-		}
-
-		@Override
-		public boolean readBoolean() throws IOException {
-			return inputView.readBoolean();
-		}
-
-		@Override
-		public byte readByte() throws IOException {
-			return inputView.readByte();
-		}
-
-		@Override
-		public int readUnsignedByte() throws IOException {
-			return inputView.readUnsignedByte();
-		}
-
-		@Override
-		public short readShort() throws IOException {
-			return inputView.readShort();
-		}
-
-		@Override
-		public int readUnsignedShort() throws IOException {
-			return inputView.readUnsignedShort();
-		}
-
-		@Override
-		public char readChar() throws IOException {
-			return inputView.readChar();
-		}
-
-		@Override
-		public int readInt() throws IOException {
-			return inputView.readInt();
-		}
-
-		@Override
-		public long readLong() throws IOException {
-			return inputView.readLong();
-		}
-
-		@Override
-		public float readFloat() throws IOException {
-			return inputView.readFloat();
-		}
-
-		@Override
-		public double readDouble() throws IOException {
-			return inputView.readDouble();
-		}
-
-		@Override
-		public String readLine() throws IOException {
-			return inputView.readLine();
-		}
-
-		@Override
-		public String readUTF() throws IOException {
-			return inputView.readUTF();
+		void readFrom(ByteBuf buffer) throws Exception {
+			receiverId = InputChannelID.fromByteBuf(buffer);
 		}
 	}
 
-	private static class ByteBufDataOutputView implements DataOutputView {
+	static class CloseRequest extends NettyMessage {
 
-		private final ByteBufOutputStream outputView;
+		private static final byte ID = 5;
 
-		public ByteBufDataOutputView(ByteBuf buffer) {
-			this.outputView = new ByteBufOutputStream(buffer);
+		public CloseRequest() {
 		}
 
 		@Override
-		public void skipBytesToWrite(int numBytes) throws IOException {
-			throw new UnsupportedOperationException();
+		ByteBuf write(ByteBufAllocator allocator) throws Exception {
+			return allocateBuffer(allocator, ID, 0);
 		}
 
 		@Override
-		public void write(DataInputView source, int numBytes) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void write(int b) throws IOException {
-			outputView.write(b);
-		}
-
-		@Override
-		public void write(byte[] b) throws IOException {
-			outputView.write(b);
-		}
-
-		@Override
-		public void write(byte[] b, int off, int len) throws IOException {
-			outputView.write(b, off, len);
-		}
-
-		@Override
-		public void writeBoolean(boolean v) throws IOException {
-			outputView.writeBoolean(v);
-		}
-
-		@Override
-		public void writeByte(int v) throws IOException {
-			outputView.writeByte(v);
-		}
-
-		@Override
-		public void writeShort(int v) throws IOException {
-			outputView.writeShort(v);
-		}
-
-		@Override
-		public void writeChar(int v) throws IOException {
-			outputView.writeChar(v);
-		}
-
-		@Override
-		public void writeInt(int v) throws IOException {
-			outputView.writeInt(v);
-		}
-
-		@Override
-		public void writeLong(long v) throws IOException {
-			outputView.writeLong(v);
-		}
-
-		@Override
-		public void writeFloat(float v) throws IOException {
-			outputView.writeFloat(v);
-		}
-
-		@Override
-		public void writeDouble(double v) throws IOException {
-			outputView.writeDouble(v);
-		}
-
-		@Override
-		public void writeBytes(String s) throws IOException {
-			outputView.writeBytes(s);
-		}
-
-		@Override
-		public void writeChars(String s) throws IOException {
-			outputView.writeChars(s);
-		}
-
-		@Override
-		public void writeUTF(String s) throws IOException {
-			outputView.writeUTF(s);
+		void readFrom(ByteBuf buffer) throws Exception {
 		}
 	}
 }

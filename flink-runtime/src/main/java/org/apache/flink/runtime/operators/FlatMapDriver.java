@@ -21,6 +21,8 @@ package org.apache.flink.runtime.operators;
 
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.operators.util.metrics.CountingCollector;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.MutableObjectIterator;
 import org.slf4j.Logger;
@@ -39,18 +41,18 @@ import org.slf4j.LoggerFactory;
  * @param <IT> The mapper's input data type.
  * @param <OT> The mapper's output data type.
  */
-public class FlatMapDriver<IT, OT> implements PactDriver<FlatMapFunction<IT, OT>, OT> {
+public class FlatMapDriver<IT, OT> implements Driver<FlatMapFunction<IT, OT>, OT> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(FlatMapDriver.class);
 
-	private PactTaskContext<FlatMapFunction<IT, OT>, OT> taskContext;
+	private TaskContext<FlatMapFunction<IT, OT>, OT> taskContext;
 	
 	private volatile boolean running;
 
 	private boolean objectReuseEnabled = false;
 
 	@Override
-	public void setup(PactTaskContext<FlatMapFunction<IT, OT>, OT> context) {
+	public void setup(TaskContext<FlatMapFunction<IT, OT>, OT> context) {
 		this.taskContext = context;
 		this.running = true;
 	}
@@ -83,22 +85,26 @@ public class FlatMapDriver<IT, OT> implements PactDriver<FlatMapFunction<IT, OT>
 
 	@Override
 	public void run() throws Exception {
+		final Counter numRecordsIn = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
 		// cache references on the stack
 		final MutableObjectIterator<IT> input = this.taskContext.getInput(0);
 		final FlatMapFunction<IT, OT> function = this.taskContext.getStub();
-		final Collector<OT> output = this.taskContext.getOutputCollector();
+		final Collector<OT> output = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 		if (objectReuseEnabled) {
 			IT record = this.taskContext.<IT>getInputSerializer(0).getSerializer().createInstance();
 
 
 			while (this.running && ((record = input.next(record)) != null)) {
+				numRecordsIn.inc();
 				function.flatMap(record, output);
 			}
 		} else {
 			IT record;
 
 			while (this.running && ((record = input.next()) != null)) {
+				numRecordsIn.inc();
 				function.flatMap(record, output);
 			}
 		}

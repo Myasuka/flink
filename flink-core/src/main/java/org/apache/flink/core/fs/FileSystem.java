@@ -20,11 +20,22 @@
 /**
  * This file is based on source code from the Hadoop Project (http://hadoop.apache.org/), licensed by the Apache
  * Software Foundation (ASF) under the Apache License, Version 2.0. See the NOTICE file distributed with this work for
- * additional information regarding copyright ownership. 
+ * additional information regarding copyright ownership.
  */
 
 package org.apache.flink.core.fs;
 
+import org.apache.flink.annotation.Public;
+import org.apache.flink.configuration.ConfigConstants;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.fs.local.LocalFileSystem;
+import org.apache.flink.util.IOUtils;
+import org.apache.flink.util.OperatingSystem;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -33,114 +44,89 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.flink.util.ClassUtils;
-import org.apache.flink.util.OperatingSystem;
-import org.apache.flink.util.StringUtils;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
- * An abstract base class for a fairly generic file system. It
- * may be implemented as a distributed file system, or as a local
- * one that reflects the locally-connected disk.
+ * Abstract base class of all file systems used by Flink. This class may be extended to implement
+ * distributed file systems, or local file systems. The abstraction by this file system is very simple,
+ * and teh set of allowed operations quite limited, to support the common denominator of a wide
+ * range of file systems. For example, appending to or mutating existing files is not supported.
+ * 
+ * <p>Flink implements and supports some file system types directly (for example the default
+ * machine-local file system). Other file system types are accessed by an implementation that bridges
+ * to the suite of file systems supported by Hadoop (such as for example HDFS).
  */
+@Public
 public abstract class FileSystem {
 
-	private static final String LOCAL_FILESYSTEM_CLASS = "org.apache.flink.core.fs.local.LocalFileSystem";
-	
+	/**
+	 * The possible write modes. The write mode decides what happens if a file should be created,
+	 * but already exists.
+	 */
+	public enum WriteMode {
+
+		/** Creates the target file if it does not exist. Does not overwrite existing files and directories. */
+		NO_OVERWRITE,
+
+		/** Creates a new target file regardless of any existing files or directories. Existing files and
+		 * directories will be removed/overwritten. */
+		OVERWRITE
+	}
+
+	// ------------------------------------------------------------------------
+
+	private static final InheritableThreadLocal<SafetyNetCloseableRegistry> REGISTRIES = new InheritableThreadLocal<>();
+
 	private static final String HADOOP_WRAPPER_FILESYSTEM_CLASS = "org.apache.flink.runtime.fs.hdfs.HadoopFileSystem";
 
 	private static final String MAPR_FILESYSTEM_CLASS = "org.apache.flink.runtime.fs.maprfs.MapRFileSystem";
-	
-	private static final String S3_FILESYSTEM_CLASS = "org.apache.flink.runtime.fs.s3.S3FileSystem";
 
 	private static final String HADOOP_WRAPPER_SCHEME = "hdwrapper";
 
-	
+	private static final Logger LOG = LoggerFactory.getLogger(FileSystem.class);
+
+	/** This lock guards the methods {@link #initOutPathLocalFS(Path, WriteMode, boolean)} and
+	 * {@link #initOutPathDistFS(Path, WriteMode, boolean)} which are otherwise susceptible to races */
+	private static final ReentrantLock OUTPUT_DIRECTORY_INIT_LOCK = new ReentrantLock(true);
+
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Create a SafetyNetCloseableRegistry for a Task. This method should be called at the beginning of the task's
+	 * main thread.
+	 */
+	public static void createFileSystemCloseableRegistryForTask() {
+		SafetyNetCloseableRegistry oldRegistry = REGISTRIES.get();
+		if (null != oldRegistry) {
+			IOUtils.closeQuietly(oldRegistry);
+			LOG.warn("Found existing SafetyNetCloseableRegistry. Closed and replaced it.");
+		}
+		SafetyNetCloseableRegistry newRegistry = new SafetyNetCloseableRegistry();
+		REGISTRIES.set(newRegistry);
+	}
+
+	/**
+	 * Create a SafetyNetCloseableRegistry for a Task. This method should be called at the end of the task's
+	 * main thread or when the task should be canceled.
+	 */
+	public static void disposeFileSystemCloseableRegistryForTask() {
+		SafetyNetCloseableRegistry registry = REGISTRIES.get();
+		if (null != registry) {
+			LOG.info("Ensuring all FileSystem streams are closed for {}", Thread.currentThread().getName());
+			REGISTRIES.remove();
+			IOUtils.closeQuietly(registry);
+		}
+	}
+
+	private static FileSystem wrapWithSafetyNetWhenInTask(FileSystem fs) {
+		SafetyNetCloseableRegistry reg = REGISTRIES.get();
+		return reg != null ? new SafetyNetWrapperFileSystem(fs, reg) : fs;
+	}
+
 	/** Object used to protect calls to specific methods.*/
 	private static final Object SYNCHRONIZATION_OBJECT = new Object();
-
-	/**
-	 * Enumeration for write modes. 
-	 *
-	 */
-	public static enum WriteMode {
-		
-		/** Creates write path if it does not exist. Does not overwrite existing files and directories. */
-		NO_OVERWRITE,
-		
-		/** creates write path if it does not exist. Overwrites existing files and directories. */
-		OVERWRITE 
-	}
-	
-	/**
-	 * An auxiliary class to identify a file system by its scheme and its authority.
-	 */
-	public static class FSKey {
-
-		/**
-		 * The scheme of the file system.
-		 */
-		private String scheme;
-
-		/**
-		 * The authority of the file system.
-		 */
-		private String authority;
-
-		/**
-		 * Creates a file system key from a given scheme and an
-		 * authority.
-		 * 
-		 * @param scheme
-		 *        the scheme of the file system
-		 * @param authority
-		 *        the authority of the file system
-		 */
-		public FSKey(final String scheme, final String authority) {
-			this.scheme = scheme;
-			this.authority = authority;
-		}
-
-		/**
-		 * {@inheritDoc}
-		 */
-		@Override
-		public boolean equals(final Object obj) {
-			if (obj == this) {
-				return true;
-			}
-
-			if (obj instanceof FSKey) {
-				final FSKey key = (FSKey) obj;
-
-				if (!this.scheme.equals(key.scheme)) {
-					return false;
-				}
-
-				if ((this.authority == null) || (key.authority == null)) {
-					return this.authority == null && key.authority == null;
-				}
-				return this.authority.equals(key.authority);
-			}
-			return false;
-		}
-
-		/**
-		 * {@inheritDoc}
-		 */
-		@Override
-		public int hashCode() {
-			if (this.scheme != null) {
-				return this.scheme.hashCode();
-			}
-
-			if (this.authority != null) {
-				return this.authority.hashCode();
-			}
-
-			return super.hashCode();
-		}
-	}
 
 	/**
 	 * Data structure mapping file system keys (scheme + authority) to cached file system objects.
@@ -155,65 +141,102 @@ public abstract class FileSystem {
 	static {
 		FSDIRECTORY.put("hdfs", HADOOP_WRAPPER_FILESYSTEM_CLASS);
 		FSDIRECTORY.put("maprfs", MAPR_FILESYSTEM_CLASS);
-		FSDIRECTORY.put("file", LOCAL_FILESYSTEM_CLASS);
-		FSDIRECTORY.put("s3", S3_FILESYSTEM_CLASS);
+		FSDIRECTORY.put("file", LocalFileSystem.class.getName());
 	}
 
 	/**
 	 * Returns a reference to the {@link FileSystem} instance for accessing the
 	 * local file system.
-	 * 
+	 *
 	 * @return a reference to the {@link FileSystem} instance for accessing the
 	 *         local file system.
-	 * @throws IOException
-	 *         thrown if a reference to the file system instance could not be obtained
 	 */
-	public static FileSystem getLocalFileSystem() throws IOException {
-
-		URI localUri;
-
+	public static FileSystem getLocalFileSystem() {
+		// this should really never fail.
 		try {
-			localUri = OperatingSystem.isWindows() ?  new URI("file:/") : new URI("file:///");
-		} catch (URISyntaxException e) {
-			throw new IOException("Cannot create URI for local file system");
+			URI localUri = OperatingSystem.isWindows() ? new URI("file:/") : new URI("file:///");
+			return get(localUri);
 		}
-
-		return get(localUri);
+		catch (Exception e) {
+			throw new RuntimeException("Cannot create URI for local file system");
+		}
 	}
 
 	/**
-	 * Returns a reference to the {@link FileSystem} instance for accessing the
-	 * file system identified by the given {@link URI}.
-	 * 
-	 * @param uri
-	 *        the {@link URI} identifying the file system
-	 * @return a reference to the {@link FileSystem} instance for accessing the file system identified by the given
-	 *         {@link URI}.
-	 * @throws IOException
-	 *         thrown if a reference to the file system instance could not be obtained
+	 * The default filesystem scheme to be used. This can be specified by the parameter
+	 * <code>fs.default-scheme</code> in <code>flink-conf.yaml</code>. By default this is
+	 * set to <code>file:///</code> (see {@link ConfigConstants#FILESYSTEM_SCHEME}
+	 * and {@link ConfigConstants#DEFAULT_FILESYSTEM_SCHEME}), and uses the local filesystem.
 	 */
-	public static FileSystem get(URI uri) throws IOException {
-		FileSystem fs = null;
+	private static URI defaultScheme;
 
+	/**
+	 * <p>
+	 * Sets the default filesystem scheme based on the user-specified configuration parameter
+	 * <code>fs.default-scheme</code>. By default this is set to <code>file:///</code>
+	 * (see {@link ConfigConstants#FILESYSTEM_SCHEME} and
+	 * {@link ConfigConstants#DEFAULT_FILESYSTEM_SCHEME}),
+	 * and the local filesystem is used.
+	 * <p>
+	 * As an example, if set to <code>hdfs://localhost:9000/</code>, then an HDFS deployment
+	 * with the namenode being on the local node and listening to port 9000 is going to be used.
+	 * In this case, a file path specified as <code>/user/USERNAME/in.txt</code>
+	 * is going to be transformed into <code>hdfs://localhost:9000/user/USERNAME/in.txt</code>. By
+	 * default this is set to <code>file:///</code> which points to the local filesystem.
+	 * @param config the configuration from where to fetch the parameter.
+	 */
+	public static void setDefaultScheme(Configuration config) throws IOException {
+		synchronized (SYNCHRONIZATION_OBJECT) {
+			if (defaultScheme == null) {
+				String stringifiedUri = config.getString(ConfigConstants.FILESYSTEM_SCHEME,
+					ConfigConstants.DEFAULT_FILESYSTEM_SCHEME);
+				try {
+					defaultScheme = new URI(stringifiedUri);
+				} catch (URISyntaxException e) {
+					throw new IOException("The URI used to set the default filesystem " +
+						"scheme ('" + stringifiedUri + "') is not valid.");
+				}
+			}
+		}
+	}
+
+	public static FileSystem getUnguardedFileSystem(URI uri) throws IOException {
+		FileSystem fs;
+
+		URI asked = uri;
 		synchronized (SYNCHRONIZATION_OBJECT) {
 
 			if (uri.getScheme() == null) {
 				try {
-					uri = new URI("file", null, uri.getPath(), null);
-				}
-				catch (URISyntaxException e) {
+					if (defaultScheme == null) {
+						defaultScheme = new URI(ConfigConstants.DEFAULT_FILESYSTEM_SCHEME);
+					}
+
+					uri = new URI(defaultScheme.getScheme(), null, defaultScheme.getHost(),
+							defaultScheme.getPort(), uri.getPath(), null, null);
+
+				} catch (URISyntaxException e) {
 					try {
-						uri = new URI("file", null, new Path(new File(uri.getPath()).getAbsolutePath()).toUri().getPath(), null);
+						if (defaultScheme.getScheme().equals("file")) {
+							uri = new URI("file", null,
+									new Path(new File(uri.getPath()).getAbsolutePath()).toUri().getPath(), null);
+						}
 					} catch (URISyntaxException ex) {
 						// we tried to repair it, but could not. report the scheme error
-						throw new IOException("The file URI '" + uri.toString() + "' is not valid.");
+						throw new IOException("The URI '" + uri.toString() + "' is not valid.");
 					}
 				}
 			}
-			
+
+			if(uri.getScheme() == null) {
+				throw new IOException("The URI '" + uri + "' is invalid.\n" +
+						"The fs.default-scheme = " + defaultScheme + ", the requested URI = " + asked +
+						", and the final URI = " + uri + ".");
+			}
+
 			if (uri.getScheme().equals("file") && uri.getAuthority() != null && !uri.getAuthority().isEmpty()) {
 				String supposedUri = "file:///" + uri.getAuthority() + uri.getPath();
-				
+
 				throw new IOException("Found local file path with authority '" + uri.getAuthority() + "' in path '"
 						+ uri.toString() + "'. Hint: Did you forget a slash? (correct path would be '" + supposedUri + "')");
 			}
@@ -227,7 +250,7 @@ public abstract class FileSystem {
 
 			// Try to create a new file system
 
-			if (!FSDIRECTORY.containsKey(uri.getScheme())) {
+			if (!isFlinkSupportedScheme(uri.getScheme())) {
 				// no build in support for this file system. Falling back to Hadoop's FileSystem impl.
 				Class<?> wrapperClass = getHadoopWrapperClassNameForFileSystem(uri.getScheme());
 				if (wrapperClass != null) {
@@ -267,39 +290,54 @@ public abstract class FileSystem {
 		return fs;
 	}
 
+	/**
+	 * Returns a reference to the {@link FileSystem} instance for accessing the
+	 * file system identified by the given {@link URI}.
+	 *
+	 * @param uri
+	 *        the {@link URI} identifying the file system
+	 * @return a reference to the {@link FileSystem} instance for accessing the file system identified by the given
+	 *         {@link URI}.
+	 * @throws IOException
+	 *         thrown if a reference to the file system instance could not be obtained
+	 */
+	public static FileSystem get(URI uri) throws IOException {
+		return wrapWithSafetyNetWhenInTask(getUnguardedFileSystem(uri));
+	}
+
+	/**
+	 * Returns a boolean indicating whether a scheme has built-in Flink support.
+	 *
+	 * @param scheme
+	 *        a file system scheme
+	 * @return a boolean indicating whether the provided scheme has built-in Flink support
+	 */
+	public static boolean isFlinkSupportedScheme(String scheme) {
+		return FSDIRECTORY.containsKey(scheme);
+	}
+
 	//Class must implement Hadoop FileSystem interface. The class is not avaiable in 'flink-core'.
 	private static FileSystem instantiateHadoopFileSystemWrapper(Class<?> wrappedFileSystem) throws IOException {
-		FileSystem fs = null;
-		Class<? extends FileSystem> fsClass;
 		try {
-			fsClass = ClassUtils.getFileSystemByName(HADOOP_WRAPPER_FILESYSTEM_CLASS);
+			Class<? extends FileSystem> fsClass = getFileSystemByName(HADOOP_WRAPPER_FILESYSTEM_CLASS);
 			Constructor<? extends FileSystem> fsClassCtor = fsClass.getConstructor(Class.class);
-			fs = fsClassCtor.newInstance(wrappedFileSystem);
+			return fsClassCtor.newInstance(wrappedFileSystem);
 		} catch (Throwable e) {
 			throw new IOException("Error loading Hadoop FS wrapper", e);
 		}
-		return fs;
 	}
 
 	private static FileSystem instantiateFileSystem(String className) throws IOException {
-		FileSystem fs = null;
-		Class<? extends FileSystem> fsClass;
 		try {
-			fsClass = ClassUtils.getFileSystemByName(className);
-		} catch (ClassNotFoundException e1) {
-			throw new IOException(StringUtils.stringifyException(e1));
+			Class<? extends FileSystem> fsClass = getFileSystemByName(className);
+			return fsClass.newInstance();
 		}
-
-		try {
-			fs = fsClass.newInstance();
+		catch (ClassNotFoundException e) {
+			throw new IOException("Could not load file system class '" + className + '\'', e);
 		}
-		catch (InstantiationException e) {
+		catch (InstantiationException | IllegalAccessException e) {
 			throw new IOException("Could not instantiate file system class: " + e.getMessage(), e);
 		}
-		catch (IllegalAccessException e) {
-			throw new IOException("Could not instantiate file system class: " + e.getMessage(), e);
-		}
-		return fs;
 	}
 
 	private static HadoopFileSystemWrapper hadoopWrapper;
@@ -315,9 +353,14 @@ public abstract class FileSystem {
 		return hadoopWrapper.getHadoopWrapperClassNameForFileSystem(scheme);
 	}
 
+
+	// ------------------------------------------------------------------------
+	//  File System Methods
+	// ------------------------------------------------------------------------
+
 	/**
 	 * Returns the path of the file system's current working directory.
-	 * 
+	 *
 	 * @return the path of the file system's current working directory
 	 */
 	public abstract Path getWorkingDirectory();
@@ -331,14 +374,14 @@ public abstract class FileSystem {
 
 	/**
 	 * Returns a URI whose scheme and authority identify this file system.
-	 * 
+	 *
 	 * @return a URI whose scheme and authority identify this file system
 	 */
 	public abstract URI getUri();
 
 	/**
 	 * Called after a new FileSystem instance is constructed.
-	 * 
+	 *
 	 * @param name
 	 *        a {@link URI} whose authority section names the host, port, etc. for this file system
 	 */
@@ -346,7 +389,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Return a file status object that represents the path.
-	 * 
+	 *
 	 * @param f
 	 *        The path we want information from
 	 * @return a FileStatus object
@@ -368,7 +411,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Opens an FSDataInputStream at the indicated Path.
-	 * 
+	 *
 	 * @param f
 	 *        the file name to open
 	 * @param bufferSize
@@ -378,7 +421,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Opens an FSDataInputStream at the indicated Path.
-	 * 
+	 *
 	 * @param f
 	 *        the file to open
 	 */
@@ -386,7 +429,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Return the number of bytes that large input files should be optimally be split into to minimize I/O time.
-	 * 
+	 *
 	 * @return the number of bytes that large input files should be optimally be split into to minimize I/O time
 	 */
 	public long getDefaultBlockSize() {
@@ -396,7 +439,7 @@ public abstract class FileSystem {
 	/**
 	 * List the statuses of the files/directories in the given path if the path is
 	 * a directory.
-	 * 
+	 *
 	 * @param f
 	 *        given path
 	 * @return the statuses of the files/directories in the given patch
@@ -406,7 +449,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Check if exists.
-	 * 
+	 *
 	 * @param f
 	 *        source file
 	 */
@@ -421,7 +464,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Delete a file.
-	 * 
+	 *
 	 * @param f
 	 *        the path to delete
 	 * @param recursive
@@ -435,7 +478,7 @@ public abstract class FileSystem {
 	/**
 	 * Make the given file and all non-existent parents into directories. Has the semantics of Unix 'mkdir -p'.
 	 * Existence of the directory hierarchy is not an error.
-	 * 
+	 *
 	 * @param f
 	 *        the directory/directories to be created
 	 * @return <code>true</code> if at least one new directory has been created, <code>false</code> otherwise
@@ -446,7 +489,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Opens an FSDataOutputStream at the indicated Path.
-	 * 
+	 *
 	 * @param f
 	 *        the file name to open
 	 * @param overwrite
@@ -457,6 +500,7 @@ public abstract class FileSystem {
 	 * @param replication
 	 *        required block replication for the file.
 	 * @param blockSize
+	 *        the size of the file blocks
 	 * @throws IOException
 	 */
 	public abstract FSDataOutputStream create(Path f, boolean overwrite, int bufferSize, short replication,
@@ -464,7 +508,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Opens an FSDataOutputStream at the indicated Path.
-	 * 
+	 *
 	 * @param f
 	 *        the file name to open
 	 * @param overwrite
@@ -476,7 +520,7 @@ public abstract class FileSystem {
 
 	/**
 	 * Renames the file/directory src to dst.
-	 * 
+	 *
 	 * @param src
 	 *        the file/directory to rename
 	 * @param dst
@@ -486,78 +530,112 @@ public abstract class FileSystem {
 	 */
 	public abstract boolean rename(Path src, Path dst) throws IOException;
 
-	
+	/**
+	 * Returns true if this is a distributed file system, false otherwise.
+	 *
+	 * @return True, if this is a distributed file system, false otherwise.
+	 */
+	public abstract boolean isDistributedFS();
+
+	// ------------------------------------------------------------------------
+	//  output directory initialization
+	// ------------------------------------------------------------------------
+
 	/**
 	 * Initializes output directories on local file systems according to the given write mode.
+	 *
+	 * <ul>
+	 *   <li>WriteMode.NO_OVERWRITE &amp; parallel output:
+	 *     <ul>
+	 *       <li>A directory is created if the output path does not exist.</li>
+	 *       <li>An existing directory is reused, files contained in the directory are NOT deleted.</li>
+	 *       <li>An existing file raises an exception.</li>
+	 *     </ul>
+	 *   </li>
+	 *
+	 *   <li>WriteMode.NO_OVERWRITE &amp; NONE parallel output:
+	 *     <ul>
+	 *       <li>An existing file or directory raises an exception.</li>
+	 *     </ul>
+	 *   </li>
+	 *
+	 *   <li>WriteMode.OVERWRITE &amp; parallel output:
+	 *     <ul>
+	 *       <li>A directory is created if the output path does not exist.</li>
+	 *       <li>An existing directory is reused, files contained in the directory are NOT deleted.</li>
+	 *       <li>An existing file is deleted and replaced by a new directory.</li>
+	 *     </ul>
+	 *   </li>
+	 *
+	 *   <li>WriteMode.OVERWRITE &amp; NONE parallel output:
+	 *     <ul>
+	 *       <li>An existing file or directory (and all its content) is deleted</li>
+	 *     </ul>
+	 *   </li>
+	 * </ul>
 	 * 
-	 * WriteMode.CREATE & parallel output:
-	 *  - A directory is created if the output path does not exist.
-	 *  - An existing directory is reused, files contained in the directory are NOT deleted.
-	 *  - An existing file raises an exception.
-	 *    
-	 * WriteMode.CREATE & NONE parallel output:
-	 *  - An existing file or directory raises an exception.
-	 *  
-	 * WriteMode.OVERWRITE & parallel output:
-	 *  - A directory is created if the output path does not exist.
-	 *  - An existing directory is reused, files contained in the directory are NOT deleted.
-	 *  - An existing file is deleted and replaced by a new directory.
-	 *  
-	 * WriteMode.OVERWRITE & NONE parallel output:
-	 *  - An existing file or directory (and all its content) is deleted
-	 * 
-	 * Files contained in an existing directory are not deleted, because multiple instances of a 
-	 * DataSinkTask might call this function at the same time and hence might perform concurrent 
-	 * delete operations on the file system (possibly deleting output files of concurrently running tasks). 
+	 * <p>Files contained in an existing directory are not deleted, because multiple instances of a
+	 * DataSinkTask might call this function at the same time and hence might perform concurrent
+	 * delete operations on the file system (possibly deleting output files of concurrently running tasks).
 	 * Since concurrent DataSinkTasks are not aware of each other, coordination of delete and create
 	 * operations would be difficult.
-	 * 
+	 *
 	 * @param outPath Output path that should be prepared.
-	 * @param writeMode Write mode to consider. 
-	 * @param createDirectory True, to initialize a directory at the given path, false otherwise.
+	 * @param writeMode Write mode to consider.
+	 * @param createDirectory True, to initialize a directory at the given path, false to prepare space for a file.
+	 *    
 	 * @return True, if the path was successfully prepared, false otherwise.
-	 * @throws IOException
+	 * @throws IOException Thrown, if any of the file system access operations failed.
 	 */
 	public boolean initOutPathLocalFS(Path outPath, WriteMode writeMode, boolean createDirectory) throws IOException {
-		if (this.isDistributedFS()) {
+		if (isDistributedFS()) {
 			return false;
 		}
-		
-		// NOTE: we sometimes see this code block fail due to a races when changes to the file system take small time fractions before being
-		//       visible to other threads. for example:
-		// - the check whether the directory exists returns false
-		// - the call to create the directory fails (some concurrent thread is creating the directory, locked)
-		// - the call to check whether the directory exists does not yet see the new directory (change is not committed)
-		
-		// try for 30 seconds
-		final long now = System.currentTimeMillis();
-		final long deadline = now + 30000;
-		
-		Exception lastError = null;
-		
-		do {
-			FileStatus status = null;
+
+		// NOTE: We actually need to lock here (process wide). Otherwise, multiple threads that
+		// concurrently work in this method (multiple output formats writing locally) might end
+		// up deleting each other's directories and leave non-retrievable files, without necessarily
+		// causing an exception. That results in very subtle issues, like output files looking as if
+		// they are not getting created.
+
+		// we acquire the lock interruptibly here, to make sure that concurrent threads waiting
+		// here can cancel faster
+		try {
+			OUTPUT_DIRECTORY_INIT_LOCK.lockInterruptibly();
+		}
+		catch (InterruptedException e) {
+			// restore the interruption state
+			Thread.currentThread().interrupt();
+
+			// leave the method - we don't have the lock anyways 
+			throw new IOException("The thread was interrupted while trying to initialize the output directory");
+		}
+
+		try {
+			FileStatus status;
 			try {
 				status = getFileStatus(outPath);
 			}
 			catch (FileNotFoundException e) {
 				// okay, the file is not there
+				status = null;
 			}
-			
+
 			// check if path exists
 			if (status != null) {
 				// path exists, check write mode
 				switch (writeMode) {
+
 				case NO_OVERWRITE:
 					if (status.isDir() && createDirectory) {
 						return true;
 					} else {
 						// file may not be overwritten
-						throw new IOException("File or directory already exists. Existing files and directories are not overwritten in " + 
-								WriteMode.NO_OVERWRITE.name() + " mode. Use " + WriteMode.OVERWRITE.name() + 
-								" mode to overwrite existing files and directories.");
+						throw new IOException("File or directory already exists. Existing files and directories " +
+								"are not overwritten in " + WriteMode.NO_OVERWRITE.name() + " mode. Use " + 
+								WriteMode.OVERWRITE.name() + " mode to overwrite existing files and directories.");
 					}
-	
+
 				case OVERWRITE:
 					if (status.isDir()) {
 						if (createDirectory) {
@@ -565,217 +643,218 @@ public abstract class FileSystem {
 							return true;
 						} else {
 							// we will write in a single file, delete directory
-							// (there is also no other thread trying to delete the directory, since there is only one writer).
 							try {
-								this.delete(outPath, true);
+								delete(outPath, true);
 							}
 							catch (IOException e) {
-								// due to races in some file systems, it may spuriously occur that a deleted the file looks
-								// as if it still exists and is gone a millisecond later, once the change is committed
-								// we ignore the exception, possibly fall through the loop later
-								lastError = e;
+								throw new IOException("Could not remove existing directory '" + outPath + 
+										"' to allow overwrite by result file", e);
 							}
 						}
 					}
 					else {
 						// delete file
 						try {
-							this.delete(outPath, false);
+							delete(outPath, false);
 						}
 						catch (IOException e) {
-							// Some other thread might already have deleted the file.
-							// If - for some other reason - the file could not be deleted,  
-							// the error will be handled later.
-							lastError = e;
+							throw new IOException("Could not remove existing file '" + outPath +
+									"' to allow overwrite by result file/directory", e);
 						}
 					}
 					break;
+
 				default:
 					throw new IllegalArgumentException("Invalid write mode: " + writeMode);
 				}
 			}
-			
+
 			if (createDirectory) {
 				// Output directory needs to be created
-				
-				try {
-					if (!this.exists(outPath)) {
-						this.mkdirs(outPath);
-					}
+				if (!exists(outPath)) {
+					mkdirs(outPath);
 				}
-				catch (IOException e) {
-					// Some other thread might already have created the directory concurrently.
-					lastError = e;
-				}
-		
+
 				// double check that the output directory exists
 				try {
-					FileStatus check = getFileStatus(outPath);
-					if (check != null) {
-						if (check.isDir()) {
-							return true;
-						}
-						else {
-							lastError = new IOException("FileSystem should create an output directory, but the path points to a file instead.");
-						}
-					}
-					// fall through the loop
+					return getFileStatus(outPath).isDir();
 				}
 				catch (FileNotFoundException e) {
-					// fall though the loop
+					return false;
 				}
-					
 			}
 			else {
-				// check that the output path does not exist and an output file can be created by the output format.
-				return !this.exists(outPath);
-			}
-			
-			// small delay to allow changes to make progress
-			try {
-				Thread.sleep(10);
-			}
-			catch (InterruptedException e) {
-				throw new IOException("Thread was interrupted");
+				// check that the output path does not exist and an output file
+				// can be created by the output format.
+				return !exists(outPath);
 			}
 		}
-		while (System.currentTimeMillis() < deadline);
-		
-		if (lastError != null) {
-			throw new IOException("File system failed to prepare output path " + outPath + " with write mode " + writeMode.name(), lastError);
-		} else {
-			return false;
+		finally {
+			OUTPUT_DIRECTORY_INIT_LOCK.unlock();
 		}
 	}
-	
+
 	/**
 	 * Initializes output directories on distributed file systems according to the given write mode.
-	 * 
-	 * WriteMode.CREATE & parallel output:
+	 *
+	 * WriteMode.NO_OVERWRITE &amp; parallel output:
 	 *  - A directory is created if the output path does not exist.
 	 *  - An existing file or directory raises an exception.
-	 * 
-	 * WriteMode.CREATE & NONE parallel output:
-	 *  - An existing file or directory raises an exception. 
-	 *    
-	 * WriteMode.OVERWRITE & parallel output:
+	 *
+	 * WriteMode.NO_OVERWRITE &amp; NONE parallel output:
+	 *  - An existing file or directory raises an exception.
+	 *
+	 * WriteMode.OVERWRITE &amp; parallel output:
 	 *  - A directory is created if the output path does not exist.
 	 *  - An existing directory and its content is deleted and a new directory is created.
 	 *  - An existing file is deleted and replaced by a new directory.
-	 *  
-	 *  WriteMode.OVERWRITE & NONE parallel output:
+	 *
+	 *  WriteMode.OVERWRITE &amp; NONE parallel output:
 	 *  - An existing file or directory is deleted and replaced by a new directory.
-	 * 
+	 *
 	 * @param outPath Output path that should be prepared.
-	 * @param writeMode Write mode to consider. 
+	 * @param writeMode Write mode to consider.
 	 * @param createDirectory True, to initialize a directory at the given path, false otherwise.
+	 *    
 	 * @return True, if the path was successfully prepared, false otherwise.
-	 * @throws IOException
+	 * 
+	 * @throws IOException Thrown, if any of the file system access operations failed.
 	 */
 	public boolean initOutPathDistFS(Path outPath, WriteMode writeMode, boolean createDirectory) throws IOException {
-		if (!this.isDistributedFS()) {
+		if (!isDistributedFS()) {
 			return false;
 		}
-		
-		// check if path exists
-		if (this.exists(outPath)) {
-			// path exists, check write mode
-			switch(writeMode) {
-			case NO_OVERWRITE:
-				// file or directory may not be overwritten
-				throw new IOException("File or directory already exists. Existing files and directories are not overwritten in " + 
-						WriteMode.NO_OVERWRITE.name() + " mode. Use " + WriteMode.OVERWRITE.name() + 
-							" mode to overwrite existing files and directories.");
-			case OVERWRITE:
-				// output path exists. We delete it and all contained files in case of a directory.
+
+		// NOTE: We actually need to lock here (process wide). Otherwise, multiple threads that
+		// concurrently work in this method (multiple output formats writing locally) might end
+		// up deleting each other's directories and leave non-retrievable files, without necessarily
+		// causing an exception. That results in very subtle issues, like output files looking as if
+		// they are not getting created.
+
+		// we acquire the lock interruptibly here, to make sure that concurrent threads waiting
+		// here can cancel faster
+		try {
+			OUTPUT_DIRECTORY_INIT_LOCK.lockInterruptibly();
+		}
+		catch (InterruptedException e) {
+			// restore the interruption state
+			Thread.currentThread().interrupt();
+
+			// leave the method - we don't have the lock anyways 
+			throw new IOException("The thread was interrupted while trying to initialize the output directory");
+		}
+
+		try {
+			// check if path exists
+			if (exists(outPath)) {
+				// path exists, check write mode
+				switch(writeMode) {
+	
+				case NO_OVERWRITE:
+					// file or directory may not be overwritten
+					throw new IOException("File or directory already exists. Existing files and directories are not overwritten in " +
+							WriteMode.NO_OVERWRITE.name() + " mode. Use " + WriteMode.OVERWRITE.name() +
+								" mode to overwrite existing files and directories.");
+	
+				case OVERWRITE:
+					// output path exists. We delete it and all contained files in case of a directory.
+					try {
+						delete(outPath, true);
+					} catch (IOException e) {
+						// Some other thread might already have deleted the path.
+						// If - for some other reason - the path could not be deleted,
+						// this will be handled later.
+					}
+					break;
+	
+				default:
+					throw new IllegalArgumentException("Invalid write mode: "+writeMode);
+				}
+			}
+	
+			if (createDirectory) {
+				// Output directory needs to be created
 				try {
-					this.delete(outPath, true);
-				} catch(IOException ioe) {
-					// Some other thread might already have deleted the path.
-					// If - for some other reason - the path could not be deleted,  
-					// this will be handled later.
+					if (!exists(outPath)) {
+						mkdirs(outPath);
+					}
+				} catch (IOException ioe) {
+					// Some other thread might already have created the directory.
+					// If - for some other reason - the directory could not be created  
+					// and the path does not exist, this will be handled later.
 				}
-				break;
-			default:
-				throw new IllegalArgumentException("Invalid write mode: "+writeMode);
-			}
-		}
-		
-		if (createDirectory) {
-			// Output directory needs to be created
-			try {
-				if (!this.exists(outPath)) {
-					this.mkdirs(outPath);
-				}
-			} catch(IOException ioe) {
-				// Some other thread might already have created the directory.
-				// If - for some other reason - the directory could not be created  
-				// and the path does not exist, this will be handled later.
-			}
-			
-			// double check that the output directory exists
-			return this.exists(outPath) && this.getFileStatus(outPath).isDir();
-		} else {
-			
-			// check that the output path does not exist and an output file can be created by the output format.
-			return !this.exists(outPath);
-		}
-			
-	}
 	
-	/**
-	 * Returns true if this is a distributed file system, false otherwise.
-	 * 
-	 * @return True if this is a distributed file system, false otherwise.
-	 */
-	public abstract boolean isDistributedFS();
-	
-	/**
-	 * Returns the number of blocks this file/directory consists of
-	 * assuming the file system's standard block size.
-	 * 
-	 * @param file
-	 *        the file
-	 * @return the number of block's the file/directory consists of
-	 * @throws IOException
-	 */
-	public int getNumberOfBlocks(final FileStatus file) throws IOException {
-
-		int numberOfBlocks = 0;
-
-		if (file == null) {
-			return 0;
-		}
-
-		// For a file, this is easy
-		if (!file.isDir()) {
-			return getNumberOfBlocks(file.getLen(), file.getBlockSize());
-		}
-
-		// file is a directory
-		final FileStatus[] files = this.listStatus(file.getPath());
-		for (FileStatus file1 : files) {
-			if (!file1.isDir()) {
-				numberOfBlocks += getNumberOfBlocks(file1.getLen(), file1.getBlockSize());
+				// double check that the output directory exists
+				return exists(outPath) && getFileStatus(outPath).isDir();
+			}
+			else {
+				// single file case: check that the output path does not exist and
+				// an output file can be created by the output format.
+				return !exists(outPath);
 			}
 		}
-
-		return numberOfBlocks;
+		finally {
+			OUTPUT_DIRECTORY_INIT_LOCK.unlock();
+		}
 	}
 
-	private int getNumberOfBlocks(final long length, final long blocksize) {
+	// ------------------------------------------------------------------------
+	//  utilities
+	// ------------------------------------------------------------------------
 
-		if (blocksize != 0) {
-			int numberOfBlocks;
-			numberOfBlocks = (int) (length / blocksize);
+	private static Class<? extends FileSystem> getFileSystemByName(String className) throws ClassNotFoundException {
+		return Class.forName(className, true, FileSystem.class.getClassLoader()).asSubclass(FileSystem.class);
+	}
 
-			if ((length % blocksize) != 0) {
-				numberOfBlocks++;
+	/**
+	 * An identifier of a file system, via its scheme and its authority.
+	 * This class needs to stay public, because it is detected as part of the public API.
+	 */
+	public static class FSKey {
+
+		/** The scheme of the file system. */
+		private final String scheme;
+
+		/** The authority of the file system. */
+		@Nullable
+		private final String authority;
+
+		/**
+		 * Creates a file system key from a given scheme and an authority.
+		 *
+		 * @param scheme     The scheme of the file system
+		 * @param authority  The authority of the file system
+		 */
+		public FSKey(String scheme, @Nullable String authority) {
+			this.scheme = checkNotNull(scheme, "scheme");
+			this.authority = authority;
+		}
+
+		@Override
+		public boolean equals(final Object obj) {
+			if (obj == this) {
+				return true;
 			}
+			else if (obj != null && obj.getClass() == FSKey.class) {
+				final FSKey that = (FSKey) obj;
+				return this.scheme.equals(that.scheme) &&
+						(this.authority == null ? that.authority == null :
+								(that.authority != null && this.authority.equals(that.authority)));
+			}
+			else {
+				return false;
+			}
+		}
 
-			return numberOfBlocks;
-		} else {
-			return 1;
+		@Override
+		public int hashCode() {
+			return 31 * scheme.hashCode() + 
+					(authority == null ? 17 : authority.hashCode());
+		}
+
+		@Override
+		public String toString() {
+			return scheme + "://" + authority;
 		}
 	}
 }

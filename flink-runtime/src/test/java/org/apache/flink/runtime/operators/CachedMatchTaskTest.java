@@ -25,16 +25,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.FlatJoinFunction;
 import org.apache.flink.api.common.functions.RichFlatJoinFunction;
-import org.apache.flink.api.common.typeutils.record.RecordComparator;
-import org.apache.flink.api.common.typeutils.record.RecordPairComparatorFactory;
+import org.apache.flink.runtime.testutils.recordutils.RecordComparator;
+import org.apache.flink.runtime.testutils.recordutils.RecordPairComparatorFactory;
 import org.apache.flink.runtime.operators.testutils.DelayingInfinitiveInputIterator;
 import org.apache.flink.runtime.operators.testutils.DriverTestBase;
 import org.apache.flink.runtime.operators.testutils.ExpectedTestException;
 import org.apache.flink.runtime.operators.testutils.NirvanaOutputList;
 import org.apache.flink.runtime.operators.testutils.TaskCancelThread;
 import org.apache.flink.runtime.operators.testutils.UniformRecordGenerator;
+import org.apache.flink.types.Value;
 import org.apache.flink.types.IntValue;
-import org.apache.flink.types.Key;
 import org.apache.flink.types.Record;
 import org.apache.flink.util.Collector;
 import org.junit.Assert;
@@ -48,11 +48,11 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 	
 	@SuppressWarnings("unchecked")
 	private final RecordComparator comparator1 = new RecordComparator(
-		new int[]{0}, (Class<? extends Key<?>>[])new Class[]{ IntValue.class });
+		new int[]{0}, (Class<? extends Value>[])new Class[]{ IntValue.class });
 	
 	@SuppressWarnings("unchecked")
 	private final RecordComparator comparator2 = new RecordComparator(
-		new int[]{0}, (Class<? extends Key<?>>[])new Class[]{ IntValue.class });
+		new int[]{0}, (Class<? extends Value>[])new Class[]{ IntValue.class });
 	
 	private final List<Record> outList = new ArrayList<Record>();
 	
@@ -78,7 +78,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockMatchStub.class, 3);
@@ -109,7 +109,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_SECOND_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildSecondCachedMatchDriver<Record, Record, Record> testTask = new BuildSecondCachedMatchDriver<Record, Record, Record>();
+		BuildSecondCachedJoinDriver<Record, Record, Record> testTask = new BuildSecondCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockMatchStub.class, 3);
@@ -140,7 +140,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockMatchStub.class, 3);
@@ -171,7 +171,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_SECOND_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildSecondCachedMatchDriver<Record, Record, Record> testTask = new BuildSecondCachedMatchDriver<Record, Record, Record>();
+		BuildSecondCachedJoinDriver<Record, Record, Record> testTask = new BuildSecondCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockMatchStub.class, 3);
@@ -202,7 +202,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockMatchStub.class, 3);
@@ -233,7 +233,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockFailingMatchStub.class, 3);
@@ -263,7 +263,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_SECOND_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		BuildSecondCachedMatchDriver<Record, Record, Record> testTask = new BuildSecondCachedMatchDriver<Record, Record, Record>();
+		BuildSecondCachedJoinDriver<Record, Record, Record> testTask = new BuildSecondCachedJoinDriver<Record, Record, Record>();
 		
 		try {
 			testResettableDriver(testTask, MockFailingMatchStub.class, 3);
@@ -294,7 +294,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		final BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		final BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		final AtomicBoolean success = new AtomicBoolean(false);
 		
@@ -338,7 +338,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_SECOND_CACHED);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		final BuildSecondCachedMatchDriver<Record, Record, Record> testTask = new BuildSecondCachedMatchDriver<Record, Record, Record>();
+		final BuildSecondCachedJoinDriver<Record, Record, Record> testTask = new BuildSecondCachedJoinDriver<Record, Record, Record>();
 		
 		final AtomicBoolean success = new AtomicBoolean(false);
 		
@@ -382,7 +382,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_FIRST);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		final BuildFirstCachedMatchDriver<Record, Record, Record> testTask = new BuildFirstCachedMatchDriver<Record, Record, Record>();
+		final BuildFirstCachedJoinDriver<Record, Record, Record> testTask = new BuildFirstCachedJoinDriver<Record, Record, Record>();
 		
 		final AtomicBoolean success = new AtomicBoolean(false);
 		
@@ -426,7 +426,7 @@ public class CachedMatchTaskTest extends DriverTestBase<FlatJoinFunction<Record,
 		getTaskConfig().setDriverStrategy(DriverStrategy.HYBRIDHASH_BUILD_SECOND);
 		getTaskConfig().setRelativeMemoryDriver(1.0f);
 		
-		final BuildSecondCachedMatchDriver<Record, Record, Record> testTask = new BuildSecondCachedMatchDriver<Record, Record, Record>();
+		final BuildSecondCachedJoinDriver<Record, Record, Record> testTask = new BuildSecondCachedJoinDriver<Record, Record, Record>();
 		
 		
 		final AtomicBoolean success = new AtomicBoolean(false);

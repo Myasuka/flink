@@ -20,12 +20,12 @@ package org.apache.flink.runtime.client;
 
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.runtime.util.SerializedValue;
+import org.apache.flink.api.common.accumulators.AccumulatorHelper;
+import org.apache.flink.util.SerializedValue;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A variant of the {@link org.apache.flink.api.common.JobExecutionResult} that holds
@@ -45,7 +45,7 @@ public class SerializedJobExecutionResult implements java.io.Serializable {
 	 * Creates a new SerializedJobExecutionResult.
 	 *
 	 * @param jobID The job's ID.
-	 * @param netRuntime The net runtime of the job (excluding pre-flight phase like the optimizer)
+	 * @param netRuntime The net runtime of the job (excluding pre-flight phase like the optimizer) in milliseconds
 	 * @param accumulators A map of all accumulator results produced by the job, in serialized form
 	 */
 	public SerializedJobExecutionResult(JobID jobID, long netRuntime,
@@ -63,22 +63,24 @@ public class SerializedJobExecutionResult implements java.io.Serializable {
 		return netRuntime;
 	}
 
+    /**
+	 * Gets the net execution time of the job, i.e., the execution time in the parallel system,
+	 * without the pre-flight steps like the optimizer in a desired time unit.
+	 *
+	 * @param desiredUnit the unit of the <tt>NetRuntime</tt>
+	 * @return The net execution time in the desired unit.
+	 */
+	public long getNetRuntime(TimeUnit desiredUnit) {
+		return desiredUnit.convert(getNetRuntime(), TimeUnit.MILLISECONDS);
+	}
+
 	public Map<String, SerializedValue<Object>> getSerializedAccumulatorResults() {
 		return this.accumulatorResults;
 	}
 
 	public JobExecutionResult toJobExecutionResult(ClassLoader loader) throws IOException, ClassNotFoundException {
-		Map<String, Object> accumulators = null;
-		if (accumulatorResults != null) {
-			accumulators = accumulatorResults.isEmpty() ?
-									Collections.<String, Object>emptyMap() :
-									new HashMap<String, Object>(this.accumulatorResults.size());
-
-			for (Map.Entry<String, SerializedValue<Object>> entry : this.accumulatorResults.entrySet()) {
-				Object o = entry.getValue() == null ? null : entry.getValue().deserializeValue(loader);
-				accumulators.put(entry.getKey(), o);
-			}
-		}
+		Map<String, Object> accumulators =
+				AccumulatorHelper.deserializeAccumulators(accumulatorResults, loader);
 
 		return new JobExecutionResult(jobId, netRuntime, accumulators);
 	}

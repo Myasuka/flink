@@ -18,12 +18,18 @@
 
 package org.apache.flink.runtime.io.network.partition.consumer;
 
-import org.apache.flink.runtime.event.task.TaskEvent;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.event.TaskEvent;
+import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.ResultSubpartitionView;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * An input channel consumes a single {@link ResultSubpartitionView}.
@@ -43,10 +49,47 @@ public abstract class InputChannel {
 
 	protected final SingleInputGate inputGate;
 
-	protected InputChannel(SingleInputGate inputGate, int channelIndex, ResultPartitionID partitionId) {
-		this.inputGate = inputGate;
+	// - Asynchronous error notification --------------------------------------
+
+	private final AtomicReference<Throwable> cause = new AtomicReference<Throwable>();
+
+	// - Partition request backoff --------------------------------------------
+
+	/** The initial backoff (in ms). */
+	private final int initialBackoff;
+
+	/** The maximum backoff (in ms). */
+	private final int maxBackoff;
+
+	protected final Counter numBytesIn;
+
+	/** The current backoff (in ms) */
+	private int currentBackoff;
+
+	protected InputChannel(
+			SingleInputGate inputGate,
+			int channelIndex,
+			ResultPartitionID partitionId,
+			int initialBackoff,
+			int maxBackoff,
+			Counter numBytesIn) {
+
+		checkArgument(channelIndex >= 0);
+
+		int initial = initialBackoff;
+		int max = maxBackoff;
+
+		checkArgument(initial >= 0 && initial <= max);
+
+		this.inputGate = checkNotNull(inputGate);
 		this.channelIndex = channelIndex;
-		this.partitionId = partitionId;
+		this.partitionId = checkNotNull(partitionId);
+
+		this.initialBackoff = initial;
+		this.maxBackoff = max;
+		this.currentBackoff = initial == 0 ? -1 : 0;
+
+		this.numBytesIn = numBytesIn;
 	}
 
 	// ------------------------------------------------------------------------
@@ -58,10 +101,19 @@ public abstract class InputChannel {
 	}
 
 	/**
-	 * Notifies the owning {@link SingleInputGate} about an available {@link Buffer} instance.
+	 * Notifies the owning {@link SingleInputGate} that this channel became non-empty.
+	 * 
+	 * <p>This is guaranteed to be called only when a Buffer was added to a previously
+	 * empty input channel. The notion of empty is atomically consistent with the flag
+	 * {@link BufferAndAvailability#moreAvailable()} when polling the next buffer
+	 * from this channel.
+	 * 
+	 * <p><b>Note:</b> When the input channel observes an exception, this
+	 * method is called regardless of whether the channel was empty before. That ensures
+	 * that the parent InputGate will always be notified about the exception.
 	 */
-	protected void notifyAvailableBuffer() {
-		inputGate.onAvailableBuffer(this);
+	protected void notifyChannelNonEmpty() {
+		inputGate.notifyChannelNonEmpty(this);
 	}
 
 	// ------------------------------------------------------------------------
@@ -80,7 +132,7 @@ public abstract class InputChannel {
 	/**
 	 * Returns the next buffer from the consumed subpartition.
 	 */
-	abstract Buffer getNextBuffer() throws IOException, InterruptedException;
+	abstract BufferAndAvailability getNextBuffer() throws IOException, InterruptedException;
 
 	// ------------------------------------------------------------------------
 	// Task events
@@ -109,4 +161,101 @@ public abstract class InputChannel {
 	 */
 	abstract void releaseAllResources() throws IOException;
 
+	// ------------------------------------------------------------------------
+	// Error notification
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Checks for an error and rethrows it if one was reported.
+	 */
+	protected void checkError() throws IOException {
+		final Throwable t = cause.get();
+
+		if (t != null) {
+			if (t instanceof CancelTaskException) {
+				throw (CancelTaskException) t;
+			}
+			if (t instanceof IOException) {
+				throw (IOException) t;
+			}
+			else {
+				throw new IOException(t);
+			}
+		}
+	}
+
+	/**
+	 * Atomically sets an error for this channel and notifies the input gate about available data to
+	 * trigger querying this channel by the task thread.
+	 */
+	protected void setError(Throwable cause) {
+		if (this.cause.compareAndSet(null, checkNotNull(cause))) {
+			// Notify the input gate.
+			notifyChannelNonEmpty();
+		}
+	}
+
+	// ------------------------------------------------------------------------
+	// Partition request exponential backoff
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Returns the current backoff in ms.
+	 */
+	protected int getCurrentBackoff() {
+		return currentBackoff <= 0 ? 0 : currentBackoff;
+	}
+
+	/**
+	 * Increases the current backoff and returns whether the operation was successful.
+	 *
+	 * @return <code>true</code>, iff the operation was successful. Otherwise, <code>false</code>.
+	 */
+	protected boolean increaseBackoff() {
+		// Backoff is disabled
+		if (currentBackoff < 0) {
+			return false;
+		}
+
+		// This is the first time backing off
+		if (currentBackoff == 0) {
+			currentBackoff = initialBackoff;
+
+			return true;
+		}
+
+		// Continue backing off
+		else if (currentBackoff < maxBackoff) {
+			currentBackoff = Math.min(currentBackoff * 2, maxBackoff);
+
+			return true;
+		}
+
+		// Reached maximum backoff
+		return false;
+	}
+
+	// ------------------------------------------------------------------------
+
+	/**
+	 * A combination of a {@link Buffer} and a flag indicating availability of further buffers.
+	 */
+	public static final class BufferAndAvailability {
+
+		private final Buffer buffer;
+		private final boolean moreAvailable;
+
+		public BufferAndAvailability(Buffer buffer, boolean moreAvailable) {
+			this.buffer = checkNotNull(buffer);
+			this.moreAvailable = moreAvailable;
+		}
+
+		public Buffer buffer() {
+			return buffer;
+		}
+
+		public boolean moreAvailable() {
+			return moreAvailable;
+		}
+	}
 }

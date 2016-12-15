@@ -18,10 +18,6 @@
 
 package org.apache.flink.api.java.operator;
 
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.flink.api.common.InvalidProgramException;
 import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.common.operators.SemanticProperties;
@@ -32,7 +28,6 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.functions.FunctionAnnotation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.operators.GroupReduceOperator;
 import org.apache.flink.api.java.operators.JoinOperator;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -43,6 +38,10 @@ import org.apache.hadoop.io.Writable;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.Assert.assertTrue;
 
@@ -137,7 +136,7 @@ public class JoinOperatorTest {
 		ds1.join(ds2).where(0,1).equalTo(2);
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IndexOutOfBoundsException.class)
 	public void testJoinKeyFields4() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -148,7 +147,7 @@ public class JoinOperatorTest {
 		ds1.join(ds2).where(5).equalTo(0);
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = IndexOutOfBoundsException.class)
 	public void testJoinKeyFields5() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -159,7 +158,7 @@ public class JoinOperatorTest {
 		ds1.join(ds2).where(-1).equalTo(-1);
 	}
 	
-	@Test(expected = IllegalArgumentException.class)
+	@Test(expected = InvalidProgramException.class)
 	public void testJoinKeyFields6() {
 		
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -167,7 +166,7 @@ public class JoinOperatorTest {
 		DataSet<CustomType> ds2 = env.fromCollection(customTypeData);
 
 		// should not work, join key fields on custom type
-		ds1.join(ds2).where(5).equalTo(0);
+		ds1.join(ds2).where(4).equalTo(0);
 	}
 
 	@Test
@@ -584,6 +583,78 @@ public class JoinOperatorTest {
 						}
 					}
 				);
+	}
+
+	@Test
+	public void testJoinKeyAtomic1() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> ds1 = env.fromElements(0, 0, 0);
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds2 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+
+		ds1.join(ds2).where("*").equalTo(0);
+	}
+
+	@Test
+	public void testJoinKeyAtomic2() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds1 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+		DataSet<Integer> ds2 = env.fromElements(0, 0, 0);
+
+		ds1.join(ds2).where(0).equalTo("*");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic1() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> ds1 = env.fromElements(0, 0, 0);
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds2 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+
+		ds1.join(ds2).where("*", "invalidKey");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic2() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds1 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+		DataSet<Integer> ds2 = env.fromElements(0, 0, 0);
+
+		ds1.join(ds2).where(0).equalTo("*", "invalidKey");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic3() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> ds1 = env.fromElements(0, 0, 0);
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds2 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+
+		ds1.join(ds2).where("invalidKey");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic4() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Tuple5<Integer, Long, String, Long, Integer>> ds1 = env.fromCollection(emptyTupleData, tupleTypeInfo);
+		DataSet<Integer> ds2 = env.fromElements(0, 0, 0);
+
+		ds1.join(ds2).where(0).equalTo("invalidKey");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic5() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<ArrayList<Integer>> ds1 = env.fromElements(new ArrayList<Integer>());
+		DataSet<Integer> ds2 = env.fromElements(0, 0, 0);
+
+		ds1.join(ds2).where("*").equalTo("*");
+	}
+
+	@Test(expected = InvalidProgramException.class)
+	public void testJoinKeyInvalidAtomic6() {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> ds1 = env.fromElements(0, 0, 0);
+		DataSet<ArrayList<Integer>> ds2 = env.fromElements(new ArrayList<Integer>());
+
+		ds1.join(ds2).where("*").equalTo("*");
 	}
 	
 	@Test
@@ -1095,7 +1166,7 @@ public class JoinOperatorTest {
 
 		public int myInt;
 
-		public Nested() {};
+		public Nested() {}
 
 		public Nested(int i, long l, String s) {
 			myInt = i;
@@ -1116,7 +1187,7 @@ public class JoinOperatorTest {
 		public String myString;
 		public Nested nest;
 		
-		public NestedCustomType() {};
+		public NestedCustomType() {}
 
 		public NestedCustomType(int i, long l, String s) {
 			myInt = i;
@@ -1142,8 +1213,8 @@ public class JoinOperatorTest {
 		public List<String> countries;
 		public Writable interfaceTest;
 		
-		public CustomType() {};
-		
+		public CustomType() {}
+
 		public CustomType(int i, long l, String s) {
 			myInt = i;
 			myLong = l;
@@ -1170,8 +1241,8 @@ public class JoinOperatorTest {
 		public String myString;
 		public Tuple2<Integer, String> intByString;
 		
-		public CustomTypeWithTuple() {};
-		
+		public CustomTypeWithTuple() {}
+
 		public CustomTypeWithTuple(int i, long l, String s) {
 			myInt = i;
 			myLong = l;

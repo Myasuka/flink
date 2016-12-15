@@ -43,14 +43,22 @@ abstract class AbstractRecordReader<T extends IOReadableWritable> extends Abstra
 
 	private boolean isFinished;
 
+	/**
+	 * Creates a new AbstractRecordReader that de-serializes records from the given input gate and
+	 * can spill partial records to disk, if they grow large.
+	 *
+	 * @param inputGate The input gate to read from.
+	 * @param tmpDirectories The temp directories. USed for spilling if the reader concurrently
+	 *                       reconstructs multiple large records.
+	 */
 	@SuppressWarnings("unchecked")
-	protected AbstractRecordReader(InputGate inputGate) {
+	protected AbstractRecordReader(InputGate inputGate, String[] tmpDirectories) {
 		super(inputGate);
 
 		// Initialize one deserializer per input channel
 		this.recordDeserializers = new SpillingAdaptiveSpanningRecordDeserializer[inputGate.getNumberOfInputChannels()];
 		for (int i = 0; i < recordDeserializers.length; i++) {
-			recordDeserializers[i] = new SpillingAdaptiveSpanningRecordDeserializer<T>();
+			recordDeserializers[i] = new SpillingAdaptiveSpanningRecordDeserializer<T>(tmpDirectories);
 		}
 	}
 
@@ -64,7 +72,9 @@ abstract class AbstractRecordReader<T extends IOReadableWritable> extends Abstra
 				DeserializationResult result = currentRecordDeserializer.getNextRecord(target);
 
 				if (result.isBufferConsumed()) {
-					currentRecordDeserializer.getCurrentBuffer().recycle();
+					final Buffer currentBuffer = currentRecordDeserializer.getCurrentBuffer();
+
+					currentBuffer.recycle();
 					currentRecordDeserializer = null;
 				}
 
@@ -79,16 +89,27 @@ abstract class AbstractRecordReader<T extends IOReadableWritable> extends Abstra
 				currentRecordDeserializer = recordDeserializers[bufferOrEvent.getChannelIndex()];
 				currentRecordDeserializer.setNextBuffer(bufferOrEvent.getBuffer());
 			}
-			else if (handleEvent(bufferOrEvent.getEvent())) {
-				if (inputGate.isFinished()) {
-					isFinished = true;
-
-					return false;
+			else {
+				// sanity check for leftover data in deserializers. events should only come between
+				// records, not in the middle of a fragment
+				if (recordDeserializers[bufferOrEvent.getChannelIndex()].hasUnfinishedData()) {
+					throw new IOException(
+							"Received an event in channel " + bufferOrEvent.getChannelIndex() + " while still having "
+							+ "data from a record. This indicates broken serialization logic. "
+							+ "If you are using custom serialization code (Writable or Value types), check their "
+							+ "serialization routines. In the case of Kryo, check the respective Kryo serializer.");
 				}
-				else if (hasReachedEndOfSuperstep()) {
 
-					return false;
-				} // else: More data is coming...
+				if (handleEvent(bufferOrEvent.getEvent())) {
+					if (inputGate.isFinished()) {
+						isFinished = true;
+						return false;
+					}
+					else if (hasReachedEndOfSuperstep()) {
+						return false;
+					}
+					// else: More data is coming...
+				}
 			}
 		}
 	}

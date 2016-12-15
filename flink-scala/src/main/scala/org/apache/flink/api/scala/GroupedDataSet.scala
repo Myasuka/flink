@@ -17,20 +17,23 @@
  */
 package org.apache.flink.api.scala
 
+import org.apache.flink.annotation.{Internal, Public, PublicEvolving}
 import org.apache.flink.api.common.InvalidProgramException
-import org.apache.flink.api.java.functions.{KeySelector, FirstReducer}
-import org.apache.flink.api.scala.operators.ScalaAggregateOperator
-import scala.collection.JavaConverters._
-import org.apache.commons.lang3.Validate
-import org.apache.flink.api.common.functions.{GroupCombineFunction, GroupReduceFunction, ReduceFunction, Partitioner}
-import org.apache.flink.api.common.operators.Order
-import org.apache.flink.api.java.aggregation.Aggregations
-import org.apache.flink.api.java.operators._
+import org.apache.flink.api.common.functions.{GroupCombineFunction, GroupReduceFunction, Partitioner, ReduceFunction}
+import org.apache.flink.api.common.operators.base.ReduceOperatorBase.CombineHint
+import org.apache.flink.api.common.operators.{Keys, Order}
 import org.apache.flink.api.common.typeinfo.TypeInformation
+import org.apache.flink.api.java.aggregation.Aggregations
+import org.apache.flink.api.java.functions.{FirstReducer, KeySelector}
+import Keys.ExpressionKeys
+import org.apache.flink.api.java.operators._
+import org.apache.flink.api.java.typeutils.TupleTypeInfoBase
+import org.apache.flink.api.scala.operators.ScalaAggregateOperator
 import org.apache.flink.util.Collector
+
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.reflect.ClassTag
-import com.google.common.base.Preconditions
 
 /**
  * A [[DataSet]] to which a grouping key was added. Operations work on groups of elements with the
@@ -39,6 +42,7 @@ import com.google.common.base.Preconditions
  * A secondary sort order can be added with sortGroup, but this is only used when using one
  * of the group-at-a-time operations, i.e. `reduceGroup`.
  */
+@Public
 class GroupedDataSet[T: ClassTag](
     private val set: DataSet[T],
     private val keys: Keys[T]) {
@@ -59,13 +63,6 @@ class GroupedDataSet[T: ClassTag](
    * This only works on Tuple DataSets.
    */
   def sortGroup(field: Int, order: Order): GroupedDataSet[T] = {
-    if (!set.getType.isTupleType) {
-      throw new InvalidProgramException("Specifying order keys via field positions is only valid " +
-        "for tuple data types.")
-    }
-    if (field >= set.getType.getArity) {
-      throw new IllegalArgumentException("Order key out of tuple bounds.")
-    }
     if (keys.isInstanceOf[Keys.SelectorFunctionKeys[_, _]]) {
       throw new InvalidProgramException("KeySelector grouping keys and field index group-sorting " +
         "keys cannot be used together.")
@@ -74,6 +71,9 @@ class GroupedDataSet[T: ClassTag](
       throw new InvalidProgramException("Chaining sortGroup with KeySelector sorting is not " +
         "supported.")
     }
+    // test if field index is valid
+    new ExpressionKeys[T](field, set.getType())
+    // append sorting
     groupSortKeyPositions += Left(field)
     groupSortOrders += order
     this
@@ -94,6 +94,9 @@ class GroupedDataSet[T: ClassTag](
       throw new InvalidProgramException("KeySelector grouping keys and field expression " +
         "group-sorting keys cannot be used together.")
     }
+    // test if field index is valid
+    new ExpressionKeys[T](field, set.getType())
+    // append sorting
     groupSortKeyPositions += Right(field)
     groupSortOrders += order
     this
@@ -106,7 +109,7 @@ class GroupedDataSet[T: ClassTag](
    * This works on any data type.
    */
   def sortGroup[K: TypeInformation](fun: T => K, order: Order): GroupedDataSet[T] = {
-    if (groupSortOrders.length != 0) {
+    if (groupSortOrders.nonEmpty) {
       throw new InvalidProgramException("Chaining sortGroup with KeySelector sorting is not" +
         "supported.")
     }
@@ -139,7 +142,7 @@ class GroupedDataSet[T: ClassTag](
             .withPartitioner(partitioner)
         }
       case None =>
-        if (groupSortKeyPositions.length > 0) {
+        if (groupSortKeyPositions.nonEmpty) {
           val grouping = groupSortKeyPositions(0) match {
             case Left(pos) =>
               new SortedGrouping[T](
@@ -195,7 +198,7 @@ class GroupedDataSet[T: ClassTag](
    * Sets a custom partitioner for the grouping.
    */
   def withPartitioner[K : TypeInformation](partitioner: Partitioner[K]) : GroupedDataSet[T] = {
-    Preconditions.checkNotNull(partitioner)
+    require(partitioner != null)
     keys.validateCustomPartitioner(partitioner, implicitly[TypeInformation[K]])
     this.partitioner = partitioner
     this
@@ -205,6 +208,7 @@ class GroupedDataSet[T: ClassTag](
    * Gets the custom partitioner to be used for this grouping, or null, if
    * none was defined.
    */
+  @Internal
   def getCustomPartitioner[K]() : Partitioner[K] = {
     partitioner.asInstanceOf[Partitioner[K]]
   }
@@ -280,27 +284,61 @@ class GroupedDataSet[T: ClassTag](
   }
 
   /**
-   * Creates a new [[DataSet]] by merging the elements of each group (elements with the same key)
-   * using an associative reduce function.
-   */
+    * Creates a new [[DataSet]] by merging the elements of each group (elements with the same key)
+    * using an associative reduce function.
+    */
   def reduce(fun: (T, T) => T): DataSet[T] = {
-    Validate.notNull(fun, "Reduce function must not be null.")
+    reduce(getCallLocationName(), fun, CombineHint.OPTIMIZER_CHOOSES)
+  }
+
+  /**
+   * Special [[reduce]] operation for explicitly telling the system what strategy to use for the
+   * combine phase.
+   * If null is given as the strategy, then the optimizer will pick the strategy.
+   */
+  @PublicEvolving
+  def reduce(fun: (T, T) => T, strategy: CombineHint): DataSet[T] = {
+    reduce(getCallLocationName(), fun, strategy)
+  }
+
+  @PublicEvolving
+  private def reduce(callLocationName: String,
+                     fun: (T, T) => T,
+                     strategy: CombineHint): DataSet[T] = {
+    require(fun != null, "Reduce function must not be null.")
     val reducer = new ReduceFunction[T] {
       val cleanFun = set.clean(fun)
       def reduce(v1: T, v2: T) = {
         cleanFun(v1, v2)
       }
     }
-    wrap(new ReduceOperator[T](createUnsortedGrouping(), reducer, getCallLocationName()))
+    reduce(callLocationName, reducer, strategy)
   }
 
   /**
-   * Creates a new [[DataSet]] by merging the elements of each group (elements with the same key)
-   * using an associative reduce function.
-   */
+    * Creates a new [[DataSet]] by merging the elements of each group (elements with the same key)
+    * using an associative reduce function.
+    */
   def reduce(reducer: ReduceFunction[T]): DataSet[T] = {
-    Validate.notNull(reducer, "Reduce function must not be null.")
-    wrap(new ReduceOperator[T](createUnsortedGrouping(), reducer, getCallLocationName()))
+    reduce(getCallLocationName(), reducer, CombineHint.OPTIMIZER_CHOOSES)
+  }
+
+  /**
+    * Special [[reduce]] operation for explicitly telling the system what strategy to use for the
+    * combine phase.
+    * If null is given as the strategy, then the optimizer will pick the strategy.
+    */
+  @PublicEvolving
+  def reduce(reducer: ReduceFunction[T], strategy: CombineHint): DataSet[T] = {
+    reduce(getCallLocationName(), reducer, strategy)
+  }
+
+  private def reduce(callLocationName: String,
+                     reducer: ReduceFunction[T],
+                     strategy: CombineHint): DataSet[T] = {
+    require(reducer != null, "Reduce function must not be null.")
+    wrap(new ReduceOperator[T](createUnsortedGrouping(), reducer, callLocationName).
+      setCombineHint(strategy))
   }
 
   /**
@@ -310,7 +348,7 @@ class GroupedDataSet[T: ClassTag](
    */
   def reduceGroup[R: TypeInformation: ClassTag](
       fun: (Iterator[T]) => R): DataSet[R] = {
-    Validate.notNull(fun, "Group reduce function must not be null.")
+    require(fun != null, "Group reduce function must not be null.")
     val reducer = new GroupReduceFunction[T, R] {
       val cleanFun = set.clean(fun)
       def reduce(in: java.lang.Iterable[T], out: Collector[R]) {
@@ -329,7 +367,7 @@ class GroupedDataSet[T: ClassTag](
    */
   def reduceGroup[R: TypeInformation: ClassTag](
       fun: (Iterator[T], Collector[R]) => Unit): DataSet[R] = {
-    Validate.notNull(fun, "Group reduce function must not be null.")
+    require(fun != null, "Group reduce function must not be null.")
     val reducer = new GroupReduceFunction[T, R] {
       val cleanFun = set.clean(fun)
       def reduce(in: java.lang.Iterable[T], out: Collector[R]) {
@@ -347,10 +385,38 @@ class GroupedDataSet[T: ClassTag](
    * concatenation of the emitted values will form the resulting [[DataSet]].
    */
   def reduceGroup[R: TypeInformation: ClassTag](reducer: GroupReduceFunction[T, R]): DataSet[R] = {
-    Validate.notNull(reducer, "GroupReduce function must not be null.")
+    require(reducer != null, "GroupReduce function must not be null.")
     wrap(
       new GroupReduceOperator[T, R](maybeCreateSortedGrouping(),
         implicitly[TypeInformation[R]], reducer, getCallLocationName()))
+  }
+
+  /**
+    * Applies a special case of a reduce transformation `maxBy` on a grouped [[DataSet]]
+    * The transformation consecutively calls a [[ReduceFunction]]
+    * until only a single element remains which is the result of the transformation.
+    * A ReduceFunction combines two elements into one new element of the same type.
+    */
+  def maxBy(fields: Int*) : DataSet[T]  = {
+    if (!set.getType().isTupleType) {
+      throw new InvalidProgramException("GroupedDataSet#maxBy(int...) only works on Tuple types.")
+    }
+    reduce(new SelectByMaxFunction[T](set.getType.asInstanceOf[TupleTypeInfoBase[T]],
+      fields.toArray))
+  }
+
+  /**
+    * Applies a special case of a reduce transformation `minBy` on a grouped [[DataSet]].
+    * The transformation consecutively calls a [[ReduceFunction]]
+    * until only a single element remains which is the result of the transformation.
+    * A ReduceFunction combines two elements into one new element of the same type.
+    */
+  def minBy(fields: Int*) : DataSet[T]  = {
+    if (!set.getType().isTupleType) {
+      throw new InvalidProgramException("GroupedDataSet#minBy(int...) only works on Tuple types.")
+    }
+    reduce(new SelectByMinFunction[T](set.getType.asInstanceOf[TupleTypeInfoBase[T]],
+      fields.toArray))
   }
 
   /**
@@ -369,7 +435,7 @@ class GroupedDataSet[T: ClassTag](
    */
   def combineGroup[R: TypeInformation: ClassTag](
                                           fun: (Iterator[T], Collector[R]) => Unit): DataSet[R] = {
-    Validate.notNull(fun, "GroupCombine function must not be null.")
+    require(fun != null, "GroupCombine function must not be null.")
     val combiner = new GroupCombineFunction[T, R] {
       val cleanFun = set.clean(fun)
       def combine(in: java.lang.Iterable[T], out: Collector[R]) {
@@ -397,7 +463,7 @@ class GroupedDataSet[T: ClassTag](
    */
   def combineGroup[R: TypeInformation: ClassTag](
       combiner: GroupCombineFunction[T, R]): DataSet[R] = {
-    Validate.notNull(combiner, "GroupCombine function must not be null.")
+    require(combiner != null, "GroupCombine function must not be null.")
     wrap(
       new GroupCombineOperator[T, R](maybeCreateSortedGrouping(),
         implicitly[TypeInformation[R]], combiner, getCallLocationName()))

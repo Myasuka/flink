@@ -19,13 +19,20 @@
 
 package org.apache.flink.client;
 
-import static org.apache.flink.client.CliFrontendTestUtils.*;
-import static org.junit.Assert.*;
-
-import org.apache.flink.client.program.Client;
+import org.apache.flink.client.cli.CliFrontendParser;
+import org.apache.flink.client.cli.RunOptions;
+import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.client.program.PackagedProgram;
+import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import static org.apache.flink.client.CliFrontendTestUtils.getTestJarPath;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 
 public class CliFrontendRunTest {
@@ -33,7 +40,6 @@ public class CliFrontendRunTest {
 	@BeforeClass
 	public static void init() {
 		CliFrontendTestUtils.pipeSystemOutToNull();
-		CliFrontendTestUtils.clearGlobalConfiguration();
 	}
 	
 	@Test
@@ -44,35 +50,81 @@ public class CliFrontendRunTest {
 				String[] parameters = {"-v", "-l", "-a", "some", "program", "arguments"};
 				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
 				int retCode = testFrontend.run(parameters);
-				assertTrue(retCode != 0);
+				assertNotEquals(0, retCode);
 			}
-			
+
 			// test without parallelism
 			{
 				String[] parameters = {"-v", getTestJarPath()};
-				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(-1);
+				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(-1, true, false);
 				assertEquals(0, testFrontend.run(parameters));
 			}
-			
+
 			// test configure parallelism
 			{
 				String[] parameters = {"-v", "-p", "42",  getTestJarPath()};
-				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(42);
+				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(42, true, false);
 				assertEquals(0, testFrontend.run(parameters));
 			}
-			
+
+			// test configure sysout logging
+			{
+				String[] parameters = {"-p", "2", "-q", getTestJarPath()};
+				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(2, false, false);
+				assertEquals(0, testFrontend.run(parameters));
+			}
+
+			// test detached mode
+			{
+				String[] parameters = {"-p", "2", "-d", getTestJarPath()};
+				RunTestingCliFrontend testFrontend = new RunTestingCliFrontend(2, true, true);
+				assertEquals(0, testFrontend.run(parameters));
+			}
+
 			// test configure parallelism with non integer value
 			{
 				String[] parameters = {"-v", "-p", "text",  getTestJarPath()};
 				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
-				assertTrue(0 != testFrontend.run(parameters));
+				assertNotEquals(0, testFrontend.run(parameters));
 			}
-			
+
 			// test configure parallelism with overflow integer value
 			{
 				String[] parameters = {"-v", "-p", "475871387138",  getTestJarPath()};
 				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
-				assertTrue(0 != testFrontend.run(parameters));
+				assertNotEquals(0, testFrontend.run(parameters));
+			}
+
+			// test configure savepoint path (no ignore flag)
+			{
+				String[] parameters = {"-s", "expectedSavepointPath", getTestJarPath()};
+				RunOptions options = CliFrontendParser.parseRunCommand(parameters);
+				SavepointRestoreSettings savepointSettings = options.getSavepointRestoreSettings();
+				assertTrue(savepointSettings.restoreSavepoint());
+				assertEquals("expectedSavepointPath", savepointSettings.getRestorePath());
+				assertFalse(savepointSettings.allowNonRestoredState());
+			}
+
+			// test configure savepoint path (with ignore flag)
+			{
+				String[] parameters = {"-s", "expectedSavepointPath", "-n", getTestJarPath()};
+				RunOptions options = CliFrontendParser.parseRunCommand(parameters);
+				SavepointRestoreSettings savepointSettings = options.getSavepointRestoreSettings();
+				assertTrue(savepointSettings.restoreSavepoint());
+				assertEquals("expectedSavepointPath", savepointSettings.getRestorePath());
+				assertTrue(savepointSettings.allowNonRestoredState());
+			}
+
+			// test jar arguments
+			{
+				String[] parameters =
+					{"-m", "localhost:6123", getTestJarPath(), "-arg1", "value1", "justavalue", "--arg2", "value2"};
+				RunOptions options = CliFrontendParser.parseRunCommand(parameters);
+				assertEquals("-arg1", options.getProgramArgs()[0]);
+				assertEquals("value1", options.getProgramArgs()[1]);
+				assertEquals("justavalue", options.getProgramArgs()[2]);
+				assertEquals("--arg2", options.getProgramArgs()[3]);
+				assertEquals("value2", options.getProgramArgs()[4]);
 			}
 		}
 		catch (Exception e) {
@@ -80,21 +132,27 @@ public class CliFrontendRunTest {
 			fail(e.getMessage());
 		}
 	}
-	
+
 	// --------------------------------------------------------------------------------------------
-	
+
 	public static final class RunTestingCliFrontend extends CliFrontend {
-		
-		private final int expectedParallelim;
-		
-		public RunTestingCliFrontend(int expectedParallelim) throws Exception {
+
+		private final int expectedParallelism;
+		private final boolean sysoutLogging;
+		private final boolean isDetached;
+
+		public RunTestingCliFrontend(int expectedParallelism, boolean logging, boolean isDetached) throws Exception {
 			super(CliFrontendTestUtils.getConfigDir());
-			this.expectedParallelim = expectedParallelim;
+			this.expectedParallelism = expectedParallelism;
+			this.sysoutLogging = logging;
+			this.isDetached = isDetached;
 		}
 
 		@Override
-		protected int executeProgram(PackagedProgram program, Client client, int parallelism, boolean wait) {
-			assertEquals(this.expectedParallelim, parallelism);
+		protected int executeProgram(PackagedProgram program, ClusterClient client, int parallelism) {
+			assertEquals(isDetached, client.isDetached());
+			assertEquals(sysoutLogging, client.getPrintStatusDuringExecution());
+			assertEquals(expectedParallelism, parallelism);
 			return 0;
 		}
 	}

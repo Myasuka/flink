@@ -21,6 +21,9 @@ package org.apache.flink.runtime.operators;
 
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.MapPartitionFunction;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.operators.util.metrics.CountingCollector;
+import org.apache.flink.runtime.operators.util.metrics.CountingMutableObjectIterator;
 import org.apache.flink.runtime.util.NonReusingMutableToRegularIteratorWrapper;
 import org.apache.flink.runtime.util.ReusingMutableToRegularIteratorWrapper;
 import org.apache.flink.util.Collector;
@@ -41,21 +44,21 @@ import org.slf4j.LoggerFactory;
  * @param <IT> The mapper's input data type.
  * @param <OT> The mapper's output data type.
  */
-public class MapPartitionDriver<IT, OT> implements PactDriver<MapPartitionFunction<IT, OT>, OT> {
+public class MapPartitionDriver<IT, OT> implements Driver<MapPartitionFunction<IT, OT>, OT> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(MapPartitionDriver.class);
 
-	private PactTaskContext<MapPartitionFunction<IT, OT>, OT> taskContext;
+	private TaskContext<MapPartitionFunction<IT, OT>, OT> taskContext;
 
 	private boolean objectReuseEnabled = false;
 
 	@Override
-	public void setup(PactTaskContext<MapPartitionFunction<IT, OT>, OT> context) {
+	public void setup(TaskContext<MapPartitionFunction<IT, OT>, OT> context) {
 		this.taskContext = context;
 	}
 
 	@Override
-		public int getNumberOfInputs() {
+	public int getNumberOfInputs() {
 		return 1;
 	}
 
@@ -83,10 +86,12 @@ public class MapPartitionDriver<IT, OT> implements PactDriver<MapPartitionFuncti
 
 	@Override
 	public void run() throws Exception {
+		final Counter numRecordsIn = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
 		// cache references on the stack
-		final MutableObjectIterator<IT> input = this.taskContext.getInput(0);
+		final MutableObjectIterator<IT> input = new CountingMutableObjectIterator<>(this.taskContext.<IT>getInput(0), numRecordsIn);
 		final MapPartitionFunction<IT, OT> function = this.taskContext.getStub();
-		final Collector<OT> output = this.taskContext.getOutputCollector();
+		final Collector<OT> output = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
 		if (objectReuseEnabled) {
 			final ReusingMutableToRegularIteratorWrapper<IT> inIter = new ReusingMutableToRegularIteratorWrapper<IT>(input, this.taskContext.<IT>getInputSerializer(0).getSerializer());

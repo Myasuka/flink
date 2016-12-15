@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.io.network.netty;
 
+import com.google.common.collect.Sets;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -26,24 +27,22 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
-import org.apache.flink.runtime.io.network.partition.ResultSubpartitionView;
+import org.apache.flink.runtime.io.network.netty.NettyMessage.ErrorResponse;
+import org.apache.flink.runtime.io.network.partition.ProducerFailedException;
+import org.apache.flink.runtime.io.network.partition.consumer.InputChannel.BufferAndAvailability;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
-import org.apache.flink.runtime.util.event.NotificationListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Queue;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
 
 /**
- * A queue of partition queues, which listens for channel writability changed
+ * A nonEmptyReader of partition queues, which listens for channel writability changed
  * events before writing and flushing {@link Buffer} instances.
  */
 class PartitionRequestQueue extends ChannelInboundHandlerAdapter {
@@ -52,43 +51,13 @@ class PartitionRequestQueue extends ChannelInboundHandlerAdapter {
 
 	private final ChannelFutureListener writeListener = new WriteAndFlushNextMessageIfPossibleListener();
 
-	private final Queue<SequenceNumberingSubpartitionView> queue = new ArrayDeque<SequenceNumberingSubpartitionView>();
+	private final Queue<SequenceNumberingViewReader> nonEmptyReader = new ArrayDeque<>();
 
-	private SequenceNumberingSubpartitionView currentPartitionQueue;
+	private final Set<InputChannelID> released = Sets.newHashSet();
 
 	private boolean fatalError;
 
 	private ChannelHandlerContext ctx;
-
-	private int numTotalSubscribeCalls;
-
-	private AtomicInteger numOutstandingSubscribeCalls = new AtomicInteger();
-
-	private int numConsumedPartitions;
-
-	private AtomicInteger numEnqueueCalls = new AtomicInteger();
-
-	private int numTotalEnqueueOperations;
-
-	private ScheduledFuture<?> logOutputTask;
-
-	@Override
-	public void channelActive(ChannelHandlerContext ctx) throws Exception {
-		if (LOG.isDebugEnabled()) {
-			logOutputTask = ctx.channel().eventLoop().scheduleWithFixedDelay(new DebugOutputTask(), 30, 30, TimeUnit.SECONDS);
-		}
-
-		super.channelActive(ctx);
-	}
-
-	@Override
-	public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
-		if (logOutputTask != null) {
-			logOutputTask.cancel(true);
-		}
-
-		super.channelUnregistered(ctx);
-	}
 
 	@Override
 	public void channelRegistered(final ChannelHandlerContext ctx) throws Exception {
@@ -99,24 +68,67 @@ class PartitionRequestQueue extends ChannelInboundHandlerAdapter {
 		super.channelRegistered(ctx);
 	}
 
-	public void enqueue(ResultSubpartitionView partitionQueue, InputChannelID receiverId) throws Exception {
-		numEnqueueCalls.incrementAndGet();
-		ctx.pipeline().fireUserEventTriggered(new SequenceNumberingSubpartitionView(partitionQueue, receiverId));
+	void notifyReaderNonEmpty(final SequenceNumberingViewReader reader) {
+		// The notification might come from the same thread. For the initial writes this
+		// might happen before the reader has set its reference to the view, because
+		// creating the queue and the initial notification happen in the same method call.
+		// This can be resolved by separating the creation of the view and allowing
+		// notifications.
+
+		// TODO This could potentially have a bad performance impact as in the
+		// worst case (network consumes faster than the producer) each buffer
+		// will trigger a separate event loop task being scheduled.
+		ctx.executor().execute(new Runnable() {
+			@Override
+			public void run() {
+				ctx.pipeline().fireUserEventTriggered(reader);
+			}
+		});
+	}
+
+	public void cancel(InputChannelID receiverId) {
+		ctx.pipeline().fireUserEventTriggered(receiverId);
+	}
+
+	public void close() {
+		if (ctx != null) {
+			ctx.channel().close();
+		}
 	}
 
 	@Override
 	public void userEventTriggered(ChannelHandlerContext ctx, Object msg) throws Exception {
-		if (msg.getClass() == SequenceNumberingSubpartitionView.class) {
-			boolean triggerWrite = queue.isEmpty();
+		// The user event triggered event loop callback is used for thread-safe
+		// hand over of reader queues and cancelled producers.
 
-			numTotalEnqueueOperations++;
-			queue.add((SequenceNumberingSubpartitionView) msg);
-
+		if (msg.getClass() == SequenceNumberingViewReader.class) {
+			// Queue a non-empty reader for consumption. If the queue
+			// is empty, we try trigger the actual write. Otherwise this
+			// will be handled by the writeAndFlushIfPossible calls.
+			boolean triggerWrite = nonEmptyReader.isEmpty();
+			nonEmptyReader.add((SequenceNumberingViewReader) msg);
 			if (triggerWrite) {
 				writeAndFlushNextMessageIfPossible(ctx.channel());
 			}
-		}
-		else {
+		} else if (msg.getClass() == InputChannelID.class) {
+			// Release partition view that get a cancel request.
+			InputChannelID toCancel = (InputChannelID) msg;
+			if (released.contains(toCancel)) {
+				return;
+			}
+
+			// Cancel the request for the input channel
+			int size = nonEmptyReader.size();
+			for (int i = 0; i < size; i++) {
+				SequenceNumberingViewReader reader = nonEmptyReader.poll();
+				if (reader.getReceiverId().equals(toCancel)) {
+					reader.releaseAllResources();
+					markAsReleased(reader.getReceiverId());
+				} else {
+					nonEmptyReader.add(reader);
+				}
+			}
+		} else {
 			ctx.fireUserEventTriggered(msg);
 		}
 	}
@@ -131,54 +143,82 @@ class PartitionRequestQueue extends ChannelInboundHandlerAdapter {
 			return;
 		}
 
-		Buffer buffer = null;
+		// The logic here is very similar to the combined input gate and local
+		// input channel logic. You can think of this class acting as the input
+		// gate and the consumed views as the local input channels.
 
+		BufferAndAvailability next = null;
 		try {
 			if (channel.isWritable()) {
 				while (true) {
-					if (currentPartitionQueue == null && (currentPartitionQueue = queue.poll()) == null) {
+					SequenceNumberingViewReader reader = nonEmptyReader.poll();
+
+					// No queue with available data. We allow this here, because
+					// of the write callbacks that are executed after each write.
+					if (reader == null) {
 						return;
 					}
 
-					buffer = currentPartitionQueue.getNextBuffer();
+					next = reader.getNextBuffer();
 
-					if (buffer == null) {
-						if (currentPartitionQueue.registerListener(null)) {
-							numTotalSubscribeCalls++;
-							numOutstandingSubscribeCalls.incrementAndGet();
+					if (next == null) {
+						if (reader.isReleased()) {
+							markAsReleased(reader.getReceiverId());
+							Throwable cause = reader.getFailureCause();
 
-							currentPartitionQueue = null;
+							if (cause != null) {
+								ErrorResponse msg = new ErrorResponse(
+									new ProducerFailedException(cause),
+									reader.getReceiverId());
+
+								ctx.writeAndFlush(msg);
+							}
+						} else {
+							IllegalStateException err = new IllegalStateException(
+								"Bug in Netty consumer logic: reader queue got notified by partition " +
+									"about available data, but none was available.");
+							handleException(ctx.channel(), err);
+							return;
 						}
-						else if (currentPartitionQueue.isReleased()) {
-							currentPartitionQueue = null;
-						}
-					}
-					else {
-						BufferResponse resp = new BufferResponse(buffer, currentPartitionQueue.getSequenceNumber(), currentPartitionQueue.getReceiverId());
-
-						if (!buffer.isBuffer() &&
-								EventSerializer.fromBuffer(buffer, getClass().getClassLoader()).getClass() == EndOfPartitionEvent.class) {
-
-							currentPartitionQueue.notifySubpartitionConsumed();
-							currentPartitionQueue.releaseAllResources();
-							currentPartitionQueue = null;
-
+					} else {
+						// this channel was now removed from the non-empty reader queue
+						// we re-add it in case it has more data, because in that case no
+						// "non-empty" notification will come for that reader from the queue.
+						if (next.moreAvailable()) {
+							nonEmptyReader.add(reader);
 						}
 
-						channel.writeAndFlush(resp).addListener(writeListener);
+						BufferResponse msg = new BufferResponse(
+							next.buffer(),
+							reader.getSequenceNumber(),
+							reader.getReceiverId());
+
+						if (isEndOfPartitionEvent(next.buffer())) {
+							reader.notifySubpartitionConsumed();
+							reader.releaseAllResources();
+
+							markAsReleased(reader.getReceiverId());
+						}
+
+						// Write and flush and wait until this is done before
+						// trying to continue with the next buffer.
+						channel.writeAndFlush(msg).addListener(writeListener);
 
 						return;
 					}
 				}
 			}
-		}
-		catch (Throwable t) {
-			if (buffer != null) {
-				buffer.recycle();
+		} catch (Throwable t) {
+			if (next != null) {
+				next.buffer().recycle();
 			}
 
 			throw new IOException(t.getMessage(), t);
 		}
+	}
+
+	private boolean isEndOfPartitionEvent(Buffer buffer) throws IOException {
+		return !buffer.isBuffer() && EventSerializer.fromBuffer(buffer, getClass().getClassLoader()).getClass() == EndOfPartitionEvent.class;
 	}
 
 	@Override
@@ -194,162 +234,49 @@ class PartitionRequestQueue extends ChannelInboundHandlerAdapter {
 	}
 
 	private void handleException(Channel channel, Throwable cause) throws IOException {
+		LOG.debug("Encountered error while consuming partitions", cause);
+
 		fatalError = true;
 		releaseAllResources();
 
 		if (channel.isActive()) {
-			channel.writeAndFlush(new NettyMessage.ErrorResponse(cause)).addListener(ChannelFutureListener.CLOSE);
+			channel.writeAndFlush(new ErrorResponse(cause)).addListener(ChannelFutureListener.CLOSE);
 		}
 	}
 
 	private void releaseAllResources() throws IOException {
-		if (currentPartitionQueue != null) {
-			currentPartitionQueue.releaseAllResources();
-			currentPartitionQueue = null;
-		}
-
-		while ((currentPartitionQueue = queue.poll()) != null) {
-			currentPartitionQueue.releaseAllResources();
+		SequenceNumberingViewReader reader;
+		while ((reader = nonEmptyReader.poll()) != null) {
+			reader.releaseAllResources();
+			markAsReleased(reader.getReceiverId());
 		}
 	}
 
-	// This listener is called after an element of the current queue has been
+	/**
+	 * Marks a receiver as released.
+	 */
+	private void markAsReleased(InputChannelID receiverId) {
+		released.add(receiverId);
+	}
+
+	// This listener is called after an element of the current nonEmptyReader has been
 	// flushed. If successful, the listener triggers further processing of the
 	// queues.
 	private class WriteAndFlushNextMessageIfPossibleListener implements ChannelFutureListener {
 
 		@Override
 		public void operationComplete(ChannelFuture future) throws Exception {
-			if (future.isSuccess()) {
-				writeAndFlushNextMessageIfPossible(future.channel());
+			try {
+				if (future.isSuccess()) {
+					writeAndFlushNextMessageIfPossible(future.channel());
+				} else if (future.cause() != null) {
+					handleException(future.channel(), future.cause());
+				} else {
+					handleException(future.channel(), new IllegalStateException("Sending cancelled by user."));
+				}
+			} catch (Throwable t) {
+				handleException(future.channel(), t);
 			}
-			else if (future.cause() != null) {
-				handleException(future.channel(), future.cause());
-			}
-			else {
-				handleException(future.channel(), new IllegalStateException("Sending cancelled by user."));
-			}
-		}
-	}
-
-	/**
-	 * Simple wrapper for the partition queue iterator, which increments a
-	 * sequence number for each returned buffer and remembers the receiver ID.
-	 */
-	private class SequenceNumberingSubpartitionView implements ResultSubpartitionView, NotificationListener {
-
-		private final ResultSubpartitionView queueIterator;
-
-		private final InputChannelID receiverId;
-
-		private int sequenceNumber = -1;
-
-		private SequenceNumberingSubpartitionView(ResultSubpartitionView queueIterator, InputChannelID receiverId) {
-			this.queueIterator = checkNotNull(queueIterator);
-			this.receiverId = checkNotNull(receiverId);
-		}
-
-		private InputChannelID getReceiverId() {
-			return receiverId;
-		}
-
-		private int getSequenceNumber() {
-			return sequenceNumber;
-		}
-
-		@Override
-		public Buffer getNextBuffer() throws IOException, InterruptedException {
-			Buffer buffer = queueIterator.getNextBuffer();
-
-			if (buffer != null) {
-				sequenceNumber++;
-			}
-
-			return buffer;
-		}
-
-		@Override
-		public void notifySubpartitionConsumed() throws IOException {
-			queueIterator.notifySubpartitionConsumed();
-		}
-
-		@Override
-		public boolean isReleased() {
-			return queueIterator.isReleased();
-		}
-
-		@Override
-		public boolean registerListener(NotificationListener ignored) throws IOException {
-			return queueIterator.registerListener(this);
-		}
-
-		@Override
-		public void releaseAllResources() throws IOException {
-			queueIterator.releaseAllResources();
-		}
-
-		/**
-		 * Enqueue this iterator again after a notification.
-		 */
-		@Override
-		public void onNotification() {
-			numOutstandingSubscribeCalls.decrementAndGet();
-			ctx.pipeline().fireUserEventTriggered(this);
-		}
-	}
-
-	// ------------------------------------------------------------------------
-
-	/**
-	 * Debug output task executed periodically by the network I/O thread.
-	 */
-	private class DebugOutputTask implements Runnable {
-
-		@Override
-		public void run() {
-			StringBuilder str = new StringBuilder();
-
-			str.append("Channel remote address: ");
-			str.append(ctx.channel().remoteAddress());
-			str.append(". ");
-
-			str.append("Channel active: ");
-			str.append(ctx.channel().isActive());
-			str.append(". ");
-
-			str.append("Total number of queue operations: ");
-			str.append(numTotalEnqueueOperations);
-			str.append(". ");
-
-			str.append("Number of enqueue calls: ");
-			str.append(numEnqueueCalls.get());
-			str.append(". ");
-
-			str.append("Number of consumed partitions: ");
-			str.append(numConsumedPartitions);
-			str.append(". ");
-
-			str.append("Number of currently queued partitions: ");
-			str.append(queue.size());
-			str.append(". ");
-
-			str.append("Current partition queue: ");
-			str.append(currentPartitionQueue);
-			str.append(". ");
-
-			str.append("Total number of subscribe calls: ");
-			str.append(numTotalSubscribeCalls);
-			str.append(". ");
-
-			str.append("Number of outstanding subscribe calls: ");
-			str.append(numOutstandingSubscribeCalls.get());
-			str.append(". ");
-
-			str.append("Channel writeable? ");
-			str.append(ctx.channel().isWritable());
-			str.append(". ");
-
-			LOG.debug(str.toString());
 		}
 	}
 }

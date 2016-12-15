@@ -23,7 +23,7 @@ import static org.junit.Assert.*;
 import java.util.List;
 
 import org.apache.flink.api.common.InvalidProgramException;
-import org.apache.flink.runtime.testutils.CommonTestUtils;
+import org.apache.flink.core.testutils.CommonTestUtils;
 import org.junit.Test;
 
 public class JobGraphTest {
@@ -41,9 +41,9 @@ public class JobGraphTest {
 			
 			// add some vertices
 			{
-				AbstractJobVertex source1 = new AbstractJobVertex("source1");
-				AbstractJobVertex source2 = new AbstractJobVertex("source2");
-				AbstractJobVertex target = new AbstractJobVertex("target");
+				JobVertex source1 = new JobVertex("source1");
+				JobVertex source2 = new JobVertex("source2");
+				JobVertex target = new JobVertex("target");
 				target.connectNewDataSetAsInput(source1, DistributionPattern.POINTWISE);
 				target.connectNewDataSetAsInput(source2, DistributionPattern.ALL_TO_ALL);
 				
@@ -60,8 +60,8 @@ public class JobGraphTest {
 			assertEquals(jg.getJobConfiguration(), copy.getJobConfiguration());
 			assertEquals(jg.getNumberOfVertices(), copy.getNumberOfVertices());
 			
-			for (AbstractJobVertex vertex : copy.getVertices()) {
-				AbstractJobVertex original = jg.findVertexByID(vertex.getID());
+			for (JobVertex vertex : copy.getVertices()) {
+				JobVertex original = jg.findVertexByID(vertex.getID());
 				assertNotNull(original);
 				assertEquals(original.getName(), vertex.getName());
 				assertEquals(original.getNumberOfInputs(), vertex.getNumberOfInputs());
@@ -77,21 +77,22 @@ public class JobGraphTest {
 	@Test
 	public void testTopologicalSort1() {
 		try {
-			AbstractJobVertex source1 = new AbstractJobVertex("source1");
-			AbstractJobVertex source2 = new AbstractJobVertex("source2");
-			AbstractJobVertex target1 = new AbstractJobVertex("target1");
-			AbstractJobVertex target2 = new AbstractJobVertex("target2");
-			AbstractJobVertex intermediate1 = new AbstractJobVertex("intermediate1");
-			AbstractJobVertex intermediate2 = new AbstractJobVertex("intermediate2");
+			JobVertex source1 = new JobVertex("source1");
+			JobVertex source2 = new JobVertex("source2");
+			JobVertex target1 = new JobVertex("target1");
+			JobVertex target2 = new JobVertex("target2");
+			JobVertex intermediate1 = new JobVertex("intermediate1");
+			JobVertex intermediate2 = new JobVertex("intermediate2");
 			
 			target1.connectNewDataSetAsInput(source1, DistributionPattern.POINTWISE);
 			target2.connectNewDataSetAsInput(source1, DistributionPattern.POINTWISE);
 			target2.connectNewDataSetAsInput(intermediate2, DistributionPattern.POINTWISE);
 			intermediate2.connectNewDataSetAsInput(intermediate1, DistributionPattern.POINTWISE);
 			intermediate1.connectNewDataSetAsInput(source2, DistributionPattern.POINTWISE);
-			
-			JobGraph graph = new JobGraph("TestGraph", source1, source2, intermediate1, intermediate2, target1, target2);
-			List<AbstractJobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
+
+			JobGraph graph = new JobGraph("TestGraph",
+				source1, source2, intermediate1, intermediate2, target1, target2);
+			List<JobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
 			
 			assertEquals(6, sorted.size());
 			
@@ -112,13 +113,13 @@ public class JobGraphTest {
 	@Test
 	public void testTopologicalSort2() {
 		try {
-			AbstractJobVertex source1 = new AbstractJobVertex("source1");
-			AbstractJobVertex source2 = new AbstractJobVertex("source2");
-			AbstractJobVertex root = new AbstractJobVertex("root");
-			AbstractJobVertex l11 = new AbstractJobVertex("layer 1 - 1");
-			AbstractJobVertex l12 = new AbstractJobVertex("layer 1 - 2");
-			AbstractJobVertex l13 = new AbstractJobVertex("layer 1 - 3");
-			AbstractJobVertex l2 = new AbstractJobVertex("layer 2");
+			JobVertex source1 = new JobVertex("source1");
+			JobVertex source2 = new JobVertex("source2");
+			JobVertex root = new JobVertex("root");
+			JobVertex l11 = new JobVertex("layer 1 - 1");
+			JobVertex l12 = new JobVertex("layer 1 - 2");
+			JobVertex l13 = new JobVertex("layer 1 - 3");
+			JobVertex l2 = new JobVertex("layer 2");
 			
 			root.connectNewDataSetAsInput(l13, DistributionPattern.POINTWISE);
 			root.connectNewDataSetAsInput(source2, DistributionPattern.POINTWISE);
@@ -133,9 +134,10 @@ public class JobGraphTest {
 			l12.connectNewDataSetAsInput(source2, DistributionPattern.POINTWISE);
 			
 			l13.connectNewDataSetAsInput(source2, DistributionPattern.POINTWISE);
-			
-			JobGraph graph = new JobGraph("TestGraph", source1, source2, root, l11, l13, l12, l2);
-			List<AbstractJobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
+
+			JobGraph graph = new JobGraph("TestGraph",
+				source1, source2, root, l11, l13, l12, l2);
+			List<JobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
 			
 			assertEquals(7,  sorted.size());
 			
@@ -170,18 +172,18 @@ public class JobGraphTest {
 		//             ---------
 		
 		try {
-			AbstractJobVertex source = new AbstractJobVertex("source");
-			AbstractJobVertex op1 = new AbstractJobVertex("op4");
-			AbstractJobVertex op2 = new AbstractJobVertex("op2");
-			AbstractJobVertex op3 = new AbstractJobVertex("op3");
+			JobVertex source = new JobVertex("source");
+			JobVertex op1 = new JobVertex("op4");
+			JobVertex op2 = new JobVertex("op2");
+			JobVertex op3 = new JobVertex("op3");
 			
 			op1.connectNewDataSetAsInput(source, DistributionPattern.POINTWISE);
 			op2.connectNewDataSetAsInput(op1, DistributionPattern.POINTWISE);
 			op2.connectNewDataSetAsInput(source, DistributionPattern.POINTWISE);
 			op3.connectNewDataSetAsInput(op2, DistributionPattern.POINTWISE);
-			
+
 			JobGraph graph = new JobGraph("TestGraph", source, op1, op2, op3);
-			List<AbstractJobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
+			List<JobVertex> sorted = graph.getVerticesSortedTopologicallyFromSources();
 			
 			assertEquals(4,  sorted.size());
 			
@@ -199,16 +201,16 @@ public class JobGraphTest {
 	@Test
 	public void testTopoSortCyclicGraphNoSources() {
 		try {
-			AbstractJobVertex v1 = new AbstractJobVertex("1");
-			AbstractJobVertex v2 = new AbstractJobVertex("2");
-			AbstractJobVertex v3 = new AbstractJobVertex("3");
-			AbstractJobVertex v4 = new AbstractJobVertex("4");
+			JobVertex v1 = new JobVertex("1");
+			JobVertex v2 = new JobVertex("2");
+			JobVertex v3 = new JobVertex("3");
+			JobVertex v4 = new JobVertex("4");
 			
 			v1.connectNewDataSetAsInput(v4, DistributionPattern.POINTWISE);
 			v2.connectNewDataSetAsInput(v1, DistributionPattern.POINTWISE);
 			v3.connectNewDataSetAsInput(v2, DistributionPattern.POINTWISE);
 			v4.connectNewDataSetAsInput(v3, DistributionPattern.POINTWISE);
-			
+
 			JobGraph jg = new JobGraph("Cyclic Graph", v1, v2, v3, v4);
 			try {
 				jg.getVerticesSortedTopologicallyFromSources();
@@ -227,12 +229,12 @@ public class JobGraphTest {
 	@Test
 	public void testTopoSortCyclicGraphIntermediateCycle() {
 		try{ 
-			AbstractJobVertex source = new AbstractJobVertex("source");
-			AbstractJobVertex v1 = new AbstractJobVertex("1");
-			AbstractJobVertex v2 = new AbstractJobVertex("2");
-			AbstractJobVertex v3 = new AbstractJobVertex("3");
-			AbstractJobVertex v4 = new AbstractJobVertex("4");
-			AbstractJobVertex target = new AbstractJobVertex("target");
+			JobVertex source = new JobVertex("source");
+			JobVertex v1 = new JobVertex("1");
+			JobVertex v2 = new JobVertex("2");
+			JobVertex v3 = new JobVertex("3");
+			JobVertex v4 = new JobVertex("4");
+			JobVertex target = new JobVertex("target");
 			
 			v1.connectNewDataSetAsInput(source, DistributionPattern.POINTWISE);
 			v1.connectNewDataSetAsInput(v4, DistributionPattern.POINTWISE);
@@ -240,7 +242,7 @@ public class JobGraphTest {
 			v3.connectNewDataSetAsInput(v2, DistributionPattern.POINTWISE);
 			v4.connectNewDataSetAsInput(v3, DistributionPattern.POINTWISE);
 			target.connectNewDataSetAsInput(v3, DistributionPattern.POINTWISE);
-			
+
 			JobGraph jg = new JobGraph("Cyclic Graph", v1, v2, v3, v4, source, target);
 			try {
 				jg.getVerticesSortedTopologicallyFromSources();
@@ -256,9 +258,9 @@ public class JobGraphTest {
 		}
 	}
 	
-	private static final void assertBefore(AbstractJobVertex v1, AbstractJobVertex v2, List<AbstractJobVertex> list) {
+	private static final void assertBefore(JobVertex v1, JobVertex v2, List<JobVertex> list) {
 		boolean seenFirst = false;
-		for (AbstractJobVertex v : list) {
+		for (JobVertex v : list) {
 			if (v == v1) {
 				seenFirst = true;
 			}

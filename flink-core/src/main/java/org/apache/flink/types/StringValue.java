@@ -18,15 +18,17 @@
 
 package org.apache.flink.types;
 
+import org.apache.flink.annotation.Public;
+import org.apache.flink.core.memory.DataInputView;
+import org.apache.flink.core.memory.DataOutputView;
+import org.apache.flink.core.memory.MemorySegment;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.CharBuffer;
 
-import org.apache.commons.lang3.Validate;
-import org.apache.flink.core.memory.DataInputView;
-import org.apache.flink.core.memory.DataOutputView;
-import org.apache.flink.core.memory.MemorySegment;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * Mutable string data type that implements the Key interface.
@@ -34,13 +36,13 @@ import org.apache.flink.core.memory.MemorySegment;
  * <p>
  * The mutability allows to reuse the object inside the user code, also across invocations. Reusing a StringValue object
  * helps to increase the performance, as string objects are rather heavy-weight objects and incur a lot of garbage
- * collection overhead, if created and destroyed in masses.
- * 
- * @see org.apache.flink.types.Key
+ * collection overhead, if created and destroyed en masse.
+ *
  * @see org.apache.flink.types.NormalizableKey
  * @see java.lang.String
  * @see java.lang.CharSequence
  */
+@Public
 public class StringValue implements NormalizableKey<StringValue>, CharSequence, ResettableValue<StringValue>, 
 		CopyableValue<StringValue>, Appendable
 {
@@ -145,7 +147,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param value The new string value.
 	 */
 	public void setValue(CharSequence value) {
-		Validate.notNull(value);
+		checkNotNull(value);
 		setValue(value, 0, value.length());
 	}
 	
@@ -156,7 +158,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 */
 	@Override
 	public void setValue(StringValue value) {
-		Validate.notNull(value);
+		checkNotNull(value);
 		setValue(value.value, 0, value.len);
 	}
 
@@ -168,7 +170,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param len The length of the substring.
 	 */
 	public void setValue(StringValue value, int offset, int len) {
-		Validate.notNull(value);
+		checkNotNull(value);
 		setValue(value.value, offset, len);
 	}
 	
@@ -180,7 +182,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param len The length of the substring.
 	 */
 	public void setValue(CharSequence value, int offset, int len) {
-		Validate.notNull(value);
+		checkNotNull(value);
 		if (offset < 0 || len < 0 || offset > value.length() - len) {
 			throw new IndexOutOfBoundsException("offset: " + offset + " len: " + len + " value.len: " + len);
 		}
@@ -202,7 +204,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param buffer The character buffer to read the characters from.
 	 */
 	public void setValue(CharBuffer buffer) {
-		Validate.notNull(buffer);
+		checkNotNull(buffer);
 		final int len = buffer.length();
 		ensureSize(len);
 		buffer.get(this.value, 0, len);
@@ -218,7 +220,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param len The length of the substring.
 	 */
 	public void setValue(char[] chars, int offset, int len) {
-		Validate.notNull(chars);
+		checkNotNull(chars);
 		if (offset < 0 || len < 0 || offset > chars.length - len) {
 			throw new IndexOutOfBoundsException();
 		}
@@ -376,7 +378,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * @param prefix The prefix character sequence.
 	 * @param startIndex The position to start checking for the prefix.
 	 * 
-	 * @return True, if this StringValue substring, starting at position <code>startIndex</code> has </code>prefix</code>
+	 * @return True, if this StringValue substring, starting at position <code>startIndex</code> has <code>prefix</code>
 	 *         as its prefix.
 	 */
 	public boolean startsWith(CharSequence prefix, int startIndex) {
@@ -402,7 +404,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 	 * 
 	 * @param prefix The prefix character sequence.
 	 * 
-	 * @return True, if this StringValue has </code>prefix</code> as its prefix.
+	 * @return True, if this StringValue has <code>prefix</code> as its prefix.
 	 */
 	public boolean startsWith(CharSequence prefix) {
 		return startsWith(prefix, 0);
@@ -580,7 +582,7 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 			return true;
 		}
 		
-		if (obj.getClass() == StringValue.class) {
+		if (obj instanceof StringValue) {
 			final StringValue other = (StringValue) obj;
 			int len = this.len;
 			
@@ -681,7 +683,12 @@ public class StringValue implements NormalizableKey<StringValue>, CharSequence, 
 		target.ensureSize(this.len);
 		System.arraycopy(this.value, 0, target.value, 0, this.len);
 	}
-	
+
+	@Override
+	public StringValue copy() {
+		return new StringValue(this);
+	}
+
 	@Override
 	public void copy(DataInputView in, DataOutputView target) throws IOException {
 		int len = in.readUnsignedByte();

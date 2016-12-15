@@ -24,12 +24,13 @@ import akka.actor.PoisonPill;
 import akka.pattern.Patterns;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
+import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.LocalCollectionOutputFormat;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.messages.TaskManagerMessages;
-import org.apache.flink.test.util.ForkableFlinkMiniCluster;
+import org.apache.flink.runtime.minicluster.LocalFlinkMiniCluster;
 import org.junit.Test;
 import scala.concurrent.Await;
 import scala.concurrent.Future;
@@ -64,29 +65,31 @@ public class TaskManagerFailureRecoveryITCase {
 
 		final int PARALLELISM = 4;
 
-		ForkableFlinkMiniCluster cluster = null;
+		LocalFlinkMiniCluster cluster = null;
 		ActorSystem additionalSystem = null;
 
 		try {
 			Configuration config = new Configuration();
-			config.setInteger(ConfigConstants.LOCAL_INSTANCE_MANAGER_NUMBER_TASK_MANAGER, 2);
+			config.setInteger(ConfigConstants.LOCAL_NUMBER_TASK_MANAGER, 2);
 			config.setInteger(ConfigConstants.TASK_MANAGER_NUM_TASK_SLOTS, PARALLELISM);
 			config.setInteger(ConfigConstants.TASK_MANAGER_MEMORY_SIZE_KEY, 16);
-
+			
 			config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_INTERVAL, "500 ms");
-			config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_PAUSE, "2 s");
-			config.setInteger(ConfigConstants.AKKA_WATCH_THRESHOLD, 2);
+			config.setString(ConfigConstants.AKKA_WATCH_HEARTBEAT_PAUSE, "20 s");
+			config.setInteger(ConfigConstants.AKKA_WATCH_THRESHOLD, 20);
 
-			cluster = new ForkableFlinkMiniCluster(config, false);
+			cluster = new LocalFlinkMiniCluster(config, false);
+
+			cluster.start();
 
 			// for the result
 			List<Long> resultCollection = new ArrayList<Long>();
 
 			final ExecutionEnvironment env = ExecutionEnvironment.createRemoteEnvironment(
-					"localhost", cluster.getJobManagerRPCPort());
+					"localhost", cluster.getLeaderRPCPort());
 
 			env.setParallelism(PARALLELISM);
-			env.setNumberOfExecutionRetries(1);
+			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 1000));
 			env.getConfig().disableSysoutLogging();
 
 			env.generateSequence(1, 10)

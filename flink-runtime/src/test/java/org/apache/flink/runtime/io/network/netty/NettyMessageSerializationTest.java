@@ -20,7 +20,7 @@ package org.apache.flink.runtime.io.network.netty;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
-import org.apache.flink.core.memory.MemorySegment;
+import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.runtime.event.task.IntegerTaskEvent;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
@@ -53,7 +53,7 @@ public class NettyMessageSerializationTest {
 	@Test
 	public void testEncodeDecode() {
 		{
-			Buffer buffer = spy(new Buffer(new MemorySegment(new byte[1024]), mock(BufferRecycler.class)));
+			Buffer buffer = spy(new Buffer(MemorySegmentFactory.allocateUnpooledSegment(1024), mock(BufferRecycler.class)));
 			ByteBuffer nioBuffer = buffer.getNioBuffer();
 
 			for (int i = 0; i < 1024; i += 4) {
@@ -93,8 +93,8 @@ public class NettyMessageSerializationTest {
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
 				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
 
-				assertEquals(expected.error.getClass(), actual.error.getClass());
-				assertEquals(expected.error.getMessage(), actual.error.getMessage());
+				assertEquals(expected.cause.getClass(), actual.cause.getClass());
+				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
 				assertEquals(receiverId, actual.receiverId);
 			}
 
@@ -105,8 +105,8 @@ public class NettyMessageSerializationTest {
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError, receiverId);
 				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
 
-				assertEquals(expected.error.getClass(), actual.error.getClass());
-				assertEquals(expected.error.getMessage(), actual.error.getMessage());
+				assertEquals(expected.cause.getClass(), actual.cause.getClass());
+				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
 				assertEquals(receiverId, actual.receiverId);
 			}
 
@@ -116,8 +116,8 @@ public class NettyMessageSerializationTest {
 				NettyMessage.ErrorResponse expected = new NettyMessage.ErrorResponse(expectedError);
 				NettyMessage.ErrorResponse actual = encodeAndDecode(expected);
 
-				assertEquals(expected.error.getClass(), actual.error.getClass());
-				assertEquals(expected.error.getMessage(), actual.error.getMessage());
+				assertEquals(expected.cause.getClass(), actual.cause.getClass());
+				assertEquals(expected.cause.getMessage(), actual.cause.getMessage());
 				assertNull(actual.receiverId);
 				assertTrue(actual.isFatalError());
 			}
@@ -139,6 +139,20 @@ public class NettyMessageSerializationTest {
 			assertEquals(expected.event, actual.event);
 			assertEquals(expected.partitionId, actual.partitionId);
 			assertEquals(expected.receiverId, actual.receiverId);
+		}
+
+		{
+			NettyMessage.CancelPartitionRequest expected = new NettyMessage.CancelPartitionRequest(new InputChannelID());
+			NettyMessage.CancelPartitionRequest actual = encodeAndDecode(expected);
+
+			assertEquals(expected.receiverId, actual.receiverId);
+		}
+
+		{
+			NettyMessage.CloseRequest expected = new NettyMessage.CloseRequest();
+			NettyMessage.CloseRequest actual = encodeAndDecode(expected);
+
+			assertEquals(expected.getClass(), actual.getClass());
 		}
 	}
 

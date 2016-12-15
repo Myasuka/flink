@@ -20,6 +20,9 @@
 package org.apache.flink.runtime.operators;
 
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.operators.util.metrics.CountingCollector;
+import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.flink.api.common.functions.ReduceFunction;
@@ -33,16 +36,16 @@ import org.apache.flink.util.MutableObjectIterator;
  * single input and one or multiple outputs. It is provided with a ReduceFunction
  * implementation.
  * <p>
- * The ReduceTask creates a iterator over all records from its input. The iterator returns all records grouped by their
- * key. The iterator is handed to the <code>reduce()</code> method of the ReduceFunction.
+ * The AllReduceDriver creates an iterator over all records from its input.
+ * The elements are handed pairwise to the <code>reduce()</code> method of the ReduceFunction.
  * 
  * @see org.apache.flink.api.common.functions.ReduceFunction
  */
-public class AllReduceDriver<T> implements PactDriver<ReduceFunction<T>, T> {
+public class AllReduceDriver<T> implements Driver<ReduceFunction<T>, T> {
 	
 	private static final Logger LOG = LoggerFactory.getLogger(AllReduceDriver.class);
 
-	private PactTaskContext<ReduceFunction<T>, T> taskContext;
+	private TaskContext<ReduceFunction<T>, T> taskContext;
 	
 	private MutableObjectIterator<T> input;
 
@@ -55,7 +58,7 @@ public class AllReduceDriver<T> implements PactDriver<ReduceFunction<T>, T> {
 	// ------------------------------------------------------------------------
 
 	@Override
-	public void setup(PactTaskContext<ReduceFunction<T>, T> context) {
+	public void setup(TaskContext<ReduceFunction<T>, T> context) {
 		this.taskContext = context;
 		this.running = true;
 	}
@@ -104,37 +107,49 @@ public class AllReduceDriver<T> implements PactDriver<ReduceFunction<T>, T> {
 			LOG.debug(this.taskContext.formatLogString("AllReduce preprocessing done. Running Reducer code."));
 		}
 
+		final Counter numRecordsIn = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsInCounter();
+		final Counter numRecordsOut = this.taskContext.getMetricGroup().getIOMetricGroup().getNumRecordsOutCounter();
+
 		final ReduceFunction<T> stub = this.taskContext.getStub();
 		final MutableObjectIterator<T> input = this.input;
 		final TypeSerializer<T> serializer = this.serializer;
+		final Collector<T> collector = new CountingCollector<>(this.taskContext.getOutputCollector(), numRecordsOut);
 
+		T val1;
+		if ((val1 = input.next()) == null) {
+			return;
+		}
+		numRecordsIn.inc();
 
 		if (objectReuseEnabled) {
-			T val1 = serializer.createInstance();
-
-			if ((val1 = input.next(val1)) == null) {
-				return;
-			}
-
+			// We only need two objects. The first reference stores results and is
+			// eventually collected. New values are read into the second.
 			T val2 = serializer.createInstance();
+
+			T value = val1;
+
 			while (running && (val2 = input.next(val2)) != null) {
-				val1 = stub.reduce(val1, val2);
+				numRecordsIn.inc();
+				value = stub.reduce(value, val2);
+
+				// we must never read into the object returned
+				// by the user, so swap the reuse objects,
+				if (value == val2) {
+					T tmp = val1;
+					val1 = val2;
+					val2 = tmp;
+				}
 			}
 
-			this.taskContext.getOutputCollector().collect(val1);
+			collector.collect(value);
 		} else {
-			T val1 = serializer.createInstance();
-
-			if ((val1 = input.next(val1)) == null) {
-				return;
-			}
-
 			T val2;
-			while (running && (val2 = input.next(serializer.createInstance())) != null) {
+			while (running && (val2 = input.next()) != null) {
+				numRecordsIn.inc();
 				val1 = stub.reduce(val1, val2);
 			}
 
-			this.taskContext.getOutputCollector().collect(val1);
+			collector.collect(val1);
 		}
 	}
 

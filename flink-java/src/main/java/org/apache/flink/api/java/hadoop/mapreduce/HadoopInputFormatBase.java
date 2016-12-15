@@ -16,13 +16,13 @@
  * limitations under the License.
  */
 
-
 package org.apache.flink.api.java.hadoop.mapreduce;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.io.FileInputFormat.FileBaseStatistics;
-import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.common.io.LocatableInputSplitAssigner;
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
+import org.apache.flink.api.java.hadoop.common.HadoopInputFormatCommonBase;
 import org.apache.flink.api.java.hadoop.mapreduce.utils.HadoopUtils;
 import org.apache.flink.api.java.hadoop.mapreduce.wrapper.HadoopInputSplit;
 import org.apache.flink.configuration.Configuration;
@@ -30,6 +30,8 @@ import org.apache.flink.core.fs.FileStatus;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.io.InputSplitAssigner;
+import org.apache.flink.util.Preconditions;
+import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.JobID;
@@ -37,6 +39,8 @@ import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,12 +50,26 @@ import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, HadoopInputSplit> {
+/**
+ * Base class shared between the Java and Scala API of Flink
+ */
+@Internal
+public abstract class HadoopInputFormatBase<K, V, T> extends HadoopInputFormatCommonBase<T, HadoopInputSplit> {
 
 	private static final long serialVersionUID = 1L;
 
 	private static final Logger LOG = LoggerFactory.getLogger(HadoopInputFormatBase.class);
 
+	// Mutexes to avoid concurrent operations on Hadoop InputFormats.
+	// Hadoop parallelizes tasks across JVMs which is why they might rely on this JVM isolation.
+	// In contrast, Flink parallelizes using Threads, so multiple Hadoop InputFormat instances
+	// might be used in the same JVM.
+	private static final Object OPEN_MUTEX = new Object();
+	private static final Object CONFIGURE_MUTEX = new Object();
+	private static final Object CLOSE_MUTEX = new Object();
+
+	// NOTE: this class is using a custom serialization logic, without a defaultWriteObject() method.
+	// Hence, all fields here are "transient".
 	private org.apache.hadoop.mapreduce.InputFormat<K, V> mapreduceInputFormat;
 	protected Class<K> keyClass;
 	protected Class<V> valueClass;
@@ -62,10 +80,10 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 	protected boolean hasNext;
 
 	public HadoopInputFormatBase(org.apache.hadoop.mapreduce.InputFormat<K, V> mapreduceInputFormat, Class<K> key, Class<V> value, Job job) {
-		super();
-		this.mapreduceInputFormat = mapreduceInputFormat;
-		this.keyClass = key;
-		this.valueClass = value;
+		super(Preconditions.checkNotNull(job, "Job can not be null").getCredentials());
+		this.mapreduceInputFormat = Preconditions.checkNotNull(mapreduceInputFormat);
+		this.keyClass = Preconditions.checkNotNull(key);
+		this.valueClass = Preconditions.checkNotNull(value);
 		this.configuration = job.getConfiguration();
 		HadoopUtils.mergeHadoopConf(configuration);
 	}
@@ -80,17 +98,23 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 
 	@Override
 	public void configure(Configuration parameters) {
-		// nothing to do
+
+		// enforce sequential configuration() calls
+		synchronized (CONFIGURE_MUTEX) {
+			if (mapreduceInputFormat instanceof Configurable) {
+				((Configurable) mapreduceInputFormat).setConf(configuration);
+			}
+		}
 	}
 
 	@Override
 	public BaseStatistics getStatistics(BaseStatistics cachedStats) throws IOException {
 		// only gather base statistics for FileInputFormats
-		if(!(mapreduceInputFormat instanceof FileInputFormat)) {
+		if (!(mapreduceInputFormat instanceof FileInputFormat)) {
 			return null;
 		}
 
-		JobContext jobContext = null;
+		JobContext jobContext;
 		try {
 			jobContext = HadoopUtils.instantiateJobContext(configuration, null);
 		} catch (Exception e) {
@@ -100,23 +124,23 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 		final FileBaseStatistics cachedFileStats = (cachedStats != null && cachedStats instanceof FileBaseStatistics) ?
 				(FileBaseStatistics) cachedStats : null;
 				
-				try {
-					final org.apache.hadoop.fs.Path[] paths = FileInputFormat.getInputPaths(jobContext);
-					return getFileStats(cachedFileStats, paths, new ArrayList<FileStatus>(1));
-				} catch (IOException ioex) {
-					if (LOG.isWarnEnabled()) {
-						LOG.warn("Could not determine statistics due to an io error: " 
-								+ ioex.getMessage());
-					}
-				} catch (Throwable t) {
-					if (LOG.isErrorEnabled()) {
-						LOG.error("Unexpected problem while getting the file statistics: "
-								+ t.getMessage(), t);
-					}
-				}
-				
-				// no statistics available
-				return null;
+		try {
+			final org.apache.hadoop.fs.Path[] paths = FileInputFormat.getInputPaths(jobContext);
+			return getFileStats(cachedFileStats, paths, new ArrayList<FileStatus>(1));
+		} catch (IOException ioex) {
+			if (LOG.isWarnEnabled()) {
+				LOG.warn("Could not determine statistics due to an io error: "
+						+ ioex.getMessage());
+			}
+		} catch (Throwable t) {
+			if (LOG.isErrorEnabled()) {
+				LOG.error("Unexpected problem while getting the file statistics: "
+						+ t.getMessage(), t);
+			}
+		}
+
+		// no statistics available
+		return null;
 	}
 
 	@Override
@@ -124,11 +148,17 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 			throws IOException {
 		configuration.setInt("mapreduce.input.fileinputformat.split.minsize", minNumSplits);
 
-		JobContext jobContext = null;
+		JobContext jobContext;
 		try {
 			jobContext = HadoopUtils.instantiateJobContext(configuration, new JobID());
 		} catch (Exception e) {
 			throw new RuntimeException(e);
+		}
+
+		jobContext.getCredentials().addAll(this.credentials);
+		Credentials currentUserCreds = getCredentialsFromUGI(UserGroupInformation.getCurrentUser());
+		if (currentUserCreds != null) {
+			jobContext.getCredentials().addAll(currentUserCreds);
 		}
 
 		List<org.apache.hadoop.mapreduce.InputSplit> splits;
@@ -139,7 +169,7 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 		}
 		HadoopInputSplit[] hadoopInputSplits = new HadoopInputSplit[splits.size()];
 
-		for(int i = 0; i < hadoopInputSplits.length; i++){
+		for (int i = 0; i < hadoopInputSplits.length; i++) {
 			hadoopInputSplits[i] = new HadoopInputSplit(i, splits.get(i), jobContext);
 		}
 		return hadoopInputSplits;
@@ -152,27 +182,32 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 
 	@Override
 	public void open(HadoopInputSplit split) throws IOException {
-		TaskAttemptContext context = null;
-		try {
-			context = HadoopUtils.instantiateTaskAttemptContext(configuration, new TaskAttemptID());
-		} catch(Exception e) {
-			throw new RuntimeException(e);
-		}
 
-		try {
-			this.recordReader = this.mapreduceInputFormat
-					.createRecordReader(split.getHadoopInputSplit(), context);
-			this.recordReader.initialize(split.getHadoopInputSplit(), context);
-		} catch (InterruptedException e) {
-			throw new IOException("Could not create RecordReader.", e);
-		} finally {
-			this.fetched = false;
+		// enforce sequential open() calls
+		synchronized (OPEN_MUTEX) {
+
+			TaskAttemptContext context;
+			try {
+				context = HadoopUtils.instantiateTaskAttemptContext(configuration, new TaskAttemptID());
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+
+			try {
+				this.recordReader = this.mapreduceInputFormat
+						.createRecordReader(split.getHadoopInputSplit(), context);
+				this.recordReader.initialize(split.getHadoopInputSplit(), context);
+			} catch (InterruptedException e) {
+				throw new IOException("Could not create RecordReader.", e);
+			} finally {
+				this.fetched = false;
+			}
 		}
 	}
 
 	@Override
 	public boolean reachedEnd() throws IOException {
-		if(!this.fetched) {
+		if (!this.fetched) {
 			fetchNext();
 		}
 		return !this.hasNext;
@@ -190,7 +225,11 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 
 	@Override
 	public void close() throws IOException {
-		this.recordReader.close();
+
+		// enforce sequential close() calls
+		synchronized (CLOSE_MUTEX) {
+			this.recordReader.close();
+		}
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -203,7 +242,7 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 		long latestModTime = 0L;
 
 		// get the file info and check whether the cached statistics are still valid.
-		for(org.apache.hadoop.fs.Path hadoopPath : hadoopFilePaths) {
+		for (org.apache.hadoop.fs.Path hadoopPath : hadoopFilePaths) {
 
 			final Path filePath = new Path(hadoopPath.toUri());
 			final FileSystem fs = FileSystem.get(filePath.toUri());
@@ -251,6 +290,7 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 	// --------------------------------------------------------------------------------------------
 
 	private void writeObject(ObjectOutputStream out) throws IOException {
+		super.write(out);
 		out.writeUTF(this.mapreduceInputFormat.getClass().getName());
 		out.writeUTF(this.keyClass.getName());
 		out.writeUTF(this.valueClass.getName());
@@ -259,6 +299,7 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 
 	@SuppressWarnings("unchecked")
 	private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+		super.read(in);
 		String hadoopInputFormatClassName = in.readUTF();
 		String keyClassName = in.readUTF();
 		String valueClassName = in.readUTF();
@@ -266,7 +307,7 @@ public abstract class HadoopInputFormatBase<K, V, T> implements InputFormat<T, H
 		org.apache.hadoop.conf.Configuration configuration = new org.apache.hadoop.conf.Configuration();
 		configuration.readFields(in);
 
-		if(this.configuration == null) {
+		if (this.configuration == null) {
 			this.configuration = configuration;
 		}
 

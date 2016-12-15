@@ -19,21 +19,21 @@ package org.apache.flink.api.scala.codegen
 
 import java.lang.reflect.{Field, Modifier}
 
+import org.apache.flink.annotation.Internal
 import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo._
-
 import org.apache.flink.api.common.typeutils._
 import org.apache.flink.api.java.typeutils._
-import org.apache.flink.api.scala.typeutils.{CaseClassSerializer, CaseClassTypeInfo}
+import org.apache.flink.api.scala.typeutils._
 import org.apache.flink.types.Value
 import org.apache.hadoop.io.Writable
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.language.postfixOps
-
 import scala.reflect.macros.Context
 
+@Internal
 private[flink] trait TypeInformationGen[C <: Context] {
   this: MacroContextHolder[C]
   with TypeDescriptors[C]
@@ -52,6 +52,9 @@ private[flink] trait TypeInformationGen[C <: Context] {
   // We have this for internal use so that we can use it to recursively generate a tree of
   // TypeInformation from a tree of UDTDescriptor
   def mkTypeInfo[T: c.WeakTypeTag](desc: UDTDescriptor): c.Expr[TypeInformation[T]] = desc match {
+
+    case f: FactoryTypeDescriptor => mkTypeInfoFromFactory(f)
+
     case cc@CaseClassDescriptor(_, tpe, _, _, _) =>
       mkCaseClassTypeInfo(cc)(c.WeakTypeTag(tpe).asInstanceOf[c.WeakTypeTag[Product]])
         .asInstanceOf[c.Expr[TypeInformation[T]]]
@@ -61,9 +64,14 @@ private[flink] trait TypeInformationGen[C <: Context] {
     case p : PrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
     case p : BoxedPrimitiveDescriptor => mkPrimitiveTypeInfo(p.tpe)
 
-    case n: NothingDesciptor => reify { null.asInstanceOf[TypeInformation[T]] }
+    case n: NothingDescriptor =>
+      reify { new ScalaNothingTypeInfo().asInstanceOf[TypeInformation[T]] }
+
+    case u: UnitDescriptor => reify { new UnitTypeInfo().asInstanceOf[TypeInformation[T]] }
 
     case e: EitherDescriptor => mkEitherTypeInfo(e)
+
+    case e: EnumValueDescriptor => mkEnumValueTypeInfo(e)
 
     case tr: TryDescriptor => mkTryTypeInfo(tr)
 
@@ -83,7 +91,28 @@ private[flink] trait TypeInformationGen[C <: Context] {
 
     case pojo: PojoDescriptor => mkPojo(pojo)
 
+    case javaTuple: JavaTupleDescriptor => mkJavaTuple(javaTuple)
+
     case d => mkGenericTypeInfo(d)
+  }
+
+  def mkTypeInfoFromFactory[T: c.WeakTypeTag](desc: FactoryTypeDescriptor)
+    : c.Expr[TypeInformation[T]] = {
+
+    val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
+    val baseClazz = c.Expr[Class[T]](Literal(Constant(desc.baseType)))
+
+    val typeInfos = desc.params map { p => mkTypeInfo(p)(c.WeakTypeTag(p.tpe)).tree }
+    val typeInfosList = c.Expr[List[TypeInformation[_]]](mkList(typeInfos.toList))
+
+    reify {
+      val factory = TypeExtractor.getTypeInfoFactory[T](baseClazz.splice)
+      val genericParameters = typeInfosList.splice
+        .zip(baseClazz.splice.getTypeParameters).map { case (typeInfo, typeParam) =>
+          typeParam.getName -> typeInfo
+        }.toMap[String, TypeInformation[_]]
+      factory.createTypeInfo(tpeClazz.splice, genericParameters.asJava)
+    }
   }
 
   def mkCaseClassTypeInfo[T <: Product : c.WeakTypeTag](
@@ -119,7 +148,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
             fieldSerializers(i) = types(i).createSerializer(executionConfig)
           }
 
-          new CaseClassSerializer[T](tupleType, fieldSerializers) {
+          new CaseClassSerializer[T](getTypeClass(), fieldSerializers) {
             override def createInstance(fields: Array[AnyRef]): T = {
               instance.splice
             }
@@ -142,6 +171,19 @@ private[flink] trait TypeInformationGen[C <: Context] {
         $eitherClass,
         $leftTypeInfo,
         $rightTypeInfo)
+    """
+
+    c.Expr[TypeInformation[T]](result)
+  }
+
+  def mkEnumValueTypeInfo[T: c.WeakTypeTag](d: EnumValueDescriptor): c.Expr[TypeInformation[T]] = {
+
+    val enumValueClass = c.Expr[Class[T]](Literal(Constant(weakTypeOf[T])))
+
+    val result = q"""
+      import org.apache.flink.api.scala.typeutils.EnumValueTypeInfo
+
+      new EnumValueTypeInfo[${d.enum.typeSignature}](${d.enum}, $enumValueClass)
     """
 
     c.Expr[TypeInformation[T]](result)
@@ -222,10 +264,39 @@ private[flink] trait TypeInformationGen[C <: Context] {
         }
       case _ =>
         reify {
-          ObjectArrayTypeInfo.getInfoFor(
-            arrayClazz.splice,
-            elementTypeInfo.splice.asInstanceOf[TypeInformation[_]])
-            .asInstanceOf[TypeInformation[T]]
+          val elementType = elementTypeInfo.splice.asInstanceOf[TypeInformation[_]]
+          val result = elementType match {
+            case BasicTypeInfo.BOOLEAN_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.BOOLEAN_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.BYTE_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.BYTE_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.CHAR_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.CHAR_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.DOUBLE_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.FLOAT_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.FLOAT_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.INT_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.INT_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.LONG_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.LONG_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.SHORT_TYPE_INFO =>
+              PrimitiveArrayTypeInfo.SHORT_PRIMITIVE_ARRAY_TYPE_INFO
+
+            case BasicTypeInfo.STRING_TYPE_INFO =>
+              BasicArrayTypeInfo.STRING_ARRAY_TYPE_INFO
+
+            case _ =>
+              ObjectArrayTypeInfo.getInfoFor(elementType)
+          }
+          result.asInstanceOf[TypeInformation[T]]
         }
     }
   }
@@ -242,9 +313,26 @@ private[flink] trait TypeInformationGen[C <: Context] {
       desc: UDTDescriptor): c.Expr[TypeInformation[T]] = {
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
     reify {
-      new WritableTypeInfo[T](tpeClazz.splice)
+      TypeExtractor.createHadoopWritableTypeInfo[T](tpeClazz.splice)
     }
   }
+
+  def mkJavaTuple[T: c.WeakTypeTag](desc: JavaTupleDescriptor): c.Expr[TypeInformation[T]] = {
+
+    val fieldsTrees = desc.fields map { f => mkTypeInfo(f)(c.WeakTypeTag(f.tpe)).tree }
+
+    val fieldsList = c.Expr[List[TypeInformation[_]]](mkList(fieldsTrees.toList))
+
+    val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
+
+    reify {
+      val fields =  fieldsList.splice
+      val clazz = tpeClazz.splice.asInstanceOf[Class[org.apache.flink.api.java.tuple.Tuple]]
+      new TupleTypeInfo[org.apache.flink.api.java.tuple.Tuple](clazz, fields: _*)
+        .asInstanceOf[TypeInformation[T]]
+    }
+  }
+
 
   def mkPojo[T: c.WeakTypeTag](desc: PojoDescriptor): c.Expr[TypeInformation[T]] = {
     val tpeClazz = c.Expr[Class[T]](Literal(Constant(desc.tpe)))
@@ -267,7 +355,7 @@ private[flink] trait TypeInformationGen[C <: Context] {
       var error = false
       while (traversalClazz != null) {
         for (field <- traversalClazz.getDeclaredFields) {
-          if (clazzFields.contains(field.getName)) {
+          if (clazzFields.contains(field.getName) && !Modifier.isStatic(field.getModifiers)) {
             println(s"The field $field is already contained in the " +
               s"hierarchy of the class $clazz. Please use unique field names throughout " +
               "your class hierarchy")

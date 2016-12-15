@@ -72,16 +72,18 @@ upload_artifacts_s3() {
 
 	ls $ARTIFACTS_DIR
 
-	if [ -n "$UPLOAD_BUCKET" ] && [ -n "$UPLOAD_ACCESS_KEY" ] && [ -n "$UPLOAD_SECRET_KEY" ]; then
-		echo "COMPRESSING build artifacts."
+	echo "COMPRESSING build artifacts."
 
-		cd $ARTIFACTS_DIR
-		tar -zcvf $ARTIFACTS_FILE *
+	cd $ARTIFACTS_DIR
+	tar -zcvf $ARTIFACTS_FILE *
+
+	# Upload to secured S3
+	if [ -n "$UPLOAD_BUCKET" ] && [ -n "$UPLOAD_ACCESS_KEY" ] && [ -n "$UPLOAD_SECRET_KEY" ]; then
 
 		# Install artifacts tool
 		curl -sL https://raw.githubusercontent.com/travis-ci/artifacts/master/install | bash
 
-		PATH=$HOME/bin:$PATH
+		PATH=$HOME/bin/artifacts:$HOME/bin:$PATH
 
 		echo "UPLOADING build artifacts."
 
@@ -89,6 +91,10 @@ upload_artifacts_s3() {
 		# re-creates the whole directory structure from root.
 		artifacts upload --bucket $UPLOAD_BUCKET --key $UPLOAD_ACCESS_KEY --secret $UPLOAD_SECRET_KEY --target-paths $UPLOAD_TARGET_PATH $ARTIFACTS_FILE
 	fi
+
+	# upload to http://transfer.sh
+	echo "Uploading to transfer.sh"
+	curl --upload-file $ARTIFACTS_FILE http://transfer.sh
 }
 
 print_stacktraces () {
@@ -156,6 +162,27 @@ watchdog () {
 	done
 }
 
+# Check the final fat jar for illegal artifacts
+check_shaded_artifacts() {
+	jar tf build-target/lib/flink-dist-*.jar > allClasses
+	ASM=`cat allClasses | grep '^org/objectweb/asm/' | wc -l`
+	if [ $ASM != "0" ]; then
+		echo "=============================================================================="
+		echo "Detected $ASM asm dependencies in fat jar"
+		echo "=============================================================================="
+		exit 1
+	fi
+	 
+	GUAVA=`cat allClasses | grep '^com/google/common' | wc -l`
+	if [ $GUAVA != "0" ]; then
+		echo "=============================================================================="
+		echo "Detected $GUAVA guava dependencies in fat jar"
+		echo "=============================================================================="
+		exit 1
+	fi
+
+}
+
 # =============================================================================
 # WATCHDOG
 # =============================================================================
@@ -189,28 +216,15 @@ echo "MVN exited with EXIT CODE: ${EXIT_CODE}."
 rm $MVN_PID
 rm $MVN_EXIT
 
+check_shaded_artifacts
+
 put_yarn_logs_to_artifacts
 
 upload_artifacts_s3
 
-# Check the number of files in the uber jar and fail the build if there are too many files (see: FLINK-1637)
-
 # since we are in flink/tools/artifacts
 # we are going back to
 cd ../../
-
-
-UBERJAR=`find . | grep flink-dist  | grep jar | head -n 1`
-if [ -z "$UBERJAR" ] ; then
-	echo "Uberjar not found. Assuming failed build";
-else 
-	jar tf $UBERJAR | wc -l > num_files_in_uberjar
-	NUM_FILES_IN_UBERJAR=`cat num_files_in_uberjar`
-	echo "Files in uberjar: $NUM_FILES_IN_UBERJAR. Uberjar: $UBERJAR"
-	if [ "$NUM_FILES_IN_UBERJAR" -ge "65536" ] ; then
-		echo "WARN: The number of files in the uberjar ($NUM_FILES_IN_UBERJAR) exceeds the maximum number of possible files for Java 6 (65536)"
-	fi
-fi
 
 # Exit code for Travis build success/failure
 exit $EXIT_CODE

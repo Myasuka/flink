@@ -19,9 +19,6 @@
 
 package org.apache.flink.types.parser;
 
-import org.apache.flink.types.parser.FieldParser;
-import org.apache.flink.types.parser.FloatParser;
-
 
 public class FloatParserTest extends ParserTestBase<Float> {
 
@@ -50,8 +47,13 @@ public class FloatParserTest extends ParserTestBase<Float> {
 	@Override
 	public String[] getInvalidTestValues() {
 		return new String[] {
-			"a", "123abc4", "-57-6", "7-877678"
+			"a", "123abc4", "-57-6", "7-877678", " 1", "2 ", " ", "\t"
 		};
+	}
+
+	@Override
+	public boolean allowsEmptyField() {
+		return false;
 	}
 
 	@Override

@@ -18,10 +18,16 @@
 
 package org.apache.flink.test.javaApiOperators;
 
+import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 
+import org.apache.flink.api.common.InvalidProgramException;
+import org.apache.flink.api.common.distributions.DataDistribution;
 import org.apache.flink.api.common.functions.FlatJoinFunction;
 import org.apache.flink.api.common.functions.JoinFunction;
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.common.functions.RichFlatJoinFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -29,17 +35,17 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.api.java.tuple.Tuple6;
 import org.apache.flink.api.java.tuple.Tuple7;
+import org.apache.flink.api.java.utils.DataSetUtils;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.memory.DataInputView;
+import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets.CustomType;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets.POJO;
 import org.apache.flink.test.util.MultipleProgramsTestBase;
 import org.apache.flink.util.Collector;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
+import org.junit.Assert;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.apache.flink.api.java.DataSet;
@@ -49,24 +55,8 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 @RunWith(Parameterized.class)
 public class JoinITCase extends MultipleProgramsTestBase {
 
-	public JoinITCase(TestExecutionMode mode){
+	public JoinITCase(TestExecutionMode mode) {
 		super(mode);
-	}
-
-	private String resultPath;
-	private String expected;
-
-	@Rule
-	public TemporaryFolder tempFolder = new TemporaryFolder();
-
-	@Before
-	public void before() throws Exception{
-		resultPath = tempFolder.newFile().toURI().toString();
-	}
-
-	@After
-	public void after() throws Exception{
-		compareResultsByLinesInMemory(expected, resultPath);
 	}
 
 	@Test
@@ -85,12 +75,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(1)
 						.with(new T3T5FlatJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hallo\n" +
+		String expected = "Hi,Hallo\n" +
 				"Hello,Hallo Welt\n" +
 				"Hello world,Hallo Welt\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -105,19 +96,20 @@ public class JoinITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
 		DataSet<Tuple2<String, String>> joinDs =
 				ds1.join(ds2)
-						.where(0,1)
-						.equalTo(0,4)
+						.where(0, 1)
+						.equalTo(0, 4)
 						.with(new T3T5FlatJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hallo\n" +
+		String expected = "Hi,Hallo\n" +
 				"Hello,Hallo Welt\n" +
 				"Hello world,Hallo Welt wie gehts?\n" +
 				"Hello world,ABC\n" +
 				"I am fine.,HIJ\n" +
 				"I am fine.,IJK\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -130,17 +122,18 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<Tuple3<Integer, Long, String>> ds1 = CollectionDataSets.getSmall3TupleDataSet(env);
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
-		DataSet<Tuple2<Tuple3<Integer, Long, String>,Tuple5<Integer, Long, Integer, String, Long>>> joinDs =
+		DataSet<Tuple2<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>>> joinDs =
 				ds1.join(ds2)
 						.where(0)
 						.equalTo(2);
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>>> result = joinDs.collect();
 
-		expected = "(1,1,Hi),(2,2,1,Hallo Welt,2)\n" +
+		String expected = "(1,1,Hi),(2,2,1,Hallo Welt,2)\n" +
 				"(2,2,Hello),(2,3,2,Hallo Welt wie,1)\n" +
 				"(3,2,Hello world),(3,4,3,Hallo Welt wie gehts?,2)\n";
+
+		compareResultAsTuples(result, expected);
 
 	}
 
@@ -159,12 +152,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 				.equalTo(1)
 				.with(new T3T5FlatJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hallo\n" +
+		String expected = "Hi,Hallo\n" +
 				"Hello,Hallo Welt\n" +
 				"Hello world,Hallo Welt\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -183,12 +177,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(1)
 						.with(new T3T5FlatJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hallo\n" +
+		String expected = "Hi,Hallo\n" +
 				"Hello,Hallo Welt\n" +
 				"Hello world,Hallo Welt\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -207,12 +202,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(1)
 						.with(new LeftReturningJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple3<Integer, Long, String>> result = joinDs.collect();
 
-		expected = "1,1,Hi\n" +
+		String expected = "1,1,Hi\n" +
 				"2,2,Hello\n" +
 				"3,2,Hello world\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -231,12 +227,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(1)
 						.with(new RightReturningJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple5<Integer, Long, Integer, String, Long>> result = joinDs.collect();
 
-		expected = "1,1,0,Hallo,1\n" +
+		String expected = "1,1,0,Hallo,1\n" +
 				"2,2,1,Hallo Welt,2\n" +
 				"2,2,1,Hallo Welt,2\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -258,18 +255,19 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.with(new T3T5BCJoin())
 						.withBroadcastSet(intDs, "ints");
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple3<String, String, Integer>> result = joinDs.collect();
 
-		expected = "Hi,Hallo,55\n" +
+		String expected = "Hi,Hallo,55\n" +
 				"Hi,Hallo Welt wie,55\n" +
 				"Hello,Hallo Welt,55\n" +
 				"Hello world,Hallo Welt,55\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
 	public void testJoinOnACustomTypeInputWithKeyExtractorAndATupleInputWithKeyFieldSelector()
-			throws Exception{
+			throws Exception {
 		/*
 		 * Join on a tuple input with key field selector and a custom type input with key extractor
 		 */
@@ -284,12 +282,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(0)
 						.with(new CustT3Join());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hi\n" +
+		String expected = "Hi,Hi\n" +
 				"Hello,Hello\n" +
 				"Hello world,Hello\n";
+
+		compareResultAsTuples(result, expected);
 
 	}
 
@@ -314,17 +313,18 @@ public class JoinITCase extends MultipleProgramsTestBase {
 				ds1.join(ds2)
 						.where(1)
 						.equalTo(1)
-						.projectFirst(2,1)
+						.projectFirst(2, 1)
 						.projectSecond(3)
 						.projectFirst(0)
-						.projectSecond(4,1);
+						.projectSecond(4, 1);
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple6<String, Long, String, Integer, Long, Long>> result = joinDs.collect();
 
-		expected = "Hi,1,Hallo,1,1,1\n" +
+		String expected = "Hi,1,Hallo,1,1,1\n" +
 				"Hello,2,Hallo Welt,2,2,2\n" +
 				"Hello world,2,Hallo Welt,3,2,2\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -342,16 +342,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.where(1)
 						.equalTo(1)
 						.projectSecond(3)
-						.projectFirst(2,1)
-						.projectSecond(4,1)
+						.projectFirst(2, 1)
+						.projectSecond(4, 1)
 						.projectFirst(0);
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple6<String, String, Long, Long, Long, Integer>> result = joinDs.collect();
 
-		expected = "Hallo,Hi,1,1,1,1\n" +
+		String expected = "Hallo,Hi,1,1,1,1\n" +
 				"Hallo Welt,Hello,2,2,2,2\n" +
 				"Hallo Welt,Hello world,2,2,2,3\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -370,12 +371,13 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.where(1).equalTo(new KeySelector2())
 						.with(new T3CustJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hello\n" +
+		String expected = "Hi,Hello\n" +
 				"Hello,Hello world\n" +
 				"Hello world,Hello world\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	public static class KeySelector2 implements KeySelector<CustomType, Long> {
@@ -398,21 +400,91 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<Tuple2<CustomType, CustomType>> joinDs =
 				ds1.join(ds2)
-						.where(
-							new KeySelector5()
-						)
-						.equalTo(
-								new KeySelector6()
-						);
+						.where(new KeySelector5())
+						.equalTo(new KeySelector6());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<CustomType, CustomType>> result = joinDs.collect();
 
-		expected = "1,0,Hi,1,0,Hi\n" +
+		String expected = "1,0,Hi,1,0,Hi\n" +
 				"2,1,Hello,2,1,Hello\n" +
 				"2,1,Hello,2,2,Hello world\n" +
 				"2,2,Hello world,2,1,Hello\n" +
 				"2,2,Hello world,2,2,Hello world\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testDefaultJoinOnTwoCustomTypeInputsWithInnerClassKeyExtractorsClosureCleaner() throws Exception {
+		/*
+		 * (Default) Join on two custom type inputs with key extractors, implemented as inner classes to test closure
+		 * cleaning
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<CustomType> ds1 = CollectionDataSets.getCustomTypeDataSet(env);
+		DataSet<CustomType> ds2 = CollectionDataSets.getSmallCustomTypeDataSet(env);
+
+		DataSet<Tuple2<CustomType, CustomType>> joinDs =
+				ds1.join(ds2)
+						.where(new KeySelector<CustomType, Integer>() {
+							@Override
+							public Integer getKey(CustomType value) {
+								return value.myInt;
+							}
+						})
+						.equalTo(new KeySelector<CustomType, Integer>() {
+
+							@Override
+							public Integer getKey(CustomType value) throws Exception {
+								return value.myInt;
+							}
+						});
+
+		List<Tuple2<CustomType, CustomType>> result = joinDs.collect();
+
+		String expected = "1,0,Hi,1,0,Hi\n" +
+				"2,1,Hello,2,1,Hello\n" +
+				"2,1,Hello,2,2,Hello world\n" +
+				"2,2,Hello world,2,1,Hello\n" +
+				"2,2,Hello world,2,2,Hello world\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testDefaultJoinOnTwoCustomTypeInputsWithInnerClassKeyExtractorsDisabledClosureCleaner() throws Exception {
+		/*
+		 * (Default) Join on two custom type inputs with key extractors, check if disableing closure cleaning works
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		env.getConfig().disableClosureCleaner();
+
+		DataSet<CustomType> ds1 = CollectionDataSets.getCustomTypeDataSet(env);
+		DataSet<CustomType> ds2 = CollectionDataSets.getSmallCustomTypeDataSet(env);
+		boolean correctExceptionTriggered = false;
+		try {
+			DataSet<Tuple2<CustomType, CustomType>> joinDs =
+					ds1.join(ds2)
+							.where(new KeySelector<CustomType, Integer>() {
+								@Override
+								public Integer getKey(CustomType value) {
+									return value.myInt;
+								}
+							})
+							.equalTo(new KeySelector<CustomType, Integer>() {
+
+								@Override
+								public Integer getKey(CustomType value) throws Exception {
+									return value.myInt;
+								}
+							});
+		} catch (InvalidProgramException ex) {
+			correctExceptionTriggered = (ex.getCause() instanceof java.io.NotSerializableException);
+		}
+		Assert.assertTrue(correctExceptionTriggered);
 	}
 
 	public static class KeySelector5 implements KeySelector<CustomType, Integer> {
@@ -445,31 +517,32 @@ public class JoinITCase extends MultipleProgramsTestBase {
 						.equalTo(new KeySelector4())
 						.with(new T3T5FlatJoin());
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<String, String>> result = joinDs.collect();
 
-		expected = "Hi,Hallo\n" +
+		String expected = "Hi,Hallo\n" +
 				"Hello,Hallo Welt\n" +
 				"Hello world,Hallo Welt wie gehts?\n" +
 				"Hello world,ABC\n" +
 				"I am fine.,HIJ\n" +
 				"I am fine.,IJK\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
-	public static class KeySelector3 implements KeySelector<Tuple3<Integer,Long,String>, Tuple2<Integer, Long>> {
+	public static class KeySelector3 implements KeySelector<Tuple3<Integer, Long, String>, Tuple2<Integer, Long>> {
 		private static final long serialVersionUID = 1L;
 
 		@Override
-		public Tuple2<Integer, Long> getKey(Tuple3<Integer,Long,String> t) {
+		public Tuple2<Integer, Long> getKey(Tuple3<Integer, Long, String> t) {
 			return new Tuple2<Integer, Long>(t.f0, t.f1);
 		}
 	}
 
-	public static class KeySelector4 implements KeySelector<Tuple5<Integer,Long,Integer,String,Long>, Tuple2<Integer, Long>> {
+	public static class KeySelector4 implements KeySelector<Tuple5<Integer, Long, Integer, String, Long>, Tuple2<Integer, Long>> {
 		private static final long serialVersionUID = 1L;
 
 		@Override
-		public Tuple2<Integer, Long> getKey(Tuple5<Integer,Long,Integer,String,Long> t) {
+		public Tuple2<Integer, Long> getKey(Tuple5<Integer, Long, Integer, String, Long> t) {
 			return new Tuple2<Integer, Long>(t.f0, t.f4);
 		}
 	}
@@ -483,15 +556,16 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
-		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long> >> joinDs =
+		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> joinDs =
 				ds1.join(ds2).where("nestedPojo.longNumber").equalTo("f6");
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
+		String expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
 				"2 Second (20,200,2000,Two) 20000,(2,Second,20,200,2000,Two,20000)\n" +
 				"3 Third (30,300,3000,Three) 30000,(3,Third,30,300,3000,Three,30000)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -503,15 +577,16 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
-		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long> >> joinDs =
+		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> joinDs =
 				ds1.join(ds2).where("nestedPojo.longNumber").equalTo(6); // <--- difference!
 
-		joinDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
+		String expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
 				"2 Second (20,200,2000,Two) 20000,(2,Second,20,200,2000,Two,20000)\n" +
 				"3 Third (30,300,3000,Three) 30000,(3,Third,30,300,3000,Three,30000)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -523,16 +598,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
-		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long> >> joinDs =
-				ds1.join(ds2).where("nestedPojo.longNumber", "number", "str").equalTo("f6","f0","f1");
+		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> joinDs =
+				ds1.join(ds2).where("nestedPojo.longNumber", "number", "str").equalTo("f6", "f0", "f1");
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
+		String expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
 				"2 Second (20,200,2000,Two) 20000,(2,Second,20,200,2000,Two,20000)\n" +
 				"3 Third (30,300,3000,Three) 30000,(3,Third,30,300,3000,Three,30000)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -544,16 +620,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
-		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long> >> joinDs =
-				ds1.join(ds2).where("nestedPojo.longNumber", "number","nestedTupleWithCustom.f0").equalTo("f6","f0","f2");
+		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> joinDs =
+				ds1.join(ds2).where("nestedPojo.longNumber", "number", "nestedTupleWithCustom.f0").equalTo("f6", "f0", "f2");
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
+		String expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
 				"2 Second (20,200,2000,Two) 20000,(2,Second,20,200,2000,Two,20000)\n" +
 				"3 Third (30,300,3000,Three) 30000,(3,Third,30,300,3000,Three,30000)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -565,16 +642,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
-		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long> >> joinDs =
-				ds1.join(ds2).where("nestedTupleWithCustom.f0","nestedTupleWithCustom.f1.myInt","nestedTupleWithCustom.f1.myLong").equalTo("f2","f3","f4");
+		DataSet<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> joinDs =
+				ds1.join(ds2).where("nestedTupleWithCustom.f0", "nestedTupleWithCustom.f1.myInt", "nestedTupleWithCustom.f1.myLong").equalTo("f2", "f3", "f4");
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
+		String expected = "1 First (10,100,1000,One) 10000,(1,First,10,100,1000,One,10000)\n" +
 				"2 Second (20,200,2000,Two) 20000,(2,Second,20,200,2000,Two,20000)\n" +
 				"3 Third (30,300,3000,Three) 30000,(3,Third,30,300,3000,Three,30000)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -586,16 +664,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<Tuple2<Tuple2<Integer, Integer>, String>> ds1 = CollectionDataSets.getSmallNestedTupleDataSet(env);
 		DataSet<Tuple2<Tuple2<Integer, Integer>, String>> ds2 = CollectionDataSets.getSmallNestedTupleDataSet(env);
-		DataSet<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String> >> joinDs =
+		DataSet<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String>>> joinDs =
 				ds1.join(ds2).where(0).equalTo("f0.f0", "f0.f1"); // key is now Tuple2<Integer, Integer>
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String>>> result = joinDs.collect();
 
-		expected = "((1,1),one),((1,1),one)\n" +
+		String expected = "((1,1),one),((1,1),one)\n" +
 				"((2,2),two),((2,2),two)\n" +
 				"((3,3),three),((3,3),three)\n";
+
+		compareResultAsTuples(result, expected);
 
 	}
 
@@ -608,16 +687,17 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<Tuple2<Tuple2<Integer, Integer>, String>> ds1 = CollectionDataSets.getSmallNestedTupleDataSet(env);
 		DataSet<Tuple2<Tuple2<Integer, Integer>, String>> ds2 = CollectionDataSets.getSmallNestedTupleDataSet(env);
-		DataSet<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String> >> joinDs =
+		DataSet<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String>>> joinDs =
 				ds1.join(ds2).where("f0.f0").equalTo("f0.f0"); // key is now Integer from Tuple2<Integer, Integer>
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<Tuple2<Tuple2<Integer, Integer>, String>, Tuple2<Tuple2<Integer, Integer>, String>>> result = joinDs.collect();
 
-		expected = "((1,1),one),((1,1),one)\n" +
+		String expected = "((1,1),one),((1,1),one)\n" +
 				"((2,2),two),((2,2),two)\n" +
 				"((3,3),three),((3,3),three)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -629,21 +709,22 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 		DataSet<POJO> ds1 = CollectionDataSets.getSmallPojoDataSet(env);
 		DataSet<Tuple7<Long, Integer, Integer, Long, String, Integer, String>> ds2 = CollectionDataSets.getSmallTuplebasedDataSetMatchingPojo(env);
-		DataSet<Tuple2<POJO, Tuple7<Long, Integer, Integer, Long, String, Integer, String> >> joinDs =
+		DataSet<Tuple2<POJO, Tuple7<Long, Integer, Integer, Long, String, Integer, String>>> joinDs =
 				ds1.join(ds2).where("*").equalTo("*");
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<POJO, Tuple7<Long, Integer, Integer, Long, String, Integer, String>>> result = joinDs.collect();
 
-		expected = "1 First (10,100,1000,One) 10000,(10000,10,100,1000,One,1,First)\n"+
-				"2 Second (20,200,2000,Two) 20000,(20000,20,200,2000,Two,2,Second)\n"+
+		String expected = "1 First (10,100,1000,One) 10000,(10000,10,100,1000,One,1,First)\n" +
+				"2 Second (20,200,2000,Two) 20000,(20000,20,200,2000,Two,2,Second)\n" +
 				"3 Third (30,300,3000,Three) 30000,(30000,30,300,3000,Three,3,Third)\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
 	public void testNonPojoToVerifyNestedTupleElementSelectionWithFirstKeyFieldGreaterThanZero()
-	throws Exception {
+			throws Exception {
 		/*
 		 * Non-POJO test to verify "nested" tuple-element selection with the first key field greater than 0.
 		 */
@@ -654,61 +735,128 @@ public class JoinITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple2<Tuple2<Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>, Tuple2<Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>>> joinDs =
 				ds2.join(ds2).where("f1.f0").equalTo("f0.f0");
 
-		joinDs.writeAsCsv(resultPath);
 		env.setParallelism(1);
-		env.execute();
+		List<Tuple2<Tuple2<Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>, Tuple2<Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>>> result = joinDs.collect();
 
-		expected = "((1,1,Hi),(1,1,Hi)),((1,1,Hi),(1,1,Hi))\n" +
+		String expected = "((1,1,Hi),(1,1,Hi)),((1,1,Hi),(1,1,Hi))\n" +
 				"((2,2,Hello),(2,2,Hello)),((2,2,Hello),(2,2,Hello))\n" +
 				"((3,2,Hello world),(3,2,Hello world)),((3,2,Hello world),(3,2,Hello world))\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testJoinWithAtomicType1() throws Exception {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<Tuple3<Integer, Long, String>> ds1 = CollectionDataSets.getSmall3TupleDataSet(env);
+		DataSet<Integer> ds2 = env.fromElements(1, 2);
+
+		DataSet<Tuple2<Tuple3<Integer, Long, String>, Integer>> joinDs = ds1.join(ds2).where(0).equalTo("*");
+
+		List<Tuple2<Tuple3<Integer, Long, String>, Integer>> result = joinDs.collect();
+
+		String expected = "(1,1,Hi),1\n" +
+				"(2,2,Hello),2";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testJoinWithAtomicType2() throws Exception {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<Integer> ds1 = env.fromElements(1, 2);
+		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.getSmall3TupleDataSet(env);
+
+		DataSet<Tuple2<Integer, Tuple3<Integer, Long, String>>> joinDs = ds1.join(ds2).where("*").equalTo(0);
+
+		List<Tuple2<Integer, Tuple3<Integer, Long, String>>> result = joinDs.collect();
+
+		String expected = "1,(1,1,Hi)\n" +
+				"2,(2,2,Hello)";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testJoinWithRangePartitioning() throws Exception {
+		/*
+		 * Test Join on tuples with multiple key field positions and same customized distribution
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<Tuple3<Integer, Long, String>> ds1 = CollectionDataSets.get3TupleDataSet(env);
+		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
+
+		env.setParallelism(4);
+		TestDistribution testDis = new TestDistribution();
+		DataSet<Tuple2<String, String>> joinDs =
+				DataSetUtils.partitionByRange(ds1, testDis, 0, 1)
+						.join(DataSetUtils.partitionByRange(ds2, testDis, 0, 4))
+						.where(0, 1)
+						.equalTo(0, 4)
+						.with(new T3T5FlatJoin());
+
+		List<Tuple2<String, String>> result = joinDs.collect();
+
+		String expected = "Hi,Hallo\n" +
+				"Hello,Hallo Welt\n" +
+				"Hello world,Hallo Welt wie gehts?\n" +
+				"Hello world,ABC\n" +
+				"I am fine.,HIJ\n" +
+				"I am fine.,IJK\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	public static class T3T5FlatJoin implements FlatJoinFunction<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>, Tuple2<String, String>> {
 
 		@Override
 		public void join(Tuple3<Integer, Long, String> first,
-				Tuple5<Integer, Long, Integer, String, Long> second,
-				Collector<Tuple2<String,String>> out)  {
+		                 Tuple5<Integer, Long, Integer, String, Long> second,
+		                 Collector<Tuple2<String, String>> out) {
 
-			out.collect (new Tuple2<String,String> (first.f2, second.f3));
+			out.collect(new Tuple2<String, String>(first.f2, second.f3));
 		}
 
 	}
-	
+
 	public static class LeftReturningJoin implements JoinFunction<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>, Tuple3<Integer, Long, String>> {
 
 		@Override
 		public Tuple3<Integer, Long, String> join(Tuple3<Integer, Long, String> first,
-												  Tuple5<Integer, Long, Integer, String, Long> second) {
-			
+		                                          Tuple5<Integer, Long, Integer, String, Long> second) {
+
 			return first;
 		}
 	}
-	
+
 	public static class RightReturningJoin implements JoinFunction<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>, Tuple5<Integer, Long, Integer, String, Long>> {
 
 		@Override
 		public Tuple5<Integer, Long, Integer, String, Long> join(Tuple3<Integer, Long, String> first,
-																 Tuple5<Integer, Long, Integer, String, Long> second) {
-			
+		                                                         Tuple5<Integer, Long, Integer, String, Long> second) {
+
 			return second;
 		}
 	}
-		
+
 	public static class T3T5BCJoin extends RichFlatJoinFunction<Tuple3<Integer, Long, String>, Tuple5<Integer, Long, Integer, String, Long>, Tuple3<String, String, Integer>> {
 
 		private int broadcast;
-		
+
 		@Override
 		public void open(Configuration config) {
-			
+
 			Collection<Integer> ints = this.getRuntimeContext().getBroadcastVariable("ints");
 			int sum = 0;
-			for(Integer i : ints) {
+			for (Integer i : ints) {
 				sum += i;
 			}
 			broadcast = sum;
-			
+
 		}
 
 		/*
@@ -719,30 +867,72 @@ public class JoinITCase extends MultipleProgramsTestBase {
 
 			return new Tuple3<String, String, Integer>(first.f2, second.f3, broadcast);
 		}
-		*/
+		 */
 
 		@Override
 		public void join(Tuple3<Integer, Long, String> first, Tuple5<Integer, Long, Integer, String, Long> second, Collector<Tuple3<String, String, Integer>> out) throws Exception {
-			out.collect(new Tuple3<String, String, Integer> (first.f2, second.f3, broadcast));
+			out.collect(new Tuple3<String, String, Integer>(first.f2, second.f3, broadcast));
 		}
 	}
-	
+
 	public static class T3CustJoin implements JoinFunction<Tuple3<Integer, Long, String>, CustomType, Tuple2<String, String>> {
 
 		@Override
 		public Tuple2<String, String> join(Tuple3<Integer, Long, String> first,
-										   CustomType second) {
+		                                   CustomType second) {
 
 			return new Tuple2<String, String>(first.f2, second.myString);
 		}
 	}
-	
+
 	public static class CustT3Join implements JoinFunction<CustomType, Tuple3<Integer, Long, String>, Tuple2<String, String>> {
 
 		@Override
 		public Tuple2<String, String> join(CustomType first, Tuple3<Integer, Long, String> second) {
 
 			return new Tuple2<String, String>(first.myString, second.f2);
+		}
+	}
+
+	public static class TestDistribution implements DataDistribution {
+		public Object boundaries[][] = new Object[][]{
+				new Object[]{2, 2L},
+				new Object[]{5, 4L},
+				new Object[]{10, 12L},
+				new Object[]{21, 6L}
+		};
+
+		public TestDistribution() {
+		}
+
+		@Override
+		public Object[] getBucketBoundary(int bucketNum, int totalNumBuckets) {
+			return boundaries[bucketNum];
+		}
+
+		@Override
+		public int getNumberOfFields() {
+			return 2;
+		}
+
+		@Override
+		public TypeInformation[] getKeyTypes() {
+			return new TypeInformation[]{BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.LONG_TYPE_INFO};
+		}
+
+		@Override
+		public void write(DataOutputView out) throws IOException {
+
+		}
+
+		@Override
+		public void read(DataInputView in) throws IOException {
+
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			return obj instanceof TestDistribution;
 		}
 	}
 }

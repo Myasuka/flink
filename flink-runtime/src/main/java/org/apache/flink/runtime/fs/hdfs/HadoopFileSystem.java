@@ -17,25 +17,23 @@
  */
 package org.apache.flink.runtime.fs.hdfs;
 
+import org.apache.flink.configuration.ConfigConstants;
+import org.apache.flink.configuration.GlobalConfiguration;
+import org.apache.flink.core.fs.BlockLocation;
+import org.apache.flink.core.fs.FileStatus;
+import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.HadoopFileSystemWrapper;
+import org.apache.flink.core.fs.Path;
+import org.apache.flink.util.InstantiationUtil;
+import org.apache.hadoop.conf.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.UnknownHostException;
-
-import org.apache.flink.core.fs.HadoopFileSystemWrapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.flink.configuration.ConfigConstants;
-import org.apache.flink.configuration.GlobalConfiguration;
-import org.apache.flink.core.fs.BlockLocation;
-import org.apache.flink.core.fs.FSDataInputStream;
-import org.apache.flink.core.fs.FSDataOutputStream;
-import org.apache.flink.core.fs.FileStatus;
-import org.apache.flink.core.fs.FileSystem;
-import org.apache.flink.core.fs.Path;
-import org.apache.flink.util.InstantiationUtil;
-import org.apache.hadoop.conf.Configuration;
 
 /**
  * Concrete implementation of the {@link FileSystem} base class for the Hadoop File System. The
@@ -99,7 +97,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 					fsClass = ((Class<?>) fsHandle).asSubclass(org.apache.hadoop.fs.FileSystem.class);
 
 					if (LOG.isDebugEnabled()) {
-						LOG.debug("Loaded '" + fsClass.getName() + "' as HDFS class.");
+						LOG.debug("Loaded '{}' as HDFS class.", fsClass.getName());
 					}
 				}
 				else {
@@ -114,8 +112,8 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 		{
 			// first of all, check for a user-defined hdfs class
 			if (LOG.isDebugEnabled()) {
-				LOG.debug("Falling back to loading HDFS class old Hadoop style. Looking for HDFS class configuration entry '"
-						+ HDFS_IMPLEMENTATION_KEY + "'.");
+				LOG.debug("Falling back to loading HDFS class old Hadoop style. Looking for HDFS class configuration entry '{}'.",
+						HDFS_IMPLEMENTATION_KEY);
 			}
 
 			Class<?> classFromConfig = conf.getClass(HDFS_IMPLEMENTATION_KEY, null);
@@ -126,12 +124,12 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 					fsClass = classFromConfig.asSubclass(org.apache.hadoop.fs.FileSystem.class);
 
 					if (LOG.isDebugEnabled()) {
-						LOG.debug("Loaded HDFS class '" + fsClass.getName() + "' as specified in configuration.");
+						LOG.debug("Loaded HDFS class '{}' as specified in configuration.", fsClass.getName() );
 					}
 				}
 				else {
 					if (LOG.isDebugEnabled()) {
-						LOG.debug("HDFS class specified by " + HDFS_IMPLEMENTATION_KEY + " is of wrong type.");
+						LOG.debug("HDFS class specified by {} is of wrong type.", HDFS_IMPLEMENTATION_KEY);
 					}
 
 					throw new IOException("HDFS class specified by " + HDFS_IMPLEMENTATION_KEY +
@@ -141,7 +139,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 			else {
 				// load the default HDFS class
 				if (LOG.isDebugEnabled()) {
-					LOG.debug("Trying to load default HDFS implementation " + DEFAULT_HDFS_CLASS);
+					LOG.debug("Trying to load default HDFS implementation {}.", DEFAULT_HDFS_CLASS);
 				}
 
 				try {
@@ -176,29 +174,33 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 	 * This method is public because its being used in the HadoopDataSource.
 	 */
 	public static org.apache.hadoop.conf.Configuration getHadoopConfiguration() {
+
+		org.apache.flink.configuration.Configuration flinkConfiguration =
+			GlobalConfiguration.loadConfiguration();
+
 		Configuration retConf = new org.apache.hadoop.conf.Configuration();
 
 		// We need to load both core-site.xml and hdfs-site.xml to determine the default fs path and
 		// the hdfs configuration
 		// Try to load HDFS configuration from Hadoop's own configuration files
 		// 1. approach: Flink configuration
-		final String hdfsDefaultPath = GlobalConfiguration.getString(ConfigConstants.HDFS_DEFAULT_CONFIG, null);
+		final String hdfsDefaultPath = flinkConfiguration.getString(ConfigConstants.HDFS_DEFAULT_CONFIG, null);
 		if (hdfsDefaultPath != null) {
 			retConf.addResource(new org.apache.hadoop.fs.Path(hdfsDefaultPath));
 		} else {
-			LOG.debug("Cannot find hdfs-default configuration file");
+			LOG.trace("{} configuration key for hdfs-default configuration file not set", ConfigConstants.HDFS_DEFAULT_CONFIG);
 		}
 
-		final String hdfsSitePath = GlobalConfiguration.getString(ConfigConstants.HDFS_SITE_CONFIG, null);
+		final String hdfsSitePath = flinkConfiguration.getString(ConfigConstants.HDFS_SITE_CONFIG, null);
 		if (hdfsSitePath != null) {
 			retConf.addResource(new org.apache.hadoop.fs.Path(hdfsSitePath));
 		} else {
-			LOG.debug("Cannot find hdfs-site configuration file");
+			LOG.trace("{} configuration key for hdfs-site configuration file not set", ConfigConstants.HDFS_SITE_CONFIG);
 		}
 		
 		// 2. Approach environment variables
 		String[] possibleHadoopConfPaths = new String[4]; 
-		possibleHadoopConfPaths[0] = GlobalConfiguration.getString(ConfigConstants.PATH_HADOOP_CONFIG, null);
+		possibleHadoopConfPaths[0] = flinkConfiguration.getString(ConfigConstants.PATH_HADOOP_CONFIG, null);
 		possibleHadoopConfPaths[1] = System.getenv("HADOOP_CONF_DIR");
 		
 		if (System.getenv("HADOOP_HOME") != null) {
@@ -211,17 +213,14 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 				if (new File(possibleHadoopConfPath).exists()) {
 					if (new File(possibleHadoopConfPath + "/core-site.xml").exists()) {
 						retConf.addResource(new org.apache.hadoop.fs.Path(possibleHadoopConfPath + "/core-site.xml"));
-
-						if (LOG.isDebugEnabled()) {
-							LOG.debug("Adding " + possibleHadoopConfPath + "/core-site.xml to hadoop configuration");
-						}
+					} else {
+						LOG.debug("File {}/core-site.xml not found.", possibleHadoopConfPath);
 					}
+
 					if (new File(possibleHadoopConfPath + "/hdfs-site.xml").exists()) {
 						retConf.addResource(new org.apache.hadoop.fs.Path(possibleHadoopConfPath + "/hdfs-site.xml"));
-
-						if (LOG.isDebugEnabled()) {
-							LOG.debug("Adding " + possibleHadoopConfPath + "/hdfs-site.xml to hadoop configuration");
-						}
+					} else {
+						LOG.debug("File {}/hdfs-site.xml not found.", possibleHadoopConfPath);
 					}
 				}
 			}
@@ -264,6 +263,14 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 		return fs.getUri();
 	}
 
+	/**
+	 * Gets the underlying Hadoop FileSystem.
+	 * @return The underlying Hadoop FileSystem.
+	 */
+	public org.apache.hadoop.fs.FileSystem getHadoopFileSystem() {
+		return this.fs;
+	}
+	
 	@Override
 	public void initialize(URI path) throws IOException {
 		
@@ -277,7 +284,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 			}
 			
 			if (LOG.isDebugEnabled()) {
-				LOG.debug("fs.defaultFS is set to " + configEntry);
+				LOG.debug("fs.defaultFS is set to {}", configEntry);
 			}
 			
 			if (configEntry == null) {
@@ -367,21 +374,21 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 	}
 
 	@Override
-	public FSDataInputStream open(final Path f, final int bufferSize) throws IOException {
+	public HadoopDataInputStream open(final Path f, final int bufferSize) throws IOException {
 		final org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(f.toString());
 		final org.apache.hadoop.fs.FSDataInputStream fdis = this.fs.open(path, bufferSize);
 		return new HadoopDataInputStream(fdis);
 	}
 
 	@Override
-	public FSDataInputStream open(final Path f) throws IOException {
+	public HadoopDataInputStream open(final Path f) throws IOException {
 		final org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(f.toString());
 		final org.apache.hadoop.fs.FSDataInputStream fdis = fs.open(path);
 		return new HadoopDataInputStream(fdis);
 	}
 
 	@Override
-	public FSDataOutputStream create(final Path f, final boolean overwrite, final int bufferSize,
+	public HadoopDataOutputStream create(final Path f, final boolean overwrite, final int bufferSize,
 			final short replication, final long blockSize)
 	throws IOException
 	{
@@ -392,7 +399,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 
 
 	@Override
-	public FSDataOutputStream create(final Path f, final boolean overwrite) throws IOException {
+	public HadoopDataOutputStream create(final Path f, final boolean overwrite) throws IOException {
 		final org.apache.hadoop.fs.FSDataOutputStream fsDataOutputStream = this.fs
 			.create(new org.apache.hadoop.fs.Path(f.toString()), overwrite);
 		return new HadoopDataOutputStream(fsDataOutputStream);
@@ -441,7 +448,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 	@Override
 	public Class<?> getHadoopWrapperClassNameForFileSystem(String scheme) {
 		Configuration hadoopConf = getHadoopConfiguration();
-		Class<? extends org.apache.hadoop.fs.FileSystem> clazz =  null;
+		Class<? extends org.apache.hadoop.fs.FileSystem> clazz;
 		// We can activate this block once we drop Hadoop1 support (only hd2 has the getFileSystemClass-method)
 //		try {
 //			clazz = org.apache.hadoop.fs.FileSystem.getFileSystemClass(scheme, hadoopConf);
@@ -452,7 +459,7 @@ public final class HadoopFileSystem extends FileSystem implements HadoopFileSyst
 		clazz = hadoopConf.getClass("fs." + scheme + ".impl", null, org.apache.hadoop.fs.FileSystem.class);
 
 		if(clazz != null && LOG.isDebugEnabled()) {
-			LOG.debug("Flink supports "+scheme+" with the Hadoop file system wrapper, impl "+clazz);
+			LOG.debug("Flink supports {} with the Hadoop file system wrapper, impl {}", scheme, clazz);
 		}
 		return clazz;
 	}

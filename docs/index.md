@@ -1,5 +1,8 @@
 ---
-title: Flink Overview
+title: "Apache Flink Documentation"
+nav-pos: 0
+nav-title: '<i class="fa fa-home title" aria-hidden="true"></i> Home'
+nav-parent_id: root
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
@@ -18,47 +21,16 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
---> 
+-->
 
-Apache Flink is a platform for efficient, distributed, general-purpose data processing.
-It features powerful programming abstractions in Java and Scala, a high-performance runtime, and
-automatic program optimization. It has native support for iterations, incremental iterations, and
-programs consisting of large DAGs of operations.
+This documentation is for Apache Flink version {{ site.version }}.
 
-If you quickly want to try out the system, please look at one of the available quickstarts. For
-a thorough introduction of the Flink API please refer to the
-[Programming Guide](programming_guide.html).
+Apache Flink is an open source platform for distributed stream and batch data processing. Flink’s core is a streaming dataflow engine that provides data distribution, communication, and fault tolerance for distributed computations over data streams. Flink also builds batch processing on top of the streaming engine, overlaying native iteration support, managed memory, and program optimization.
 
-## Stack
+## First Steps
 
-This is an overview of Flink's stack. Click on any component to go to the respective documentation.
+- **Concepts**: Start with the basic concepts of Flink's [Dataflow Programming Model]({{ site.baseurl }}/concepts/programming-model.html) and [Distributed Runtime Environment]({{ site.baseurl }}/concepts/runtime.html). This will help you to fully understand the other parts of the documentation, including the setup and programming guides. It is highly recommended to read these sections first.
 
-<img src="img/overview-stack-0.9.png" width="893" height="450" alt="Stack" usemap="#overview-stack">
+- **Quickstarts**: [Run an example program](quickstart/setup_quickstart.html) on your local machine or [write a simple program](quickstart/run_example_quickstart.html) working on live Wikipedia edits.
 
-<map name="overview-stack">
-  <area shape="rect" coords="188,0,263,200" alt="Graph API: Gelly" href="gelly_guide.html">
-  <!-- <area shape="rect" coords="268,0,343,200" alt="Flink ML" href="ml.htm"> -->
-  <area shape="rect" coords="348,0,423,200" alt="Table" href="table.html">
-
-  <area shape="rect" coords="188,205,538,260" alt="DataSet API (Java/Scala)" href="programming_guide.html">
-  <area shape="rect" coords="543,205,893,260" alt="DataStream API (Java/Scala)" href="streaming_guide.html">
-
-  <area shape="rect" coords="188,275,538,330" alt="Optimizer" href="optimizer.html">
-  <!-- <area shape="rect" coords="543,275,893,330" alt="Stream Builder" href="streambuilder.html"> -->
-
-  <area shape="rect" coords="188,335,893,385" alt="Flink Runtime" href="internal_general_arch.html">
-
-  <area shape="rect" coords="188,405,328,455" alt="Local" href="local_execution.html">
-  <area shape="rect" coords="333,405,473,455" alt="Remote" href="cluster_execution.html">
-  <area shape="rect" coords="478,405,638,455" alt="Embedded" href="local_execution.html">
-  <area shape="rect" coords="643,405,765,455" alt="YARN" href="yarn_setup.html">
-  <area shape="rect" coords="770,405,893,455" alt="Tez" href="flink_on_tez_guide.html">
-</map>
-
-## Download
-
-This documentation is for the next upcoming major release version {{ site.FLINK_VERSION_THIS_SHORT }} of Apache Flink.
-
-You can download the latest pre-built snapshot version from the [downloads]({{ site.FLINK_DOWNLOAD_URL }}#latest) page of the [project website]({{ site.FLINK_WEBSITE_URL }}).
-
-The Scala API uses Scala {{ site.FLINK_SCALA_VERSION_SHORT }}. Please make sure to use a compatible version.
+- **Programming Guides**: You can check out our guides about [basic concepts](dev/api_concepts.html) and the [DataStream API](dev/datastream_api.html) or [DataSet API](dev/batch/index.html) to learn how to write your first Flink programs.

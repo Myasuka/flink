@@ -23,13 +23,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.functions.GroupCombineFunction;
+import org.apache.flink.api.common.functions.GroupReduceFunction;
+import org.apache.flink.types.Value;
 import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.flink.api.common.functions.RichGroupReduceFunction;
-import org.apache.flink.api.common.typeutils.record.RecordComparator;
-import org.apache.flink.api.common.typeutils.record.RecordSerializerFactory;
-import org.apache.flink.api.java.record.operators.ReduceOperator.Combinable;
+import org.apache.flink.runtime.testutils.recordutils.RecordComparator;
+import org.apache.flink.runtime.testutils.recordutils.RecordSerializerFactory;
 import org.apache.flink.runtime.operators.sort.CombiningUnilateralSortMerger;
 import org.apache.flink.runtime.operators.testutils.DelayingInfinitiveInputIterator;
 import org.apache.flink.runtime.operators.testutils.DriverTestBase;
@@ -37,8 +39,8 @@ import org.apache.flink.runtime.operators.testutils.ExpectedTestException;
 import org.apache.flink.runtime.operators.testutils.NirvanaOutputList;
 import org.apache.flink.runtime.operators.testutils.TaskCancelThread;
 import org.apache.flink.runtime.operators.testutils.UniformRecordGenerator;
+
 import org.apache.flink.types.IntValue;
-import org.apache.flink.types.Key;
 import org.apache.flink.types.Record;
 import org.apache.flink.util.Collector;
 import org.junit.Test;
@@ -49,9 +51,9 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 	
 	@SuppressWarnings("unchecked")
 	private final RecordComparator comparator = new RecordComparator(
-		new int[]{0}, (Class<? extends Key<?>>[])new Class[]{ IntValue.class });
+		new int[]{0}, (Class<? extends Value>[])new Class[]{ IntValue.class });
 	
-	private final List<Record> outList = new ArrayList<Record>();
+	private final List<Record> outList = new ArrayList<>();
 
 	public ReduceTaskTest(ExecutionConfig config) {
 		super(config, 0, 1, 3*1024*1024);
@@ -69,12 +71,12 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		try {
 			addInputSorted(new UniformRecordGenerator(keyCnt, valCnt, false), this.comparator.duplicate());
 			
-			GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+			GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 			
 			testDriver(testTask, MockReduceStub.class);
 		} catch (Exception e) {
-			LOG.debug("Exception while running the test task.", e);
-			Assert.fail("Exception in Test.");
+			LOG.info("Exception while running the test task.", e);
+			Assert.fail("Exception in Test: " + e.getMessage());
 		}
 		
 		Assert.assertTrue("Resultset size was "+this.outList.size()+". Expected was "+keyCnt, this.outList.size() == keyCnt);
@@ -96,13 +98,13 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		setOutput(this.outList);
 		getTaskConfig().setDriverStrategy(DriverStrategy.SORTED_GROUP_REDUCE);
 		
-		GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+		GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 		
 		try {
 			testDriver(testTask, MockReduceStub.class);
 		} catch (Exception e) {
-			LOG.debug("Exception while running the test task.", e);
-			Assert.fail("Invoke method caused exception.");
+			LOG.info("Exception while running the test task.", e);
+			Assert.fail("Invoke method caused exception: " + e.getMessage());
 		}
 		
 		Assert.assertTrue("Resultset size was "+this.outList.size()+". Expected was "+keyCnt, this.outList.size() == keyCnt);
@@ -125,18 +127,18 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		
 		CombiningUnilateralSortMerger<Record> sorter = null;
 		try {
-			sorter = new CombiningUnilateralSortMerger<Record>(new MockCombiningReduceStub(), 
+			sorter = new CombiningUnilateralSortMerger<>(new MockCombiningReduceStub(),
 				getMemoryManager(), getIOManager(), new UniformRecordGenerator(keyCnt, valCnt, false), 
-				getOwningNepheleTask(), RecordSerializerFactory.get(), this.comparator.duplicate(), this.perSortFractionMem,
-					4, 0.8f);
+				getContainingTask(), RecordSerializerFactory.get(), this.comparator.duplicate(), this.perSortFractionMem,
+					4, 0.8f, true /* use large record handler */, true);
 			addInput(sorter.getIterator());
 			
-			GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+			GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 		
 			testDriver(testTask, MockCombiningReduceStub.class);
 		} catch (Exception e) {
-			LOG.debug("Exception while running the test task.", e);
-			Assert.fail("Invoke method caused exception.");
+			LOG.info("Exception while running the test task.", e);
+			Assert.fail("Invoke method caused exception: " + e.getMessage());
 		} finally {
 			if (sorter != null) {
 				sorter.close();
@@ -168,7 +170,7 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		setOutput(this.outList);
 		getTaskConfig().setDriverStrategy(DriverStrategy.SORTED_GROUP_REDUCE);
 		
-		GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+		GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 		
 		try {
 			testDriver(testTask, MockFailingReduceStub.class);
@@ -176,8 +178,8 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		} catch (ExpectedTestException eetex) {
 			// Good!
 		} catch (Exception e) {
-			LOG.debug("Exception which was not the ExpectedTestException while running the test task.", e);
-			Assert.fail("Test caused exception.");
+			LOG.info("Exception which was not the ExpectedTestException while running the test task.", e);
+			Assert.fail("Test caused exception: " + e.getMessage());
 		}
 		
 		this.outList.clear();
@@ -190,7 +192,7 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		setOutput(new NirvanaOutputList());
 		getTaskConfig().setDriverStrategy(DriverStrategy.SORTED_GROUP_REDUCE);
 		
-		final GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+		final GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 		
 		try {
 			addInputSorted(new DelayingInfinitiveInputIterator(100), this.comparator.duplicate());
@@ -238,7 +240,7 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 		setOutput(new NirvanaOutputList());
 		getTaskConfig().setDriverStrategy(DriverStrategy.SORTED_GROUP_REDUCE);
 		
-		final GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<Record, Record>();
+		final GroupReduceDriver<Record, Record> testTask = new GroupReduceDriver<>();
 		
 		final AtomicBoolean success = new AtomicBoolean(false);
 		
@@ -288,9 +290,10 @@ public class ReduceTaskTest extends DriverTestBase<RichGroupReduceFunction<Recor
 			out.collect(element);
 		}
 	}
-	
-	@Combinable
-	public static class MockCombiningReduceStub extends RichGroupReduceFunction<Record, Record> {
+
+	public static class MockCombiningReduceStub
+		implements GroupReduceFunction<Record, Record>, GroupCombineFunction<Record, Record> {
+
 		private static final long serialVersionUID = 1L;
 		
 		private final IntValue key = new IntValue();

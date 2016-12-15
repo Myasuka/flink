@@ -18,18 +18,18 @@
 
 package org.apache.flink.runtime.io.disk;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkArgument;
-
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.List;
 
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.runtime.io.disk.iomanager.BlockChannelReader;
-import org.apache.flink.runtime.memorymanager.AbstractPagedInputView;
-import org.apache.flink.runtime.memorymanager.MemoryManager;
-import org.apache.flink.runtime.util.MathUtils;
+import org.apache.flink.runtime.memory.AbstractPagedInputView;
+import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.util.MathUtils;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
  * A {@link org.apache.flink.core.memory.DataInputView} that is backed by a {@link BlockChannelReader},

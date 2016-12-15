@@ -17,11 +17,12 @@
  */
 package org.apache.flink.api.scala.functions
 
+import org.apache.flink.api.java.io.DiscardingOutputFormat
 import org.junit.Assert._
 import org.apache.flink.api.common.functions.RichJoinFunction
 import org.apache.flink.api.common.functions.RichMapFunction
 import org.apache.flink.api.common.operators.{GenericDataSinkBase, SingleInputSemanticProperties}
-import org.apache.flink.api.common.operators.base.{JoinOperatorBase, MapOperatorBase}
+import org.apache.flink.api.common.operators.base.{InnerJoinOperatorBase, MapOperatorBase}
 import org.apache.flink.api.common.operators.util.FieldSet
 import org.apache.flink.api.java.functions.FunctionAnnotation.ForwardedFields
 import org.apache.flink.api.java.functions.FunctionAnnotation.ForwardedFieldsFirst
@@ -46,7 +47,8 @@ class SemanticPropertiesTranslationTest {
       val env = ExecutionEnvironment.getExecutionEnvironment
 
       val input = env.fromElements((3L, "test", 42))
-      input.map(new WildcardForwardMapper[(Long, String, Int)]).print()
+      input.map(new WildcardForwardMapper[(Long, String, Int)])
+        .output(new DiscardingOutputFormat[(Long, String, Int)])
 
       val plan = env.createProgramPlan()
 
@@ -83,7 +85,8 @@ class SemanticPropertiesTranslationTest {
       val env = ExecutionEnvironment.getExecutionEnvironment
 
       val input = env.fromElements((3L, "test", 42))
-      input.map(new IndividualForwardMapper[Long, String, Int]).print()
+      input.map(new IndividualForwardMapper[Long, String, Int])
+        .output(new DiscardingOutputFormat[(Long, String, Int)])
 
       val plan = env.createProgramPlan()
 
@@ -120,7 +123,8 @@ class SemanticPropertiesTranslationTest {
       val env = ExecutionEnvironment.getExecutionEnvironment
 
       val input = env.fromElements((3L, "test", 42))
-      input.map(new FieldTwoForwardMapper[Long, String, Int]).print()
+      input.map(new FieldTwoForwardMapper[Long, String, Int])
+        .output(new DiscardingOutputFormat[(Long, String, Int)])
 
       val plan = env.createProgramPlan()
 
@@ -160,13 +164,14 @@ class SemanticPropertiesTranslationTest {
       val input2 = env.fromElements((3L, 3.1415))
 
       input1.join(input2).where(0).equalTo(0)(
-        new ForwardingTupleJoin[Long, String, Long, Double]).print()
+        new ForwardingTupleJoin[Long, String, Long, Double])
+        .output(new DiscardingOutputFormat[(String, Long)])
 
       val plan = env.createProgramPlan()
       val sink: GenericDataSinkBase[_] = plan.getDataSinks.iterator.next
 
-      val join: JoinOperatorBase[_, _, _, _] =
-        sink.getInput.asInstanceOf[JoinOperatorBase[_, _, _, _]]
+      val join: InnerJoinOperatorBase[_, _, _, _] =
+        sink.getInput.asInstanceOf[InnerJoinOperatorBase[_, _, _, _]]
 
       val semantics = join.getSemanticProperties
       val fw11: FieldSet = semantics.getForwardingTargetFields(0, 0)
@@ -204,13 +209,14 @@ class SemanticPropertiesTranslationTest {
       val input2 = env.fromElements((3L, 42))
 
       input1.join(input2).where(0).equalTo(0)(
-        new ForwardingBasicJoin[(Long, String), (Long, Int)]).print()
+        new ForwardingBasicJoin[(Long, String), (Long, Int)])
+        .output(new DiscardingOutputFormat[((Long, String), (Long, Int))])
 
       val plan = env.createProgramPlan()
       val sink: GenericDataSinkBase[_] = plan.getDataSinks.iterator.next
 
-      val join: JoinOperatorBase[_, _, _, _] =
-        sink.getInput.asInstanceOf[JoinOperatorBase[_, _, _, _]]
+      val join: InnerJoinOperatorBase[_, _, _, _] =
+        sink.getInput.asInstanceOf[InnerJoinOperatorBase[_, _, _, _]]
 
       val semantics = join.getSemanticProperties
       val fw11: FieldSet = semantics.getForwardingTargetFields(0, 0)

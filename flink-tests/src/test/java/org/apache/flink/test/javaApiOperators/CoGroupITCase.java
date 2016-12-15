@@ -18,12 +18,12 @@
 
 package org.apache.flink.test.javaApiOperators;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-
+import org.apache.flink.api.common.InvalidProgramException;
+import org.apache.flink.api.common.distributions.DataDistribution;
 import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.functions.RichCoGroupFunction;
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -32,20 +32,25 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.api.java.tuple.Tuple7;
+import org.apache.flink.api.java.utils.DataSetUtils;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.memory.DataInputView;
+import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets.CustomType;
 import org.apache.flink.test.javaApiOperators.util.CollectionDataSets.POJO;
 import org.apache.flink.test.util.MultipleProgramsTestBase;
 import org.apache.flink.util.Collector;
-import org.junit.After;
+
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 @RunWith(Parameterized.class)
 public class CoGroupITCase extends MultipleProgramsTestBase {
@@ -54,27 +59,12 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		super(mode);
 	}
 
-	private String resultPath;
-	private String expected;
-
-	@Rule
-	public TemporaryFolder tempFolder = new TemporaryFolder();
-
-	@Before
-	public void before() throws Exception{
-		resultPath = tempFolder.newFile().toURI().toString();
-	}
-
-	@After
-	public void after() throws Exception{
-		compareResultsByLinesInMemory(expected, resultPath);
-	}
-
+	/*
+	 * CoGroup on tuples with key field selector
+	 */
 	@Test
 	public void testCoGroupTuplesWithKeyFieldSelector() throws Exception {
-		/*
-				 * CoGroup on tuples with key field selector
-				 */
+		
 
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
@@ -82,21 +72,22 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
 		DataSet<Tuple2<Integer, Integer>> coGroupDs = ds.coGroup(ds2).where(0).equalTo(0).with(new Tuple5CoGroup());
 
-		coGroupDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple2<Integer, Integer>> result = coGroupDs.collect();
 
-		expected = "1,0\n" +
+		String expected = "1,0\n" +
 				"2,6\n" +
 				"3,24\n" +
 				"4,60\n" +
 				"5,120\n";
+		
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
 	public void testCoGroupOnTwoCustomTypeInputsWithKeyExtractors() throws Exception {
 		/*
-				 * CoGroup on two custom type inputs with key extractors
-				 */
+		 * CoGroup on two custom type inputs with key extractors
+		 */
 
 		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
@@ -105,15 +96,16 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<CustomType> coGroupDs = ds.coGroup(ds2).where(new KeySelector4()).equalTo(new
 				KeySelector5()).with(new CustomTypeCoGroup());
 
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
+		List<CustomType> result = coGroupDs.collect();
 
-		expected = "1,0,test\n" +
+		String expected = "1,0,test\n" +
 				"2,6,test\n" +
 				"3,24,test\n" +
 				"4,60,test\n" +
 				"5,120,test\n" +
 				"6,210,test\n";
+		
+		compareResultAsText(result, expected);
 	}
 
 	public static class KeySelector4 implements KeySelector<CustomType, Integer> {
@@ -144,14 +136,15 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.get3TupleDataSet(env);
 		DataSet<Tuple3<Integer, Long, String>> coGroupDs = ds.coGroup(ds2).where(0).equalTo(0).with(new Tuple3ReturnLeft());
 
-		coGroupDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple3<Integer, Long, String>> result = coGroupDs.collect();
 
-		expected = "1,1,Hi\n" +
+		String expected = "1,1,Hi\n" +
 				"2,2,Hello\n" +
 				"3,2,Hello world\n" +
 				"4,3,Hello world, how are you?\n" +
 				"5,3,I am fine.\n";
+		
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -165,16 +158,17 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds = CollectionDataSets.get5TupleDataSet(env);
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> coGroupDs = ds.coGroup(ds2).where(0).equalTo(0).with(new Tuple5ReturnRight());
+		
+		List<Tuple5<Integer, Long, Integer, String, Long>> result = coGroupDs.collect();
 
-		coGroupDs.writeAsCsv(resultPath);
-		env.execute();
-
-		expected = "1,1,0,Hallo,1\n" +
+		String expected = "1,1,0,Hallo,1\n" +
 				"2,2,1,Hallo Welt,2\n" +
 				"2,3,2,Hallo Welt wie,1\n" +
 				"3,4,3,Hallo Welt wie gehts?,2\n" +
 				"3,5,4,ABC,2\n" +
 				"3,6,5,BCD,3\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -191,14 +185,15 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds2 = CollectionDataSets.get5TupleDataSet(env);
 		DataSet<Tuple3<Integer, Integer, Integer>> coGroupDs = ds.coGroup(ds2).where(0).equalTo(0).with(new Tuple5CoGroupBC()).withBroadcastSet(intDs, "ints");
 
-		coGroupDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple3<Integer, Integer, Integer>> result = coGroupDs.collect();
 
-		expected = "1,0,55\n" +
+		String expected = "1,0,55\n" +
 				"2,6,55\n" +
 				"3,24,55\n" +
 				"4,60,55\n" +
 				"5,120,55\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
@@ -215,10 +210,9 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple3<Integer, Long, String>> coGroupDs = ds.coGroup(ds2).where(2).equalTo(new
 				KeySelector2()).with(new MixedCoGroup());
 
-		coGroupDs.writeAsCsv(resultPath);
-		env.execute();
+		List<Tuple3<Integer, Long, String>> result = coGroupDs.collect();
 
-		expected = "0,1,test\n" +
+		String expected = "0,1,test\n" +
 				"1,2,test\n" +
 				"2,5,test\n" +
 				"3,15,test\n" +
@@ -233,6 +227,8 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 				"12,5,test\n" +
 				"13,5,test\n" +
 				"14,5,test\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	public static class KeySelector2 implements KeySelector<CustomType, Integer> {
@@ -257,10 +253,9 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<CustomType> coGroupDs = ds2.coGroup(ds).where(new KeySelector3()).equalTo(2).with
 				(new MixedCoGroup2());
 
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
+		List<CustomType> result = coGroupDs.collect();
 
-		expected = "0,1,test\n" +
+		String expected = "0,1,test\n" +
 				"1,2,test\n" +
 				"2,5,test\n" +
 				"3,15,test\n" +
@@ -276,6 +271,7 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 				"13,5,test\n" +
 				"14,5,test\n";
 
+		compareResultAsText(result, expected);
 	}
 
 	public static class KeySelector3 implements KeySelector<CustomType, Integer> {
@@ -298,21 +294,22 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.get3TupleDataSet(env);
 
 		DataSet<Tuple3<Integer, Long, String>> coGrouped = ds1.coGroup(ds2).
-				where(0,4).equalTo(0,1).with(new Tuple5Tuple3CoGroup());
+				where(0, 4).equalTo(0, 1).with(new Tuple5Tuple3CoGroup());
 
-		coGrouped.writeAsCsv(resultPath);
-		env.execute();
-
-		expected = "1,1,Hallo\n" +
+		List<Tuple3<Integer, Long, String>> result = coGrouped.collect();
+		
+		String expected = "1,1,Hallo\n" +
 				"2,2,Hallo Welt\n" +
 				"3,2,Hallo Welt wie gehts?\n" +
 				"3,2,ABC\n" +
 				"5,3,HIJ\n" +
 				"5,3,IJK\n";
+
+		compareResultAsTuples(result, expected);
 	}
 
 	@Test
-	public void testCoGroupWithMultipleKeyFieldsWithKeyExtractor() throws Exception {
+	public void testCoGroupWithMultipleKeyFieldsWithStaticClassKeyExtractor() throws Exception {
 		/*
 		 * CoGroup with multiple key fields
 		 */
@@ -326,15 +323,128 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 				where(new KeySelector7()).
 				equalTo(new KeySelector8()).with(new Tuple5Tuple3CoGroup());
 
-		coGrouped.writeAsCsv(resultPath);
-		env.execute();
-
-		expected = "1,1,Hallo\n" +
+		List<Tuple3<Integer, Long, String>> result = coGrouped.collect();
+		
+		String expected = "1,1,Hallo\n" +
 				"2,2,Hallo Welt\n" +
 				"3,2,Hallo Welt wie gehts?\n" +
 				"3,2,ABC\n" +
 				"5,3,HIJ\n" +
 				"5,3,IJK\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testCoGroupWithMultipleKeyFieldsWithInnerClassKeyExtractorWithClosureCleaner() throws Exception {
+		/*
+		 * CoGroup with multiple key fields, test working closure cleaner for inner classes
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds1 = CollectionDataSets.get5TupleDataSet(env);
+		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.get3TupleDataSet(env);
+
+		DataSet<Tuple3<Integer, Long, String>> coGrouped = ds1.coGroup(ds2).
+				where(new KeySelector<Tuple5<Integer, Long, Integer, String, Long>,
+						Tuple2<Integer, Long>>() {
+					@Override
+					public Tuple2<Integer, Long> getKey(Tuple5<Integer, Long, Integer, String, Long> t) throws Exception {
+						return new Tuple2<Integer, Long>(t.f0, t.f4);
+					}
+				}).
+				equalTo(new KeySelector<Tuple3<Integer,Long,String>, Tuple2<Integer, Long>>() {
+
+					@Override
+					public Tuple2<Integer, Long> getKey(Tuple3<Integer,Long,String> t) {
+						return new Tuple2<Integer, Long>(t.f0, t.f1);
+					}
+				}).
+				with(new CoGroupFunction<Tuple5<Integer, Long, Integer, String, Long>, Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>() {
+					@Override
+					public void coGroup(Iterable<Tuple5<Integer, Long, Integer, String, Long>> first,
+					                    Iterable<Tuple3<Integer, Long, String>> second,
+					                    Collector<Tuple3<Integer, Long, String>> out)
+					{
+						List<String> strs = new ArrayList<String>();
+
+						for (Tuple5<Integer, Long, Integer, String, Long> t : first) {
+							strs.add(t.f3);
+						}
+
+						for(Tuple3<Integer, Long, String> t : second) {
+							for(String s : strs) {
+								out.collect(new Tuple3<Integer, Long, String>(t.f0, t.f1, s));
+							}
+						}
+					}
+				});
+
+		List<Tuple3<Integer, Long, String>> result = coGrouped.collect();
+
+		String expected = "1,1,Hallo\n" +
+				"2,2,Hallo Welt\n" +
+				"3,2,Hallo Welt wie gehts?\n" +
+				"3,2,ABC\n" +
+				"5,3,HIJ\n" +
+				"5,3,IJK\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+	@Test
+	public void testCoGroupWithMultipleKeyFieldsWithInnerClassKeyExtractorWithoutClosureCleaner() throws Exception {
+		/*
+		 * CoGroup with multiple key fields, test that disabling closure cleaner leads to an exception when using inner
+		 * classes.
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		env.getConfig().disableClosureCleaner();
+
+		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds1 = CollectionDataSets.get5TupleDataSet(env);
+		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.get3TupleDataSet(env);
+		boolean correctExceptionTriggered = false;
+		try {
+			DataSet<Tuple3<Integer, Long, String>> coGrouped = ds1.coGroup(ds2).
+					where(new KeySelector<Tuple5<Integer, Long, Integer, String, Long>,
+							Tuple2<Integer, Long>>() {
+						@Override
+						public Tuple2<Integer, Long> getKey(Tuple5<Integer, Long, Integer, String, Long> t) throws Exception {
+							return new Tuple2<Integer, Long>(t.f0, t.f4);
+						}
+					}).
+					equalTo(new KeySelector<Tuple3<Integer, Long, String>, Tuple2<Integer, Long>>() {
+
+						@Override
+						public Tuple2<Integer, Long> getKey(Tuple3<Integer, Long, String> t) {
+							return new Tuple2<Integer, Long>(t.f0, t.f1);
+						}
+					}).
+					with(new CoGroupFunction<Tuple5<Integer, Long, Integer, String, Long>, Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>>() {
+						@Override
+						public void coGroup(Iterable<Tuple5<Integer, Long, Integer, String, Long>> first,
+						                    Iterable<Tuple3<Integer, Long, String>> second,
+						                    Collector<Tuple3<Integer, Long, String>> out) {
+							List<String> strs = new ArrayList<String>();
+
+							for (Tuple5<Integer, Long, Integer, String, Long> t : first) {
+								strs.add(t.f3);
+							}
+
+							for (Tuple3<Integer, Long, String> t : second) {
+								for (String s : strs) {
+									out.collect(new Tuple3<Integer, Long, String>(t.f0, t.f1, s));
+								}
+							}
+						}
+					});
+		} catch (InvalidProgramException ex) {
+			correctExceptionTriggered = (ex.getCause() instanceof java.io.NotSerializableException);
+		}
+		Assert.assertTrue(correctExceptionTriggered);
+
 	}
 
 	public static class KeySelector7 implements KeySelector<Tuple5<Integer,Long,Integer,String,Long>,
@@ -368,15 +478,16 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<CustomType> ds2 = CollectionDataSets.getCustomTypeDataSet(env);
 		DataSet<CustomType> coGroupDs = ds.coGroup(ds2).where("myInt").equalTo("myInt").with(new CustomTypeCoGroup());
 
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
-
-		expected = "1,0,test\n" +
+		List<CustomType> result = coGroupDs.collect();
+		
+		String expected = "1,0,test\n" +
 				"2,6,test\n" +
 				"3,24,test\n" +
 				"4,60,test\n" +
 				"5,120,test\n" +
 				"6,210,test\n";
+
+		compareResultAsText(result, expected);
 	}
 
 	@Test
@@ -392,12 +503,14 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
 		DataSet<CustomType> coGroupDs = ds.coGroup(ds2)
 				.where("nestedPojo.longNumber").equalTo(6).with(new CoGroup1());
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
 
-		expected = 	"-1,20000,Flink\n" +
+		List<CustomType> result = coGroupDs.collect();
+		
+		String expected = 	"-1,20000,Flink\n" +
 				"-1,10000,Flink\n" +
 				"-1,30000,Flink\n";
+
+		compareResultAsText(result, expected);
 	}
 
 	public static class CoGroup1 implements CoGroupFunction<POJO, Tuple7<Integer, String, Integer, Integer, Long, String, Long>, CustomType> {
@@ -430,13 +543,14 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
 		DataSet<CustomType> coGroupDs = ds.coGroup(ds2)
 				.where(new KeySelector6()).equalTo(6).with(new CoGroup3());
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
 
-		expected = 	"-1,20000,Flink\n" +
+		List<CustomType> result = coGroupDs.collect();
+		
+		String expected = 	"-1,20000,Flink\n" +
 				"-1,10000,Flink\n" +
 				"-1,30000,Flink\n";
 
+		compareResultAsText(result, expected);
 	}
 
 	public static class KeySelector6 implements KeySelector<POJO, Tuple1<Long>> {
@@ -480,14 +594,85 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 		DataSet<Tuple7<Integer, String, Integer, Integer, Long, String, Long>> ds2 = CollectionDataSets.getSmallTuplebasedDataSet(env);
 		DataSet<CustomType> coGroupDs = ds.coGroup(ds2)
 				.where(new KeySelector1()).equalTo(6).with(new CoGroup2());
-		coGroupDs.writeAsText(resultPath);
-		env.execute();
 
-		expected = "-1,20000,Flink\n" +
+		List<CustomType> result = coGroupDs.collect();
+		
+		String expected = "-1,20000,Flink\n" +
 				"-1,10000,Flink\n" +
 				"-1,30000,Flink\n";
+
+		compareResultAsText(result, expected);
 	}
 
+	@Test
+	public void testCoGroupWithAtomicType1() throws Exception {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Tuple3<Integer, Long, String>> ds1 = CollectionDataSets.getSmall3TupleDataSet(env);
+		DataSet<Integer> ds2 = env.fromElements(0, 1, 2);
+
+		DataSet<Tuple3<Integer, Long, String>> coGroupDs = ds1.coGroup(ds2).where(0).equalTo("*").with(new CoGroupAtomic1());
+
+		List<Tuple3<Integer, Long, String>> result = coGroupDs.collect();
+		
+		String expected = "(1,1,Hi)\n" +
+			"(2,2,Hello)";
+
+		compareResultAsText(result, expected);
+	}
+
+	@Test
+	public void testCoGroupWithAtomicType2() throws Exception {
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		DataSet<Integer> ds1 = env.fromElements(0, 1, 2);
+		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.getSmall3TupleDataSet(env);
+
+		DataSet<Tuple3<Integer, Long, String>> coGroupDs = ds1.coGroup(ds2).where("*").equalTo(0).with(new CoGroupAtomic2());
+		
+		List<Tuple3<Integer, Long, String>> result = coGroupDs.collect();
+		
+		String expected = "(1,1,Hi)\n" +
+			"(2,2,Hello)";
+
+		compareResultAsText(result, expected);
+	}
+
+	@Test
+	public void testCoGroupWithRangePartitioning() throws Exception {
+		/*
+		 * Test coGroup on tuples with multiple key field positions and same customized distribution
+		 */
+
+		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds1 = CollectionDataSets.get5TupleDataSet(env);
+		DataSet<Tuple3<Integer, Long, String>> ds2 = CollectionDataSets.get3TupleDataSet(env);
+
+		env.setParallelism(4);
+		TestDistribution testDis = new TestDistribution();
+		DataSet<Tuple3<Integer, Long, String>> coGrouped =
+				DataSetUtils.partitionByRange(ds1, testDis, 0, 4)
+						.coGroup(DataSetUtils.partitionByRange(ds2, testDis, 0, 1))
+						.where(0, 4)
+						.equalTo(0, 1)
+						.with(new Tuple5Tuple3CoGroup());
+
+		List<Tuple3<Integer, Long, String>> result = coGrouped.collect();
+
+		String expected = "1,1,Hallo\n" +
+				"2,2,Hallo Welt\n" +
+				"3,2,Hallo Welt wie gehts?\n" +
+				"3,2,ABC\n" +
+				"5,3,HIJ\n" +
+				"5,3,IJK\n";
+
+		compareResultAsTuples(result, expected);
+	}
+
+
+	// --------------------------------------------------------------------------------------------
+	//  UDF classes
+	// --------------------------------------------------------------------------------------------
+	
 	public static class KeySelector1 implements KeySelector<POJO, Long> {
 		private static final long serialVersionUID = 1L;
 
@@ -717,6 +902,91 @@ public class CoGroupITCase extends MultipleProgramsTestBase {
 					out.collect(new Tuple3<Integer, Long, String>(t.f0, t.f1, s));
 				}
 			}
+		}
+	}
+
+	public static class CoGroupAtomic1 implements CoGroupFunction<Tuple3<Integer, Long, String>, Integer, Tuple3<Integer, Long, String>> {
+
+		private static final long serialVersionUID = 1L;
+
+		@Override
+		public void coGroup(Iterable<Tuple3<Integer, Long, String>> first, Iterable<Integer> second, Collector<Tuple3<Integer, Long, String>> out) throws Exception {
+			List<Integer> ints = new ArrayList<Integer>();
+
+			for (Integer i : second) {
+				ints.add(i);
+			}
+
+			for (Tuple3<Integer, Long, String> t : first) {
+				for (Integer i : ints) {
+					if (t.f0.equals(i)) {
+						out.collect(t);
+					}
+				}
+			}
+		}
+	}
+
+	public static class CoGroupAtomic2 implements CoGroupFunction<Integer, Tuple3<Integer, Long, String>, Tuple3<Integer, Long, String>> {
+
+		private static final long serialVersionUID = 1L;
+
+		@Override
+		public void coGroup(Iterable<Integer> first, Iterable<Tuple3<Integer, Long, String>> second, Collector<Tuple3<Integer, Long, String>> out) throws Exception {
+			List<Integer> ints = new ArrayList<Integer>();
+
+			for (Integer i : first) {
+				ints.add(i);
+			}
+
+			for (Tuple3<Integer, Long, String> t : second) {
+				for (Integer i : ints) {
+					if (t.f0.equals(i)) {
+						out.collect(t);
+					}
+				}
+			}
+		}
+	}
+
+	public static class TestDistribution implements DataDistribution {
+		public Object[][] boundaries = new Object[][]{
+				new Object[]{2, 2L},
+				new Object[]{5, 4L},
+				new Object[]{10, 12L},
+				new Object[]{21, 6L}
+		};
+
+		public TestDistribution() {}
+
+		@Override
+		public Object[] getBucketBoundary(int bucketNum, int totalNumBuckets) {
+			return boundaries[bucketNum];
+		}
+
+		@Override
+		public int getNumberOfFields() {
+			return 2;
+		}
+
+		@Override
+		public TypeInformation[] getKeyTypes() {
+			return new TypeInformation[]{BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.LONG_TYPE_INFO};
+		}
+
+		@Override
+		public void write(DataOutputView out) throws IOException {
+
+		}
+
+		@Override
+		public void read(DataInputView in) throws IOException {
+
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			return obj instanceof TestDistribution; 
 		}
 	}
 }

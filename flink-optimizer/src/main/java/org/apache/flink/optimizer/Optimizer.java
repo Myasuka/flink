@@ -29,9 +29,6 @@ import org.apache.flink.optimizer.traversals.GraphCreatingVisitor;
 import org.apache.flink.optimizer.traversals.IdAndEstimatesVisitor;
 import org.apache.flink.optimizer.traversals.InterestingPropertyVisitor;
 import org.apache.flink.optimizer.traversals.PlanFinalizer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.flink.api.common.ExecutionMode;
 import org.apache.flink.api.common.Plan;
 import org.apache.flink.optimizer.costs.CostEstimator;
@@ -39,14 +36,17 @@ import org.apache.flink.optimizer.costs.DefaultCostEstimator;
 import org.apache.flink.optimizer.dag.DataSinkNode;
 import org.apache.flink.optimizer.dag.OptimizerNode;
 import org.apache.flink.optimizer.dag.SinkJoiner;
-import org.apache.flink.optimizer.deadlockdetect.DeadlockPreventer;
 import org.apache.flink.optimizer.plan.OptimizedPlan;
 import org.apache.flink.optimizer.plan.PlanNode;
 import org.apache.flink.optimizer.plan.SinkJoinerPlanNode;
 import org.apache.flink.optimizer.plan.SinkPlanNode;
 import org.apache.flink.optimizer.postpass.OptimizerPostPass;
 import org.apache.flink.configuration.ConfigConstants;
+import org.apache.flink.optimizer.traversals.RangePartitionRewriter;
 import org.apache.flink.util.InstantiationUtil;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The optimizer that takes the user specified program plan and creates an optimized plan that contains
@@ -348,14 +348,9 @@ public class Optimizer {
 		this.costEstimator = estimator;
 
 		// determine the default parallelism
-		// check for old key string first, then for new one
-		this.defaultParallelism = config.getInteger(
-				ConfigConstants.DEFAULT_PARALLELISM_KEY_OLD,
-				ConfigConstants.DEFAULT_PARALLELISM);
-		// now check for new one which overwrites old values
 		this.defaultParallelism = config.getInteger(
 				ConfigConstants.DEFAULT_PARALLELISM_KEY,
-				this.defaultParallelism);
+				ConfigConstants.DEFAULT_PARALLELISM);
 
 		if (defaultParallelism < 1) {
 			LOG.warn("Config value " + defaultParallelism + " for option "
@@ -478,12 +473,12 @@ public class Optimizer {
 		}
 
 		// now that we have all nodes created and recorded which ones consume memory, tell the nodes their minimal
-		// guaranteed memory, for further cost estimations. we assume an equal distribution of memory among consumer tasks
+		// guaranteed memory, for further cost estimations. We assume an equal distribution of memory among consumer tasks
 		rootNode.accept(new IdAndEstimatesVisitor(this.statistics));
 
 		// We are dealing with operator DAGs, rather than operator trees.
 		// That requires us to deviate at some points from the classical DB optimizer algorithms.
-		// This step build some auxiliary structures to help track branches and joins in the DAG
+		// This step builds auxiliary structures to help track branches and joins in the DAG
 		BranchesVisitor branchingVisitor = new BranchesVisitor();
 		rootNode.accept(branchingVisitor);
 
@@ -514,15 +509,14 @@ public class Optimizer {
 		} else if (bestPlanRoot instanceof SinkJoinerPlanNode) {
 			((SinkJoinerPlanNode) bestPlanRoot).getDataSinks(bestPlanSinks);
 		}
-		
-		DeadlockPreventer dp = new DeadlockPreventer();
-		dp.resolveDeadlocks(bestPlanSinks);
 
 		// finalize the plan
 		OptimizedPlan plan = new PlanFinalizer().createFinalPlan(bestPlanSinks, program.getJobName(), program);
 		
 		plan.accept(new BinaryUnionReplacer());
-		
+
+		plan.accept(new RangePartitionRewriter(plan));
+
 		// post pass the plan. this is the phase where the serialization and comparator code is set
 		postPasser.postPass(plan);
 		
@@ -549,7 +543,7 @@ public class Optimizer {
 	// ------------------------------------------------------------------------
 	
 	private OptimizerPostPass getPostPassFromPlan(Plan program) {
-		final String className =  program.getPostPassClassName();
+		final String className = program.getPostPassClassName();
 		if (className == null) {
 			throw new CompilerException("Optimizer Post Pass class description is null");
 		}

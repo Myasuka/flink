@@ -16,24 +16,25 @@
  * limitations under the License.
  */
 
-
 package org.apache.flink.runtime.fs.hdfs;
 
 import java.io.IOException;
 
 import org.apache.flink.core.fs.FSDataOutputStream;
 
-public final class HadoopDataOutputStream extends FSDataOutputStream {
+public class HadoopDataOutputStream extends FSDataOutputStream {
 
-	private org.apache.hadoop.fs.FSDataOutputStream fdos;
+	private final org.apache.hadoop.fs.FSDataOutputStream fdos;
 
 	public HadoopDataOutputStream(org.apache.hadoop.fs.FSDataOutputStream fdos) {
+		if (fdos == null) {
+			throw new NullPointerException();
+		}
 		this.fdos = fdos;
 	}
 
 	@Override
 	public void write(int b) throws IOException {
-
 		fdos.write(b);
 	}
 
@@ -45,6 +46,29 @@ public final class HadoopDataOutputStream extends FSDataOutputStream {
 	@Override
 	public void close() throws IOException {
 		fdos.close();
+	}
+
+	@Override
+	public long getPos() throws IOException {
+		return fdos.getPos();
+	}
+
+	@Override
+	public void flush() throws IOException {
+		fdos.hflush();
+	}
+
+	@Override
+	public void sync() throws IOException {
+		fdos.hsync();
+	}
+
+	/**
+	 * Gets the wrapped Hadoop output stream.
+	 * @return The wrapped Hadoop output stream.
+	 */
+	public org.apache.hadoop.fs.FSDataOutputStream getHadoopOutputStream() {
+		return fdos;
 	}
 
 }

@@ -20,6 +20,7 @@ package org.apache.flink.api.common.typeutils.base.array;
 
 import java.io.IOException;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.base.TypeSerializerSingleton;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
@@ -29,6 +30,7 @@ import org.apache.flink.types.StringValue;
 /**
  * A serializer for String arrays. Specialized for efficiency.
  */
+@Internal
 public final class StringArraySerializer extends TypeSerializerSingleton<String[]>{
 
 	private static final long serialVersionUID = 1L;
@@ -40,7 +42,7 @@ public final class StringArraySerializer extends TypeSerializerSingleton<String[
 	
 	@Override
 	public boolean isImmutableType() {
-		return true;
+		return false;
 	}
 
 	@Override
@@ -103,5 +105,10 @@ public final class StringArraySerializer extends TypeSerializerSingleton<String[
 		for (int i = 0; i < len; i++) {
 			StringValue.copyString(source, target);
 		}
+	}
+
+	@Override
+	public boolean canEqual(Object obj) {
+		return obj instanceof StringArraySerializer;
 	}
 }

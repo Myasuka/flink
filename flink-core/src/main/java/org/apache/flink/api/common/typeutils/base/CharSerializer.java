@@ -20,10 +20,11 @@ package org.apache.flink.api.common.typeutils.base;
 
 import java.io.IOException;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 
-
+@Internal
 public final class CharSerializer extends TypeSerializerSingleton<Character> {
 
 	private static final long serialVersionUID = 1L;
@@ -76,5 +77,10 @@ public final class CharSerializer extends TypeSerializerSingleton<Character> {
 	@Override
 	public void copy(DataInputView source, DataOutputView target) throws IOException {
 		target.writeChar(source.readChar());
+	}
+
+	@Override
+	public boolean canEqual(Object obj) {
+		return obj instanceof CharSerializer;
 	}
 }

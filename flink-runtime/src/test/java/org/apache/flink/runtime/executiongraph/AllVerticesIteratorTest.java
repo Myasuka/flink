@@ -18,13 +18,16 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import java.util.Arrays;
-
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.akka.AkkaUtils;
-import org.apache.flink.runtime.jobgraph.AbstractJobVertex;
+import org.apache.flink.runtime.jobgraph.JobVertex;
+import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
+import org.apache.flink.runtime.testingUtils.TestingUtils;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
+
+import java.util.Arrays;
 
 public class AllVerticesIteratorTest {
 
@@ -32,18 +35,26 @@ public class AllVerticesIteratorTest {
 	public void testAllVertices() {
 		try {
 			
-			AbstractJobVertex v1 = new AbstractJobVertex("v1");
-			AbstractJobVertex v2 = new AbstractJobVertex("v2");
-			AbstractJobVertex v3 = new AbstractJobVertex("v3");
-			AbstractJobVertex v4 = new AbstractJobVertex("v4");
-			
+			JobVertex v1 = new JobVertex("v1");
+			JobVertex v2 = new JobVertex("v2");
+			JobVertex v3 = new JobVertex("v3");
+			JobVertex v4 = new JobVertex("v4");
+
+			v1.setInvokableClass(AbstractInvokable.class);
+			v2.setInvokableClass(AbstractInvokable.class);
+			v3.setInvokableClass(AbstractInvokable.class);
+			v4.setInvokableClass(AbstractInvokable.class);
+
 			v1.setParallelism(1);
 			v2.setParallelism(7);
 			v3.setParallelism(3);
 			v4.setParallelism(2);
 			
 			ExecutionGraph eg = Mockito.mock(ExecutionGraph.class);
-					
+			Configuration jobConf = new Configuration();
+			Mockito.when(eg.getFutureExecutor()).thenReturn(TestingUtils.directExecutionContext());
+			Mockito.when(eg.getJobConfiguration()).thenReturn(jobConf);
+
 			ExecutionJobVertex ejv1 = new ExecutionJobVertex(eg, v1, 1,
 					AkkaUtils.getDefaultTimeout());
 			ExecutionJobVertex ejv2 = new ExecutionJobVertex(eg, v2, 1,
