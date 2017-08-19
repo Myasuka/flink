@@ -21,6 +21,7 @@ package org.apache.flink.cep.pattern;
 import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.cep.nfa.NFA;
 import org.apache.flink.cep.pattern.Quantifier.ConsumingStrategy;
+import org.apache.flink.cep.pattern.Quantifier.Times;
 import org.apache.flink.cep.pattern.conditions.AndCondition;
 import org.apache.flink.cep.pattern.conditions.IterativeCondition;
 import org.apache.flink.cep.pattern.conditions.OrCondition;
@@ -30,10 +31,10 @@ import org.apache.flink.util.Preconditions;
 
 /**
  * Base class for a pattern definition.
- * <p>
- * A pattern definition is used by {@link org.apache.flink.cep.nfa.compiler.NFACompiler} to create a {@link NFA}.
  *
- * <pre>{@code
+ * <p>A pattern definition is used by {@link org.apache.flink.cep.nfa.compiler.NFACompiler} to create a {@link NFA}.
+ *
+ * <p><pre>{@code
  * Pattern<T, F> pattern = Pattern.<T>begin("start")
  *   .next("middle").subtype(F.class)
  *   .followedBy("end").where(new MyCondition());
@@ -57,14 +58,17 @@ public class Pattern<T, F extends T> {
 	/** Window length in which the pattern match has to occur. */
 	private Time windowTime;
 
-	/** A quantifier for the pattern. By default set to {@link Quantifier#ONE(ConsumingStrategy)}. */
-	private Quantifier quantifier = Quantifier.ONE(ConsumingStrategy.STRICT);
+	/** A quantifier for the pattern. By default set to {@link Quantifier#one(ConsumingStrategy)}. */
+	private Quantifier quantifier = Quantifier.one(ConsumingStrategy.STRICT);
+
+	/** The condition an event has to satisfy to stop collecting events into looping state. */
+	private IterativeCondition<F> untilCondition;
 
 	/**
 	 * Applicable to a {@code times} pattern, and holds
 	 * the number of times it has to appear.
 	 */
-	private int times;
+	private Times times;
 
 	protected Pattern(final String name, final Pattern<T, ? extends T> previous) {
 		this.name = name;
@@ -77,14 +81,14 @@ public class Pattern<T, F extends T> {
 			final ConsumingStrategy consumingStrategy) {
 		this.name = name;
 		this.previous = previous;
-		this.quantifier = Quantifier.ONE(consumingStrategy);
+		this.quantifier = Quantifier.one(consumingStrategy);
 	}
 
 	public Pattern<T, ? extends T> getPrevious() {
 		return previous;
 	}
 
-	public int getTimes() {
+	public Times getTimes() {
 		return times;
 	}
 
@@ -102,6 +106,10 @@ public class Pattern<T, F extends T> {
 
 	public IterativeCondition<F> getCondition() {
 		return condition;
+	}
+
+	public IterativeCondition<F> getUntilCondition() {
+		return untilCondition;
 	}
 
 	/**
@@ -182,6 +190,29 @@ public class Pattern<T, F extends T> {
 		Pattern<T, S> result = (Pattern<T, S>) this;
 
 		return result;
+	}
+
+	/**
+	 * Applies a stop condition for a looping state. It allows cleaning the underlying state.
+	 *
+	 * @param untilCondition a condition an event has to satisfy to stop collecting events into looping state
+	 * @return The same pattern with applied untilCondition
+	 */
+	public Pattern<T, F> until(IterativeCondition<F> untilCondition) {
+		Preconditions.checkNotNull(untilCondition, "The condition cannot be null");
+
+		if (this.untilCondition != null) {
+			throw new MalformedPatternException("Only one until condition can be applied.");
+		}
+
+		if (!quantifier.hasProperty(Quantifier.QuantifierProperty.LOOPING)) {
+			throw new MalformedPatternException("The until condition is only applicable to looping states.");
+		}
+
+		ClosureCleaner.clean(untilCondition, true);
+		this.untilCondition = untilCondition;
+
+		return this;
 	}
 
 	/**
@@ -295,13 +326,13 @@ public class Pattern<T, F extends T> {
 	 * {@code A1 A2 B} appears, this will generate patterns:
 	 * {@code A1 B} and {@code A1 A2 B}. See also {@link #allowCombinations()}.
 	 *
-	 * @return The same pattern with a {@link Quantifier#ONE_OR_MORE(ConsumingStrategy)} quantifier applied.
+	 * @return The same pattern with a {@link Quantifier#oneOrMore(ConsumingStrategy)} quantifier applied.
 	 * @throws MalformedPatternException if the quantifier is not applicable to this pattern.
 	 */
 	public Pattern<T, F> oneOrMore() {
 		checkIfNoNotPattern();
 		checkIfQuantifierApplied();
-		this.quantifier = Quantifier.ONE_OR_MORE(quantifier.getConsumingStrategy());
+		this.quantifier = Quantifier.oneOrMore(quantifier.getConsumingStrategy());
 		return this;
 	}
 
@@ -317,14 +348,35 @@ public class Pattern<T, F extends T> {
 		checkIfNoNotPattern();
 		checkIfQuantifierApplied();
 		Preconditions.checkArgument(times > 0, "You should give a positive number greater than 0.");
-		this.quantifier = Quantifier.TIMES(quantifier.getConsumingStrategy());
-		this.times = times;
+		this.quantifier = Quantifier.times(quantifier.getConsumingStrategy());
+		this.times = Times.of(times);
 		return this;
 	}
 
 	/**
-	 * Applicable only to {@link Quantifier#ONE_OR_MORE(ConsumingStrategy)} and
-	 * {@link Quantifier#TIMES(ConsumingStrategy)} patterns, this option allows more flexibility to the matching events.
+	 * Specifies that the pattern can occur between from and to times.
+	 *
+	 * @param from number of times matching event must appear at least
+	 * @param to number of times matching event must appear at most
+	 * @return The same pattern with the number of times range applied
+	 *
+	 * @throws MalformedPatternException if the quantifier is not applicable to this pattern.
+	 */
+	public Pattern<T, F> times(int from, int to) {
+		checkIfNoNotPattern();
+		checkIfQuantifierApplied();
+		this.quantifier = Quantifier.times(quantifier.getConsumingStrategy());
+		if (from == 0) {
+			this.quantifier.optional();
+			from = 1;
+		}
+		this.times = Times.of(from, to);
+		return this;
+	}
+
+	/**
+	 * Applicable only to {@link Quantifier#oneOrMore(ConsumingStrategy)} and
+	 * {@link Quantifier#times(ConsumingStrategy)} patterns, this option allows more flexibility to the matching events.
 	 *
 	 * <p>If {@code allowCombinations()} is not applied for a
 	 * pattern {@code A.oneOrMore().followedBy(B)} and a sequence of events
@@ -377,6 +429,54 @@ public class Pattern<T, F extends T> {
 	public Pattern<T, F> consecutive() {
 		quantifier.consecutive();
 		return this;
+	}
+
+	/**
+	 * Starts a new pattern sequence. The provided pattern is the initial pattern
+	 * of the new sequence.
+	 *
+	 * @param group the pattern to begin with
+	 * @return the first pattern of a pattern sequence
+	 */
+	public static <T, F extends T> GroupPattern<T, F> begin(Pattern<T, F> group) {
+		return new GroupPattern<>(null, group);
+	}
+
+	/**
+	 * Appends a new group pattern to the existing one. The new pattern enforces non-strict
+	 * temporal contiguity. This means that a matching event of this pattern and the
+	 * preceding matching event might be interleaved with other events which are ignored.
+	 *
+	 * @param group the pattern to append
+	 * @return A new pattern which is appended to this one
+	 */
+	public GroupPattern<T, F> followedBy(Pattern<T, F> group) {
+		return new GroupPattern<>(this, group, ConsumingStrategy.SKIP_TILL_NEXT);
+	}
+
+	/**
+	 * Appends a new group pattern to the existing one. The new pattern enforces non-strict
+	 * temporal contiguity. This means that a matching event of this pattern and the
+	 * preceding matching event might be interleaved with other events which are ignored.
+	 *
+	 * @param group the pattern to append
+	 * @return A new pattern which is appended to this one
+	 */
+	public GroupPattern<T, F> followedByAny(Pattern<T, F> group) {
+		return new GroupPattern<>(this, group, ConsumingStrategy.SKIP_TILL_ANY);
+	}
+
+	/**
+	 * Appends a new group pattern to the existing one. The new pattern enforces strict
+	 * temporal contiguity. This means that the whole pattern sequence matches only
+	 * if an event which matches this pattern directly follows the preceding matching
+	 * event. Thus, there cannot be any events in between two matching events.
+	 *
+	 * @param group the pattern to append
+	 * @return A new pattern which is appended to this one
+	 */
+	public GroupPattern<T, F> next(Pattern<T, F> group) {
+		return new GroupPattern<>(this, group, ConsumingStrategy.STRICT);
 	}
 
 	private void checkIfNoNotPattern() {

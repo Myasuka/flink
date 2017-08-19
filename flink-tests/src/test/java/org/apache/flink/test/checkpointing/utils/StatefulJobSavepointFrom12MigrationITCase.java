@@ -18,8 +18,6 @@
 
 package org.apache.flink.test.checkpointing.utils;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
@@ -53,8 +51,11 @@ import org.apache.flink.streaming.api.operators.Triggerable;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.Collector;
+
 import org.junit.Ignore;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * This verifies that we can restore a complete job from a Flink 1.2 savepoint.
@@ -76,7 +77,6 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
-		// we only test memory state backend yet
 		env.setStateBackend(new MemoryStateBackend());
 		env.enableCheckpointing(500);
 		env.setParallelism(4);
@@ -103,7 +103,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		executeAndSavepoint(
 				env,
-				"src/test/resources/stateful-udf-migration-itcase-flink1.2-savepoint",
+				"src/test/resources/" + getSavepointPath(),
 				new Tuple2<>(AccumulatorCountingSink.NUM_ELEMENTS_ACCUMULATOR, NUM_SOURCE_ELEMENTS));
 	}
 
@@ -144,10 +144,9 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		executeAndSavepoint(
 				env,
-				"src/test/resources/stateful-udf-migration-itcase-flink1.2-rocksdb-savepoint",
+				"src/test/resources/" + getRocksDBSavepointPath(),
 				new Tuple2<>(AccumulatorCountingSink.NUM_ELEMENTS_ACCUMULATOR, NUM_SOURCE_ELEMENTS));
 	}
-
 
 	@Test
 	public void testSavepointRestoreFromFlink12() throws Exception {
@@ -155,7 +154,6 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setRestartStrategy(RestartStrategies.noRestart());
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
-		// we only test memory state backend yet
 		env.setStateBackend(new MemoryStateBackend());
 		env.enableCheckpointing(500);
 		env.setParallelism(4);
@@ -182,7 +180,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		restoreAndExecute(
 				env,
-				getResourceFilename("stateful-udf-migration-itcase-flink1.2-savepoint"),
+				getResourceFilename(getSavepointPath()),
 				new Tuple2<>(CheckingRestoringSource.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, 1),
 				new Tuple2<>(CheckingRestoringFlatMap.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, NUM_SOURCE_ELEMENTS),
 				new Tuple2<>(CheckingRestoringFlatMapWithKeyedState.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, NUM_SOURCE_ELEMENTS),
@@ -201,7 +199,6 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.setRestartStrategy(RestartStrategies.noRestart());
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
-		// we only test memory state backend yet
 		env.setStateBackend(new RocksDBStateBackend(new MemoryStateBackend()));
 		env.enableCheckpointing(500);
 		env.setParallelism(4);
@@ -228,7 +225,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		restoreAndExecute(
 				env,
-				getResourceFilename("stateful-udf-migration-itcase-flink1.2-rocksdb-savepoint"),
+				getResourceFilename(getRocksDBSavepointPath()),
 				new Tuple2<>(CheckingRestoringSource.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, 1),
 				new Tuple2<>(CheckingRestoringFlatMap.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, NUM_SOURCE_ELEMENTS),
 				new Tuple2<>(CheckingRestoringFlatMapWithKeyedState.SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR, NUM_SOURCE_ELEMENTS),
@@ -241,10 +238,18 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 				new Tuple2<>(AccumulatorCountingSink.NUM_ELEMENTS_ACCUMULATOR, NUM_SOURCE_ELEMENTS));
 	}
 
+	protected String getSavepointPath() {
+		return "stateful-udf-migration-itcase-flink1.2-savepoint";
+	}
+
+	protected String getRocksDBSavepointPath() {
+		return "stateful-udf-migration-itcase-flink1.2-rocksdb-savepoint";
+	}
+
 	private static class LegacyCheckpointedSource
 			implements SourceFunction<Tuple2<Long, Long>>, Checkpointed<String> {
 
-		public static String CHECKPOINTED_STRING = "Here be dragons!";
+		public static String checkpointedString = "Here be dragons!";
 
 		private static final long serialVersionUID = 1L;
 
@@ -281,12 +286,12 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		@Override
 		public void restoreState(String state) throws Exception {
-			assertEquals(CHECKPOINTED_STRING, state);
+			assertEquals(checkpointedString, state);
 		}
 
 		@Override
 		public String snapshotState(long checkpointId, long checkpointTimestamp) throws Exception {
-			return CHECKPOINTED_STRING;
+			return checkpointedString;
 		}
 	}
 
@@ -317,7 +322,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		@Override
 		public void run(SourceContext<Tuple2<Long, Long>> ctx) throws Exception {
-			assertEquals(LegacyCheckpointedSource.CHECKPOINTED_STRING, restoredState);
+			assertEquals(LegacyCheckpointedSource.checkpointedString, restoredState);
 			getRuntimeContext().getAccumulator(SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR).add(1);
 
 			// immediately trigger any set timers
@@ -345,12 +350,12 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class LegacyCheckpointedFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
+	private static class LegacyCheckpointedFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
 			implements Checkpointed<Tuple2<String, Long>> {
 
 		private static final long serialVersionUID = 1L;
 
-		public static Tuple2<String, Long> CHECKPOINTED_TUPLE =
+		public static Tuple2<String, Long> checkpointedTuple =
 				new Tuple2<>("hello", 42L);
 
 		@Override
@@ -364,11 +369,11 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		@Override
 		public Tuple2<String, Long> snapshotState(long checkpointId, long checkpointTimestamp) throws Exception {
-			return CHECKPOINTED_TUPLE;
+			return checkpointedTuple;
 		}
 	}
 
-	public static class CheckingRestoringFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
+	private static class CheckingRestoringFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
 			implements CheckpointedRestoring<Tuple2<String, Long>> {
 
 		private static final long serialVersionUID = 1L;
@@ -388,7 +393,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		public void flatMap(Tuple2<Long, Long> value, Collector<Tuple2<Long, Long>> out) throws Exception {
 			out.collect(value);
 
-			assertEquals(LegacyCheckpointedFlatMap.CHECKPOINTED_TUPLE, restoredState);
+			assertEquals(LegacyCheckpointedFlatMap.checkpointedTuple, restoredState);
 			getRuntimeContext().getAccumulator(SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR).add(1);
 
 		}
@@ -399,13 +404,13 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class LegacyCheckpointedFlatMapWithKeyedState
+	private static class LegacyCheckpointedFlatMapWithKeyedState
 			extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
 			implements Checkpointed<Tuple2<String, Long>> {
 
 		private static final long serialVersionUID = 1L;
 
-		public static Tuple2<String, Long> CHECKPOINTED_TUPLE =
+		public static Tuple2<String, Long> checkpointedTuple =
 				new Tuple2<>("hello", 42L);
 
 		private final ValueStateDescriptor<Long> stateDescriptor =
@@ -426,11 +431,11 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 
 		@Override
 		public Tuple2<String, Long> snapshotState(long checkpointId, long checkpointTimestamp) throws Exception {
-			return CHECKPOINTED_TUPLE;
+			return checkpointedTuple;
 		}
 	}
 
-	public static class CheckingRestoringFlatMapWithKeyedState extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
+	private static class CheckingRestoringFlatMapWithKeyedState extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
 			implements CheckpointedRestoring<Tuple2<String, Long>> {
 
 		private static final long serialVersionUID = 1L;
@@ -459,7 +464,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 			}
 
 			assertEquals(value.f1, state.value());
-			assertEquals(LegacyCheckpointedFlatMap.CHECKPOINTED_TUPLE, restoredState);
+			assertEquals(LegacyCheckpointedFlatMap.checkpointedTuple, restoredState);
 			getRuntimeContext().getAccumulator(SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR).add(1);
 		}
 
@@ -469,7 +474,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class CheckingRestoringFlatMapWithKeyedStateInOperator extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
+	private static class CheckingRestoringFlatMapWithKeyedStateInOperator extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>
 			implements CheckpointedRestoring<Tuple2<String, Long>> {
 
 		private static final long serialVersionUID = 1L;
@@ -498,7 +503,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 			}
 
 			assertEquals(value.f1, state.value());
-			assertEquals(LegacyCheckpointedFlatMap.CHECKPOINTED_TUPLE, restoredState);
+			assertEquals(LegacyCheckpointedFlatMap.checkpointedTuple, restoredState);
 			getRuntimeContext().getAccumulator(SUCCESSFUL_RESTORE_CHECK_ACCUMULATOR).add(1);
 		}
 
@@ -508,7 +513,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class KeyedStateSettingFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>> {
+	private static class KeyedStateSettingFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>> {
 
 		private static final long serialVersionUID = 1L;
 
@@ -523,7 +528,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class CheckingKeyedStateFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>> {
+	private static class CheckingKeyedStateFlatMap extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>> {
 
 		private static final long serialVersionUID = 1L;
 
@@ -553,7 +558,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class CheckpointedUdfOperator
+	private static class CheckpointedUdfOperator
 			extends AbstractUdfStreamOperator<Tuple2<Long, Long>, FlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>>
 			implements OneInputStreamOperator<Tuple2<Long, Long>, Tuple2<Long, Long>> {
 		private static final long serialVersionUID = 1L;
@@ -586,7 +591,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class CheckingRestoringUdfOperator
+	private static class CheckingRestoringUdfOperator
 			extends AbstractUdfStreamOperator<Tuple2<Long, Long>, FlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>>>
 			implements OneInputStreamOperator<Tuple2<Long, Long>, Tuple2<Long, Long>> {
 
@@ -630,7 +635,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class TimelyStatefulOperator
+	private static class TimelyStatefulOperator
 			extends AbstractStreamOperator<Tuple2<Long, Long>>
 			implements OneInputStreamOperator<Tuple2<Long, Long>, Tuple2<Long, Long>>, Triggerable<Long, Long> {
 		private static final long serialVersionUID = 1L;
@@ -682,7 +687,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class CheckingTimelyStatefulOperator
+	private static class CheckingTimelyStatefulOperator
 			extends AbstractStreamOperator<Tuple2<Long, Long>>
 			implements OneInputStreamOperator<Tuple2<Long, Long>, Tuple2<Long, Long>>, Triggerable<Long, Long> {
 		private static final long serialVersionUID = 1L;
@@ -746,7 +751,7 @@ public class StatefulJobSavepointFrom12MigrationITCase extends SavepointMigratio
 		}
 	}
 
-	public static class AccumulatorCountingSink<T> extends RichSinkFunction<T> {
+	private static class AccumulatorCountingSink<T> extends RichSinkFunction<T> {
 		private static final long serialVersionUID = 1L;
 
 		public static final String NUM_ELEMENTS_ACCUMULATOR = AccumulatorCountingSink.class + "_NUM_ELEMENTS";

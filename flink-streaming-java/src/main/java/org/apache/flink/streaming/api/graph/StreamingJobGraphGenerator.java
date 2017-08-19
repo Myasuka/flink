@@ -43,6 +43,7 @@ import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.runtime.operators.util.TaskConfig;
+import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.checkpoint.WithMasterCheckpointHook;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
@@ -245,7 +246,9 @@ public class StreamingJobGraphGenerator {
 				operatorHashes = new ArrayList<>();
 				chainedOperatorHashes.put(startNodeId, operatorHashes);
 			}
-			operatorHashes.add(new Tuple2<>(hashes.get(currentNodeId), legacyHashes.get(1).get(currentNodeId)));
+
+			byte[] primaryHashBytes = hashes.get(currentNodeId);
+			operatorHashes.add(new Tuple2<>(primaryHashBytes, legacyHashes.get(1).get(currentNodeId)));
 
 			chainedNames.put(currentNodeId, createChainedName(currentNodeId, chainableOutputs));
 			chainedMinResources.put(currentNodeId, createChainedMinResources(currentNodeId, chainableOutputs));
@@ -279,13 +282,16 @@ public class StreamingJobGraphGenerator {
 					chainedConfigs.put(startNodeId, new HashMap<Integer, StreamConfig>());
 				}
 				config.setChainIndex(chainIndex);
-				config.setOperatorName(streamGraph.getStreamNode(currentNodeId).getOperatorName());
+				StreamNode node = streamGraph.getStreamNode(currentNodeId);
+				config.setOperatorName(node.getOperatorName());
 				chainedConfigs.get(startNodeId).put(currentNodeId, config);
 			}
+
+			config.setOperatorID(new OperatorID(primaryHashBytes));
+
 			if (chainableOutputs.isEmpty()) {
 				config.setChainEnd();
 			}
-
 			return transitiveOutEdges;
 
 		} else {
@@ -659,6 +665,21 @@ public class StreamingJobGraphGenerator {
 			}
 		}
 
+		// because the state backend can have user-defined code, it needs to be stored as
+		// eagerly serialized value
+		final SerializedValue<StateBackend> serializedStateBackend;
+		if (streamGraph.getStateBackend() == null) {
+			serializedStateBackend = null;
+		} else {
+			try {
+				serializedStateBackend =
+					new SerializedValue<StateBackend>(streamGraph.getStateBackend());
+			}
+			catch (IOException e) {
+				throw new FlinkRuntimeException("State backend is not serializable", e);
+			}
+		}
+
 		//  --- done, put it all together ---
 
 		JobCheckpointingSettings settings = new JobCheckpointingSettings(
@@ -666,7 +687,7 @@ public class StreamingJobGraphGenerator {
 				cfg.getCheckpointTimeout(), cfg.getMinPauseBetweenCheckpoints(),
 				cfg.getMaxConcurrentCheckpoints(),
 				externalizedCheckpointSettings,
-				streamGraph.getStateBackend(),
+				serializedStateBackend,
 				serializedHooks,
 				isExactlyOnce);
 

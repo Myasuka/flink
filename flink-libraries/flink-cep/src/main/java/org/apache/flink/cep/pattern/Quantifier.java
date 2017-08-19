@@ -15,11 +15,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.flink.cep.pattern;
+
+import org.apache.flink.util.Preconditions;
 
 import java.util.EnumSet;
 import java.util.Objects;
 
+/**
+ * A quantifier describing the Pattern. There are three main groups of {@link Quantifier}.
+ *
+ * <p><ol>
+ *     <li>Single</li>
+ *     <li>Looping</li>
+ *     <li>Times</li>
+ * </ol>
+ *
+ * <p>Each {@link Pattern} can be optional and have a {@link ConsumingStrategy}. Looping and Times also hava an
+ * additional inner consuming strategy that is applied between accepted events in the pattern.
+ */
 public class Quantifier {
 
 	private final EnumSet<QuantifierProperty> properties;
@@ -36,15 +51,15 @@ public class Quantifier {
 		this.consumingStrategy = consumingStrategy;
 	}
 
-	public static Quantifier ONE(final ConsumingStrategy consumingStrategy) {
+	public static Quantifier one(final ConsumingStrategy consumingStrategy) {
 		return new Quantifier(consumingStrategy, QuantifierProperty.SINGLE);
 	}
 
-	public static Quantifier ONE_OR_MORE(final ConsumingStrategy consumingStrategy) {
+	public static Quantifier oneOrMore(final ConsumingStrategy consumingStrategy) {
 		return new Quantifier(consumingStrategy, QuantifierProperty.LOOPING);
 	}
 
-	public static Quantifier TIMES(final ConsumingStrategy consumingStrategy) {
+	public static Quantifier times(final ConsumingStrategy consumingStrategy) {
 		return new Quantifier(consumingStrategy, QuantifierProperty.TIMES);
 	}
 
@@ -52,12 +67,12 @@ public class Quantifier {
 		return properties.contains(property);
 	}
 
-	public ConsumingStrategy getConsumingStrategy() {
-		return consumingStrategy;
-	}
-
 	public ConsumingStrategy getInnerConsumingStrategy() {
 		return innerConsumingStrategy;
+	}
+
+	public ConsumingStrategy getConsumingStrategy() {
+		return consumingStrategy;
 	}
 
 	private static void checkPattern(boolean condition, Object errorMessage) {
@@ -118,6 +133,9 @@ public class Quantifier {
 		OPTIONAL
 	}
 
+	/**
+	 * Describes strategy for which events are matched in this {@link Pattern}. See docs for more info.
+	 */
 	public enum ConsumingStrategy {
 		STRICT,
 		SKIP_TILL_NEXT,
@@ -127,4 +145,34 @@ public class Quantifier {
 		NOT_NEXT
 	}
 
+	/**
+	 * Describe the times this {@link Pattern} can occur.
+	 */
+	public static class Times {
+		private final int from;
+		private final int to;
+
+		private Times(int from, int to) {
+			Preconditions.checkArgument(from > 0, "The from should be a positive number greater than 0.");
+			Preconditions.checkArgument(to >= from, "The to should be a number greater than or equal to from: " + from + ".");
+			this.from = from;
+			this.to = to;
+		}
+
+		public int getFrom() {
+			return from;
+		}
+
+		public int getTo() {
+			return to;
+		}
+
+		public static Times of(int from, int to) {
+			return new Times(from, to);
+		}
+
+		public static Times of(int times) {
+			return new Times(times, times);
+		}
+	}
 }

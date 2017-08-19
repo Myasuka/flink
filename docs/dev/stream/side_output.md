@@ -56,7 +56,7 @@ Notice how the `OutputTag` is typed according to the type of elements that the s
 contains.
 
 Emitting data to a side output is only possible from within a
-[ProcessFunction]({{ site.baseurl }}/dev/stream/process_function.html). You can use the `Context` parameter
+[ProcessFunction]({{ site.baseurl }}/dev/stream/operators/process_function.html). You can use the `Context` parameter
 to emit data to a side output identified by an `OutputTag`:
 
 <div class="codetabs" markdown="1">
@@ -72,7 +72,7 @@ SingleOutputStreamOperator<Integer> mainDataStream = input
 
       @Override
       public void processElement(
-          Integer input,
+          Integer value,
           Context ctx,
           Collector<Integer> out) throws Exception {
         // emit data to regular output

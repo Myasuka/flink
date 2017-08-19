@@ -20,12 +20,12 @@ package org.apache.flink.table.plan.nodes
 import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rex.{RexCall, RexInputRef, RexNode, RexShuttle}
 import org.apache.calcite.sql.SemiJoinType
-import org.apache.flink.api.common.functions.{FlatMapFunction, Function}
+import org.apache.flink.api.common.functions.Function
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.table.api.{TableConfig, TableException}
 import org.apache.flink.table.codegen.CodeGenUtils.primitiveDefaultValue
 import org.apache.flink.table.codegen.GeneratedExpression.{ALWAYS_NULL, NO_CODE}
-import org.apache.flink.table.codegen.{CodeGenerator, GeneratedCollector, GeneratedExpression, GeneratedFunction}
+import org.apache.flink.table.codegen._
 import org.apache.flink.table.functions.utils.TableSqlFunction
 import org.apache.flink.table.plan.schema.RowSchema
 import org.apache.flink.table.runtime.TableFunctionCollector
@@ -53,7 +53,9 @@ trait CommonCorrelate {
     functionClass: Class[T]):
   GeneratedFunction[T, Row] = {
 
-    val functionGenerator = new CodeGenerator(
+    val physicalRexCall = inputSchema.mapRexNode(rexCall)
+
+    val functionGenerator = new FunctionCodeGenerator(
       config,
       false,
       inputSchema.physicalTypeInfo,
@@ -67,7 +69,7 @@ trait CommonCorrelate {
       .addReusableConstructor(classOf[TableFunctionCollector[_]])
       .head
 
-    val call = functionGenerator.generateExpression(rexCall)
+    val call = functionGenerator.generateExpression(physicalRexCall)
     var body =
       s"""
          |${call.resultTerm}.setCollector($collectorTerm);
@@ -121,7 +123,7 @@ trait CommonCorrelate {
     pojoFieldMapping: Option[Array[Int]])
   : GeneratedCollector = {
 
-    val generator = new CodeGenerator(
+    val generator = new CollectorCodeGenerator(
       config,
       false,
       inputSchema.physicalTypeInfo,
@@ -153,7 +155,13 @@ trait CommonCorrelate {
       //   The generated expression is discarded.
       generator.generateExpression(condition.get.accept(changeInputRefIndexShuttle))
 
-      val filterGenerator = new CodeGenerator(config, false, udtfTypeInfo, None, pojoFieldMapping)
+      val filterGenerator = new FunctionCodeGenerator(
+        config,
+        false,
+        udtfTypeInfo,
+        None,
+        pojoFieldMapping)
+
       filterGenerator.input1Term = filterGenerator.input2Term
       val filterCondition = filterGenerator.generateExpression(condition.get)
       s"""

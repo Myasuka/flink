@@ -25,7 +25,7 @@ under the License.
 
 
 
-This documentation is for Apache Flink version {{ site.version }}. These pages have been built at: {% build_time %}.
+This documentation is for Apache Flink version {{ site.version_title }}. These pages have been built at: {% build_time %}.
 
 Apache Flink is an open source platform for distributed stream and batch data processing. Flink’s core is a streaming dataflow engine that provides data distribution, communication, and fault tolerance for distributed computations over data streams. Flink also builds batch processing on top of the streaming engine, overlaying native iteration support, managed memory, and program optimization.
 
@@ -51,9 +51,9 @@ For users that plan to upgrade a Flink system in production, we recommend readin
 
 ## External Resources
 
-- **Flink Forward**: Talks from past conferences are available at the [Flink Forward](http://flink-forward.org/) website and on [YouTube](https://www.youtube.com/channel/UCY8_lgiZLZErZPF47a2hXMA). [Robust Stream Processing with Apache Flink](http://berlin.flink-forward.org/kb_sessions/robust-stream-processing-with-apache-flink/) is a good place to start.
+- **Flink Forward**: Talks from past conferences are available at the [Flink Forward](http://flink-forward.org/) website and on [YouTube](https://www.youtube.com/channel/UCY8_lgiZLZErZPF47a2hXMA). [Robust Stream Processing with Apache Flink](http://2016.flink-forward.org/kb_sessions/robust-stream-processing-with-apache-flink/) is a good place to start.
 
-- **Training**: The [training materials](http://dataartisans.github.io/flink-training/) from data Artisans include slides, exercises, and sample solutions.
+- **Training**: The [training materials](http://training.data-artisans.com/) from data Artisans include slides, exercises, and sample solutions.
 
 - **Blogs**: The [Apache Flink](https://flink.apache.org/blog/) and [data Artisans](https://data-artisans.com/blog/) blogs publish frequent,
 in-depth technical articles about Flink.

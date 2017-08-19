@@ -46,6 +46,11 @@ under the License.
 		</dependency>
 
 		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-shaded-asm</artifactId>
+		</dependency>
+
+		<dependency>
 			<groupId>org.scala-lang</groupId>
 			<artifactId>scala-reflect</artifactId>
 		</dependency>
@@ -58,18 +63,6 @@ under the License.
 		<dependency>
 			<groupId>org.scala-lang</groupId>
 			<artifactId>scala-compiler</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.ow2.asm</groupId>
-			<artifactId>asm</artifactId>
-			<version>${asm.version}</version>
-		</dependency>
-		
-		<dependency>
-			<groupId>com.google.guava</groupId>
-			<artifactId>guava</artifactId>
-			<version>${guava.version}</version>
 		</dependency>
 
 		<!-- test dependencies -->
@@ -105,6 +98,16 @@ under the License.
 			<plugin>
 				<groupId>com.github.siom79.japicmp</groupId>
 				<artifactId>japicmp-maven-plugin</artifactId>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- We have to disable this option so that the system class loader contains all
+					dependencies as URLs -->
+					<useManifestOnlyJar>false</useManifestOnlyJar>
+				</configuration>
 			</plugin>
 
 			<!-- Scala Compiler -->
@@ -241,10 +244,10 @@ under the License.
 			<id>scala-2.10</id>
 			<activation>
 				<property>
-					<!-- only required for Scala 2.10 -->
-					<name>!scala-2.11</name>
+					<name>scala-2.10</name>
 				</property>
 			</activation>
+			<!-- only required for Scala 2.10 -->
 			<dependencies>
 				<dependency>
 					<groupId>org.scalamacros</groupId>

@@ -18,8 +18,6 @@
 
 package org.apache.flink.contrib.streaming.state;
 
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.state.ValueState;
@@ -42,15 +40,21 @@ import org.apache.flink.runtime.state.VoidNamespace;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.util.BlockerCheckpointStreamFactory;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.IOFileFilter;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.DBOptions;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
@@ -95,7 +99,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 	private ValueState<Integer> testState1;
 	private ValueState<String> testState2;
 
-	@Parameterized.Parameters
+	@Parameterized.Parameters(name = "Incremental checkpointing: {0}")
 	public static Collection<Boolean> parameters() {
 		return Arrays.asList(false, true);
 	}
@@ -230,6 +234,28 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 			verify(rocksCloseable, times(1)).close();
 		}
 
+	}
+
+	@Test
+	public void testCorrectMergeOperatorSet() throws IOException {
+		ColumnFamilyOptions columnFamilyOptions = mock(ColumnFamilyOptions.class);
+
+		try (RocksDBKeyedStateBackend<Integer> test = new RocksDBKeyedStateBackend<>(
+			"test",
+			Thread.currentThread().getContextClassLoader(),
+			tempFolder.newFolder(),
+			mock(DBOptions.class),
+			columnFamilyOptions,
+			mock(TaskKvStateRegistry.class),
+			IntSerializer.INSTANCE,
+			1,
+			new KeyGroupRange(0, 0),
+			new ExecutionConfig(),
+			enableIncrementalCheckpointing)) {
+
+			verify(columnFamilyOptions, Mockito.times(1))
+				.setMergeOperatorName(RocksDBKeyedStateBackend.MERGE_OPERATOR_NAME);
+		}
 	}
 
 	@Test
@@ -371,7 +397,6 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 
 			ValueState<String> state =
 				backend.getPartitionedState(VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, kvId);
-
 
 			Queue<IncrementalKeyedStateHandle> previousStateHandles = new LinkedList<>();
 			SharedStateRegistry sharedStateRegistry = spy(new SharedStateRegistry());

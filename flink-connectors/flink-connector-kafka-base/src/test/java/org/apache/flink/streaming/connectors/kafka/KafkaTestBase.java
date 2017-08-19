@@ -33,17 +33,15 @@ import org.apache.flink.util.TestLogger;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-
 import org.junit.ClassRule;
 import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import scala.concurrent.duration.FiniteDuration;
-
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
+import scala.concurrent.duration.FiniteDuration;
 
 /**
  * The base for the Kafka tests. It brings up:
@@ -52,7 +50,7 @@ import java.util.concurrent.TimeUnit;
  *     <li>Three Kafka Brokers (mini clusters)</li>
  *     <li>A Flink mini cluster</li>
  * </ul>
- * 
+ *
  * <p>Code in this test is based on the following GitHub repository:
  * <a href="https://github.com/sakserv/hadoop-mini-clusters">
  *   https://github.com/sakserv/hadoop-mini-clusters</a> (ASL licensed),
@@ -62,7 +60,7 @@ import java.util.concurrent.TimeUnit;
 public abstract class KafkaTestBase extends TestLogger {
 
 	protected static final Logger LOG = LoggerFactory.getLogger(KafkaTestBase.class);
-	
+
 	protected static final int NUMBER_OF_KAFKA_SERVERS = 3;
 
 	protected static final int NUM_TMS = 1;
@@ -74,7 +72,7 @@ public abstract class KafkaTestBase extends TestLogger {
 	protected static String brokerConnectionStrings;
 
 	protected static Properties standardProps;
-	
+
 	protected static LocalFlinkMiniCluster flink;
 
 	protected static FiniteDuration timeout = new FiniteDuration(10, TimeUnit.SECONDS);
@@ -89,21 +87,24 @@ public abstract class KafkaTestBase extends TestLogger {
 	// ------------------------------------------------------------------------
 	//  Setup and teardown of the mini clusters
 	// ------------------------------------------------------------------------
-	
+
 	@BeforeClass
 	public static void prepare() throws ClassNotFoundException {
+		prepare(true);
+	}
 
+	public static void prepare(boolean hideKafkaBehindProxy) throws ClassNotFoundException {
 		LOG.info("-------------------------------------------------------------------------");
 		LOG.info("    Starting KafkaTestBase ");
 		LOG.info("-------------------------------------------------------------------------");
 
-		startClusters(false);
+		startClusters(false, hideKafkaBehindProxy);
 
 		TestStreamEnvironment.setAsContext(flink, PARALLELISM);
 	}
 
 	@AfterClass
-	public static void shutDownServices() {
+	public static void shutDownServices() throws Exception {
 
 		LOG.info("-------------------------------------------------------------------------");
 		LOG.info("    Shut down KafkaTestBase ");
@@ -129,7 +130,7 @@ public abstract class KafkaTestBase extends TestLogger {
 		return flinkConfig;
 	}
 
-	protected static void startClusters(boolean secureMode) throws ClassNotFoundException {
+	protected static void startClusters(boolean secureMode, boolean hideKafkaBehindProxy) throws ClassNotFoundException {
 
 		// dynamically load the implementation for the test
 		Class<?> clazz = Class.forName("org.apache.flink.streaming.connectors.kafka.KafkaTestEnvironmentImpl");
@@ -137,7 +138,10 @@ public abstract class KafkaTestBase extends TestLogger {
 
 		LOG.info("Starting KafkaTestBase.prepare() for Kafka " + kafkaServer.getVersion());
 
-		kafkaServer.prepare(NUMBER_OF_KAFKA_SERVERS, secureMode);
+		kafkaServer.prepare(kafkaServer.createConfig()
+			.setKafkaServersNumber(NUMBER_OF_KAFKA_SERVERS)
+			.setSecureMode(secureMode)
+			.setHideKafkaBehindProxy(hideKafkaBehindProxy));
 
 		standardProps = kafkaServer.getStandardProperties();
 
@@ -156,13 +160,13 @@ public abstract class KafkaTestBase extends TestLogger {
 		flink.start();
 	}
 
-	protected static void shutdownClusters() {
+	protected static void shutdownClusters() throws Exception {
 
 		if (flink != null) {
 			flink.shutdown();
 		}
 
-		if(secureProps != null) {
+		if (secureProps != null) {
 			secureProps.clear();
 		}
 
@@ -170,12 +174,9 @@ public abstract class KafkaTestBase extends TestLogger {
 
 	}
 
-
-
 	// ------------------------------------------------------------------------
 	//  Execution utilities
 	// ------------------------------------------------------------------------
-	
 
 	protected static void tryExecutePropagateExceptions(StreamExecutionEnvironment see, String name) throws Exception {
 		try {
@@ -200,7 +201,7 @@ public abstract class KafkaTestBase extends TestLogger {
 	protected static void createTestTopic(String topic, int numberOfPartitions, int replicationFactor) {
 		kafkaServer.createTestTopic(topic, numberOfPartitions, replicationFactor);
 	}
-	
+
 	protected static void deleteTestTopic(String topic) {
 		kafkaServer.deleteTestTopic(topic);
 	}

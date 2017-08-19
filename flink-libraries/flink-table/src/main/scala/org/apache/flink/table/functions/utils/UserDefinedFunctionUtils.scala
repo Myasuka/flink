@@ -45,14 +45,15 @@ object UserDefinedFunctionUtils {
     */
   def checkForInstantiation(clazz: Class[_]): Unit = {
     if (!InstantiationUtil.isPublic(clazz)) {
-      throw ValidationException("Function class is not public.")
+      throw ValidationException(s"Function class ${clazz.getCanonicalName} is not public.")
     }
     else if (!InstantiationUtil.isProperClass(clazz)) {
-      throw ValidationException("Function class is no proper class, it is either abstract," +
-        " an interface, or a primitive type.")
+      throw ValidationException(s"Function class ${clazz.getCanonicalName} is no proper class," +
+        " it is either abstract, an interface, or a primitive type.")
     }
     else if (InstantiationUtil.isNonStaticInnerClass(clazz)) {
-      throw ValidationException("The class is an inner class, but not statically accessible.")
+      throw ValidationException(s"The class ${clazz.getCanonicalName} is an inner class, but" +
+        " not statically accessible.")
     }
   }
 
@@ -178,7 +179,7 @@ object UserDefinedFunctionUtils {
           s"add a @scala.annotation.varargs annotation.")
     } else if (found.length > 1) {
       throw new ValidationException(
-        "Found multiple '${methodName}' methods which match the signature.")
+        s"Found multiple '${methodName}' methods which match the signature.")
     }
     found.headOption
   }
@@ -285,13 +286,20 @@ object UserDefinedFunctionUtils {
   def createAggregateSqlFunction(
       name: String,
       aggFunction: AggregateFunction[_, _],
-      typeInfo: TypeInformation[_],
+      resultType: TypeInformation[_],
+      accTypeInfo: TypeInformation[_],
       typeFactory: FlinkTypeFactory)
   : SqlFunction = {
     //check if a qualified accumulate method exists before create Sql function
     checkAndExtractMethods(aggFunction, "accumulate")
-    val resultType: TypeInformation[_] = getResultTypeOfAggregateFunction(aggFunction, typeInfo)
-    AggSqlFunction(name, aggFunction, resultType, typeFactory, aggFunction.requiresOver)
+
+    AggSqlFunction(
+      name,
+      aggFunction,
+      resultType,
+      accTypeInfo,
+      typeFactory,
+      aggFunction.requiresOver)
   }
 
   // ----------------------------------------------------------------------------------------------
@@ -299,33 +307,87 @@ object UserDefinedFunctionUtils {
   // ----------------------------------------------------------------------------------------------
 
   /**
-    * Internal method of AggregateFunction#getResultType() that does some pre-checking and uses
-    * [[TypeExtractor]] as default return type inference.
+    * Tries to infer the TypeInformation of an AggregateFunction's return type.
+    *
+    * @param aggregateFunction The AggregateFunction for which the return type is inferred.
+    * @param extractedType The implicitly inferred type of the result type.
+    *
+    * @return The inferred result type of the AggregateFunction.
     */
   def getResultTypeOfAggregateFunction(
       aggregateFunction: AggregateFunction[_, _],
       extractedType: TypeInformation[_] = null)
     : TypeInformation[_] = {
 
-    val resultType = try {
-      val method: Method = aggregateFunction.getClass.getMethod("getResultType")
-      method.invoke(aggregateFunction).asInstanceOf[TypeInformation[_]]
-    } catch {
-      case _: NoSuchMethodException => null
-      case ite: Throwable => throw new TableException("Unexpected exception:", ite)
-    }
+    val resultType = aggregateFunction.getResultType
     if (resultType != null) {
       resultType
-    } else if(extractedType != null) {
+    } else if (extractedType != null) {
       extractedType
     } else {
-      TypeExtractor
-        .createTypeInfo(aggregateFunction,
-                        classOf[AggregateFunction[_, _]],
-                        aggregateFunction.getClass,
-                        0)
-        .asInstanceOf[TypeInformation[_]]
+      try {
+        extractTypeFromAggregateFunction(aggregateFunction, 0)
+      } catch {
+        case ite: InvalidTypesException =>
+          throw new TableException(
+            "Cannot infer generic type of ${aggregateFunction.getClass}. " +
+              "You can override AggregateFunction.getResultType() to specify the type.",
+            ite
+          )
+      }
     }
+  }
+
+  /**
+    * Tries to infer the TypeInformation of an AggregateFunction's accumulator type.
+    *
+    * @param aggregateFunction The AggregateFunction for which the accumulator type is inferred.
+    * @param extractedType The implicitly inferred type of the accumulator type.
+    *
+    * @return The inferred accumulator type of the AggregateFunction.
+    */
+  def getAccumulatorTypeOfAggregateFunction(
+    aggregateFunction: AggregateFunction[_, _],
+    extractedType: TypeInformation[_] = null)
+  : TypeInformation[_] = {
+
+    val accType = aggregateFunction.getAccumulatorType
+    if (accType != null) {
+      accType
+    } else if (extractedType != null) {
+      extractedType
+    } else {
+      try {
+        extractTypeFromAggregateFunction(aggregateFunction, 1)
+      } catch {
+        case ite: InvalidTypesException =>
+          throw new TableException(
+            "Cannot infer generic type of ${aggregateFunction.getClass}. " +
+              "You can override AggregateFunction.getAccumulatorType() to specify the type.",
+            ite
+          )
+      }
+    }
+  }
+
+  /**
+    * Internal method to extract a type from an AggregateFunction's type parameters.
+    *
+    * @param aggregateFunction The AggregateFunction for which the type is extracted.
+    * @param parameterTypePos The position of the type parameter for which the type is extracted.
+    *
+    * @return The extracted type.
+    */
+  @throws(classOf[InvalidTypesException])
+  private def extractTypeFromAggregateFunction(
+      aggregateFunction: AggregateFunction[_, _],
+      parameterTypePos: Int): TypeInformation[_] = {
+
+    TypeExtractor.createTypeInfo(
+      aggregateFunction,
+      classOf[AggregateFunction[_, _]],
+      aggregateFunction.getClass,
+      parameterTypePos).asInstanceOf[TypeInformation[_]]
   }
 
   /**

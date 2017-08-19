@@ -28,6 +28,8 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.EitherTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
+import org.apache.flink.cep.EventComparator;
+import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.nfa.compiler.NFACompiler;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -39,6 +41,9 @@ import org.apache.flink.types.Either;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Utility methods for creating {@link PatternStream}.
+ */
 public class CEPOperatorUtils {
 
 	/**
@@ -48,7 +53,10 @@ public class CEPOperatorUtils {
 	 * @return Data stream containing fully matched event sequences stored in a {@link Map}. The
 	 * events are indexed by their associated names of the pattern.
 	 */
-	public static <K, T> SingleOutputStreamOperator<Map<String, List<T>>> createPatternStream(DataStream<T> inputStream, Pattern<T, ?> pattern) {
+	public static <K, T> SingleOutputStreamOperator<Map<String, List<T>>> createPatternStream(
+		DataStream<T> inputStream,
+		Pattern<T, ?> pattern,
+		EventComparator<T> comparator) {
 		final TypeSerializer<T> inputSerializer = inputStream.getType().createSerializer(inputStream.getExecutionConfig());
 
 		// check whether we use processing time
@@ -61,7 +69,7 @@ public class CEPOperatorUtils {
 
 		if (inputStream instanceof KeyedStream) {
 			// We have to use the KeyedCEPPatternOperator which can deal with keyed input streams
-			KeyedStream<T, K> keyedStream= (KeyedStream<T, K>) inputStream;
+			KeyedStream<T, K> keyedStream = (KeyedStream<T, K>) inputStream;
 
 			TypeSerializer<K> keySerializer = keyedStream.getKeyType().createSerializer(keyedStream.getExecutionConfig());
 
@@ -73,7 +81,8 @@ public class CEPOperatorUtils {
 					isProcessingTime,
 					keySerializer,
 					nfaFactory,
-					true));
+					true,
+					comparator));
 		} else {
 
 			KeySelector<T, Byte> keySelector = new NullByteKeySelector<>();
@@ -87,7 +96,8 @@ public class CEPOperatorUtils {
 					isProcessingTime,
 					keySerializer,
 					nfaFactory,
-					false
+					false,
+					comparator
 				)).forceNonParallel();
 		}
 
@@ -104,7 +114,7 @@ public class CEPOperatorUtils {
 	 * a {@link Either} instance.
 	 */
 	public static <K, T> SingleOutputStreamOperator<Either<Tuple2<Map<String, List<T>>, Long>, Map<String, List<T>>>> createTimeoutPatternStream(
-			DataStream<T> inputStream, Pattern<T, ?> pattern) {
+			DataStream<T> inputStream, Pattern<T, ?> pattern, EventComparator<T> comparator) {
 
 		final TypeSerializer<T> inputSerializer = inputStream.getType().createSerializer(inputStream.getExecutionConfig());
 
@@ -122,7 +132,7 @@ public class CEPOperatorUtils {
 
 		if (inputStream instanceof KeyedStream) {
 			// We have to use the KeyedCEPPatternOperator which can deal with keyed input streams
-			KeyedStream<T, K> keyedStream= (KeyedStream<T, K>) inputStream;
+			KeyedStream<T, K> keyedStream = (KeyedStream<T, K>) inputStream;
 
 			TypeSerializer<K> keySerializer = keyedStream.getKeyType().createSerializer(keyedStream.getExecutionConfig());
 
@@ -134,7 +144,8 @@ public class CEPOperatorUtils {
 					isProcessingTime,
 					keySerializer,
 					nfaFactory,
-					true));
+					true,
+					comparator));
 		} else {
 
 			KeySelector<T, Byte> keySelector = new NullByteKeySelector<>();
@@ -148,7 +159,8 @@ public class CEPOperatorUtils {
 					isProcessingTime,
 					keySerializer,
 					nfaFactory,
-					false
+					false,
+					comparator
 				)).forceNonParallel();
 		}
 

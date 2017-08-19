@@ -48,7 +48,7 @@ import org.apache.flink.table.api.java.{BatchTableEnvironment => JavaBatchTableE
 import org.apache.flink.table.api.scala.{BatchTableEnvironment => ScalaBatchTableEnv, StreamTableEnvironment => ScalaStreamTableEnv}
 import org.apache.flink.table.calcite.{FlinkPlannerImpl, FlinkRelBuilder, FlinkTypeFactory, FlinkTypeSystem}
 import org.apache.flink.table.catalog.{ExternalCatalog, ExternalCatalogSchema}
-import org.apache.flink.table.codegen.{CodeGenerator, ExpressionReducer, GeneratedFunction}
+import org.apache.flink.table.codegen.{FunctionCodeGenerator, ExpressionReducer, GeneratedFunction}
 import org.apache.flink.table.expressions.{Alias, Expression, UnresolvedFieldReference}
 import org.apache.flink.table.functions.utils.UserDefinedFunctionUtils._
 import org.apache.flink.table.functions.AggregateFunction
@@ -358,20 +358,32 @@ abstract class TableEnvironment(val config: TableConfig) {
     * Registers an [[AggregateFunction]] under a unique name. Replaces already existing
     * user-defined functions under this name.
     */
-  private[flink] def registerAggregateFunctionInternal[T: TypeInformation, ACC](
+  private[flink] def registerAggregateFunctionInternal[T: TypeInformation, ACC: TypeInformation](
       name: String, function: AggregateFunction[T, ACC]): Unit = {
     // check if class not Scala object
     checkNotSingleton(function.getClass)
     // check if class could be instantiated
     checkForInstantiation(function.getClass)
 
-    val typeInfo: TypeInformation[_] = implicitly[TypeInformation[T]]
+    val resultTypeInfo: TypeInformation[_] = getResultTypeOfAggregateFunction(
+      function,
+      implicitly[TypeInformation[T]])
+
+    val accTypeInfo: TypeInformation[_] = getAccumulatorTypeOfAggregateFunction(
+      function,
+      implicitly[TypeInformation[ACC]])
 
     // register in Table API
     functionCatalog.registerFunction(name, function.getClass)
 
     // register in SQL API
-    val sqlFunctions = createAggregateSqlFunction(name, function, typeInfo, typeFactory)
+    val sqlFunctions = createAggregateSqlFunction(
+      name,
+      function,
+      resultTypeInfo,
+      accTypeInfo,
+      typeFactory)
+
     functionCatalog.registerSqlFunction(sqlFunctions)
   }
 
@@ -446,11 +458,13 @@ abstract class TableEnvironment(val config: TableConfig) {
   @throws[TableException]
   @varargs
   def scan(tablePath: String*): Table = {
-    scanInternal(tablePath.toArray)
+    scanInternal(tablePath.toArray) match {
+      case Some(table) => table
+      case None => throw new TableException(s"Table '${tablePath.mkString(".")}' was not found.")
+    }
   }
 
-  @throws[TableException]
-  private def scanInternal(tablePath: Array[String]): Table = {
+  private[flink] def scanInternal(tablePath: Array[String]): Option[Table] = {
     require(tablePath != null && !tablePath.isEmpty, "tablePath must not be null or empty.")
     val schemaPaths = tablePath.slice(0, tablePath.length - 1)
     val schema = getSchema(schemaPaths)
@@ -458,10 +472,10 @@ abstract class TableEnvironment(val config: TableConfig) {
       val tableName = tablePath(tablePath.length - 1)
       val table = schema.getTable(tableName)
       if (table != null) {
-        return new Table(this, CatalogNode(tablePath, table.getRowType(typeFactory)))
+        return Some(new Table(this, CatalogNode(tablePath, table.getRowType(typeFactory))))
       }
     }
-    throw new TableException(s"Table \'${tablePath.mkString(".")}\' was not found.")
+    None
   }
 
   private def getSchema(schemaPath: Array[String]): SchemaPlus = {
@@ -718,8 +732,10 @@ abstract class TableEnvironment(val config: TableConfig) {
     // validate that at least the field types of physical and logical type match
     // we do that here to make sure that plan translation was correct
     if (schema.physicalTypeInfo != inputTypeInfo) {
-      throw TableException("The field types of physical and logical row types do not match." +
-        "This is a bug and should not happen. Please file an issue.")
+      throw TableException(
+        s"The field types of physical and logical row types do not match. " +
+        s"Physical type is [${schema.physicalTypeInfo}], Logical type is [${inputTypeInfo}]. " +
+        s"This is a bug and should not happen. Please file an issue.")
     }
 
     val fieldTypes = schema.physicalFieldTypeInfo
@@ -727,7 +743,9 @@ abstract class TableEnvironment(val config: TableConfig) {
 
     // validate requested type
     if (requestedTypeInfo.getArity != fieldTypes.length) {
-      throw new TableException("Arity of result does not match requested type.")
+      throw new TableException(
+        s"Arity[${fieldTypes.length}] of result[${fieldTypes}] does not match " +
+        s"the number[${requestedTypeInfo.getArity}] of requested type[${requestedTypeInfo}].")
     }
 
     requestedTypeInfo match {
@@ -761,7 +779,7 @@ abstract class TableEnvironment(val config: TableConfig) {
       case at: AtomicType[_] =>
         if (fieldTypes.size != 1) {
           throw new TableException(s"Requested result type is an atomic type but " +
-            s"result has more or less than a single field.")
+            s"result[$fieldTypes] has more or less than a single field.")
         }
         val fieldTypeInfo = fieldTypes.head
         if (fieldTypeInfo != at) {
@@ -774,7 +792,7 @@ abstract class TableEnvironment(val config: TableConfig) {
     }
 
     // code generate MapFunction
-    val generator = new CodeGenerator(
+    val generator = new FunctionCodeGenerator(
       config,
       false,
       inputTypeInfo,
@@ -804,10 +822,6 @@ abstract class TableEnvironment(val config: TableConfig) {
   * environment.
   */
 object TableEnvironment {
-
-  // default names that can be used in in TableSources etc.
-  val DEFAULT_ROWTIME_ATTRIBUTE = "rowtime"
-  val DEFAULT_PROCTIME_ATTRIBUTE = "proctime"
 
   /**
     * Returns a [[JavaBatchTableEnv]] for a Java [[JavaBatchExecEnv]].

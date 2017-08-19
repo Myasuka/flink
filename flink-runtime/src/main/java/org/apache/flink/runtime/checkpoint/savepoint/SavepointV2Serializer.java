@@ -39,12 +39,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * (De)serializer for checkpoint metadata format version 2.
@@ -238,6 +240,18 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 	//  task state (de)serialization methods
 	// ------------------------------------------------------------------------
 
+	private static <T> T extractSingleton(Collection<T> collection) {
+		if (collection == null || collection.isEmpty()) {
+			return null;
+		}
+
+		if (collection.size() == 1) {
+			return collection.iterator().next();
+		} else {
+			throw new IllegalStateException("Expected singleton collection, but found size: " + collection.size());
+		}
+	}
+
 	private static void serializeSubtaskState(OperatorSubtaskState subtaskState, DataOutputStream dos) throws IOException {
 
 		dos.writeLong(-1);
@@ -250,7 +264,7 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 			serializeStreamStateHandle(nonPartitionableState, dos);
 		}
 
-		OperatorStateHandle operatorStateBackend = subtaskState.getManagedOperatorState();
+		OperatorStateHandle operatorStateBackend = extractSingleton(subtaskState.getManagedOperatorState());
 
 		len = operatorStateBackend != null ? 1 : 0;
 		dos.writeInt(len);
@@ -258,7 +272,7 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 			serializeOperatorStateHandle(operatorStateBackend, dos);
 		}
 
-		OperatorStateHandle operatorStateFromStream = subtaskState.getRawOperatorState();
+		OperatorStateHandle operatorStateFromStream = extractSingleton(subtaskState.getRawOperatorState());
 
 		len = operatorStateFromStream != null ? 1 : 0;
 		dos.writeInt(len);
@@ -266,10 +280,10 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 			serializeOperatorStateHandle(operatorStateFromStream, dos);
 		}
 
-		KeyedStateHandle keyedStateBackend = subtaskState.getManagedKeyedState();
+		KeyedStateHandle keyedStateBackend = extractSingleton(subtaskState.getManagedKeyedState());
 		serializeKeyedStateHandle(keyedStateBackend, dos);
 
-		KeyedStateHandle keyedStateStream = subtaskState.getRawKeyedState();
+		KeyedStateHandle keyedStateStream = extractSingleton(subtaskState.getRawKeyedState());
 		serializeKeyedStateHandle(keyedStateStream, dos);
 	}
 
@@ -320,7 +334,7 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 			dos.writeByte(INCREMENTAL_KEY_GROUPS_HANDLE);
 
 			dos.writeLong(incrementalKeyedStateHandle.getCheckpointId());
-			dos.writeUTF(incrementalKeyedStateHandle.getOperatorIdentifier());
+			dos.writeUTF(String.valueOf(incrementalKeyedStateHandle.getBackendIdentifier()));
 			dos.writeInt(incrementalKeyedStateHandle.getKeyGroupRange().getStartKeyGroup());
 			dos.writeInt(incrementalKeyedStateHandle.getKeyGroupRange().getNumberOfKeyGroups());
 
@@ -380,7 +394,7 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 		} else if (INCREMENTAL_KEY_GROUPS_HANDLE == type) {
 
 			long checkpointId = dis.readLong();
-			String operatorId = dis.readUTF();
+			String backendId = dis.readUTF();
 			int startKeyGroup = dis.readInt();
 			int numKeyGroups = dis.readInt();
 			KeyGroupRange keyGroupRange =
@@ -390,8 +404,17 @@ class SavepointV2Serializer implements SavepointSerializer<SavepointV2> {
 			Map<StateHandleID, StreamStateHandle> sharedStates = deserializeStreamStateHandleMap(dis);
 			Map<StateHandleID, StreamStateHandle> privateStates = deserializeStreamStateHandleMap(dis);
 
+			UUID uuid;
+
+			try {
+				uuid = UUID.fromString(backendId);
+			} catch (Exception ex) {
+				// compatibility with old format pre FLINK-6964:
+				uuid = UUID.nameUUIDFromBytes(backendId.getBytes(StandardCharsets.UTF_8));
+			}
+
 			return new IncrementalKeyedStateHandle(
-				operatorId,
+				uuid,
 				keyGroupRange,
 				checkpointId,
 				sharedStates,

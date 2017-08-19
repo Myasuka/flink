@@ -35,6 +35,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.OperatorStateHandles;
 import org.apache.flink.streaming.util.KeyedOneInputStreamOperatorTestHarness;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
+
 import org.junit.Test;
 
 import java.net.URL;
@@ -45,6 +46,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+/**
+ * Tests for migration from 1.1.x to 1.3.x.
+ */
 public class CEPMigration11to13Test {
 
 	private static String getResourceFilename(String filename) {
@@ -107,7 +111,8 @@ public class CEPMigration11to13Test {
 								false,
 								IntSerializer.INSTANCE,
 								new NFAFactory(),
-								true),
+								true,
+								null),
 						keySelector,
 						BasicTypeInfo.INT_TYPE_INFO);
 
@@ -159,7 +164,8 @@ public class CEPMigration11to13Test {
 					false,
 					IntSerializer.INSTANCE,
 					new NFAFactory(),
-					true),
+					true,
+					null),
 				keySelector,
 				BasicTypeInfo.INT_TYPE_INFO);
 
@@ -198,7 +204,7 @@ public class CEPMigration11to13Test {
 
 		final Event startEvent = new Event(42, "start", 1.0);
 		final SubEvent middleEvent = new SubEvent(42, "foo", 1.0, 10.0);
-		final Event endEvent=  new Event(42, "end", 1.0);
+		final Event endEvent = new Event(42, "end", 1.0);
 
 		// uncomment these lines for regenerating the snapshot on Flink 1.1
 		/*
@@ -228,13 +234,14 @@ public class CEPMigration11to13Test {
 		NullByteKeySelector keySelector = new NullByteKeySelector();
 
 		OneInputStreamOperatorTestHarness<Event, Map<String, List<Event>>> harness =
-				new KeyedOneInputStreamOperatorTestHarness<>(
+				new KeyedOneInputStreamOperatorTestHarness<Byte, Event, Map<String, List<Event>>>(
 						new KeyedCEPPatternOperator<>(
 								Event.createTypeSerializer(),
 								false,
 								ByteSerializer.INSTANCE,
 								new NFAFactory(),
-								false),
+								false,
+								null),
 						keySelector,
 						BasicTypeInfo.BYTE_TYPE_INFO);
 
@@ -280,13 +287,14 @@ public class CEPMigration11to13Test {
 			OperatorStateHandles snapshot = harness.snapshot(1L, 1L);
 			harness.close();
 
-			harness = new KeyedOneInputStreamOperatorTestHarness<>(
+			harness = new KeyedOneInputStreamOperatorTestHarness<Byte, Event, Map<String, List<Event>>>(
 				new KeyedCEPPatternOperator<>(
 					Event.createTypeSerializer(),
 					false,
 					ByteSerializer.INSTANCE,
 					new NFAFactory(),
-					false),
+					false,
+					null),
 				keySelector,
 				BasicTypeInfo.BYTE_TYPE_INFO);
 

@@ -40,7 +40,7 @@ import java.util.Map;
  * {@link org.apache.flink.cep.nfa.NFA}. In order to process the detected sequences, the user
  * has to specify a {@link PatternSelectFunction} or a {@link PatternFlatSelectFunction}.
  *
- * Additionally it allows to handle partially matched event patterns which have timed out. For this
+ * <p>Additionally it allows to handle partially matched event patterns which have timed out. For this
  * the user has to specify a {@link PatternTimeoutFunction} or a {@link PatternFlatTimeoutFunction}.
  *
  * @param <T> Type of the events
@@ -52,9 +52,19 @@ public class PatternStream<T> {
 
 	private final Pattern<T, ?> pattern;
 
+	// comparator to sort events
+	private final EventComparator<T> comparator;
+
 	PatternStream(final DataStream<T> inputStream, final Pattern<T, ?> pattern) {
 		this.inputStream = inputStream;
 		this.pattern = pattern;
+		this.comparator = null;
+	}
+
+	PatternStream(final DataStream<T> inputStream, final Pattern<T, ?> pattern, final EventComparator<T> comparator) {
+		this.inputStream = inputStream;
+		this.pattern = pattern;
+		this.comparator = comparator;
 	}
 
 	public Pattern<T, ?> getPattern() {
@@ -63,6 +73,10 @@ public class PatternStream<T> {
 
 	public DataStream<T> getInputStream() {
 		return inputStream;
+	}
+
+	public EventComparator<T> getComparator() {
+		return comparator;
 	}
 
 	/**
@@ -83,8 +97,10 @@ public class PatternStream<T> {
 		TypeInformation<R> returnType = TypeExtractor.getUnaryOperatorReturnType(
 			patternSelectFunction,
 			PatternSelectFunction.class,
+			0,
 			1,
-			-1,
+			new int[]{0, 1, 0},
+			new int[]{},
 			inputStream.getType(),
 			null,
 			false);
@@ -106,7 +122,7 @@ public class PatternStream<T> {
 	 */
 	public <R> SingleOutputStreamOperator<R> select(final PatternSelectFunction<T, R> patternSelectFunction, TypeInformation<R> outTypeInfo) {
 		SingleOutputStreamOperator<Map<String, List<T>>> patternStream =
-				CEPOperatorUtils.createPatternStream(inputStream, pattern);
+				CEPOperatorUtils.createPatternStream(inputStream, pattern, comparator);
 
 		return patternStream.map(
 			new PatternSelectMapper<>(
@@ -119,7 +135,7 @@ public class PatternStream<T> {
 	 * provided {@link PatternSelectFunction} is called. The pattern select function can produce
 	 * exactly one resulting element.
 	 *
-	 * Applies a timeout function to a partial pattern sequence which has timed out. For each
+	 * <p>Applies a timeout function to a partial pattern sequence which has timed out. For each
 	 * partial pattern sequence the provided {@link PatternTimeoutFunction} is called. The pattern
 	 * timeout function can produce exactly one resulting element.
 	 *
@@ -137,13 +153,15 @@ public class PatternStream<T> {
 		final PatternSelectFunction<T, R> patternSelectFunction) {
 
 		SingleOutputStreamOperator<Either<Tuple2<Map<String, List<T>>, Long>, Map<String, List<T>>>> patternStream =
-				CEPOperatorUtils.createTimeoutPatternStream(inputStream, pattern);
+				CEPOperatorUtils.createTimeoutPatternStream(inputStream, pattern, comparator);
 
 		TypeInformation<L> leftTypeInfo = TypeExtractor.getUnaryOperatorReturnType(
 			patternTimeoutFunction,
 			PatternTimeoutFunction.class,
+			0,
 			1,
-			-1,
+			new int[]{0, 1, 0},
+			new int[]{},
 			inputStream.getType(),
 			null,
 			false);
@@ -151,8 +169,10 @@ public class PatternStream<T> {
 		TypeInformation<R> rightTypeInfo = TypeExtractor.getUnaryOperatorReturnType(
 			patternSelectFunction,
 			PatternSelectFunction.class,
+			0,
 			1,
-			-1,
+			new int[]{0, 1, 0},
+			new int[]{},
 			inputStream.getType(),
 			null,
 			false);
@@ -184,8 +204,10 @@ public class PatternStream<T> {
 		TypeInformation<R> outTypeInfo = TypeExtractor.getUnaryOperatorReturnType(
 			patternFlatSelectFunction,
 			PatternFlatSelectFunction.class,
-			1,
 			0,
+			1,
+			new int[] {0, 1, 0},
+			new int[] {1, 0},
 			inputStream.getType(),
 			null,
 			false);
@@ -207,7 +229,7 @@ public class PatternStream<T> {
 	 */
 	public <R> SingleOutputStreamOperator<R> flatSelect(final PatternFlatSelectFunction<T, R> patternFlatSelectFunction, TypeInformation<R> outTypeInfo) {
 		SingleOutputStreamOperator<Map<String, List<T>>> patternStream =
-				CEPOperatorUtils.createPatternStream(inputStream, pattern);
+				CEPOperatorUtils.createPatternStream(inputStream, pattern, comparator);
 
 		return patternStream.flatMap(
 			new PatternFlatSelectMapper<>(
@@ -220,7 +242,7 @@ public class PatternStream<T> {
 	 * the provided {@link PatternFlatSelectFunction} is called. The pattern flat select function
 	 * can produce an arbitrary number of resulting elements.
 	 *
-	 * Applies a timeout function to a partial pattern sequence which has timed out. For each
+	 * <p>Applies a timeout function to a partial pattern sequence which has timed out. For each
 	 * partial pattern sequence the provided {@link PatternFlatTimeoutFunction} is called. The
 	 * pattern timeout function can produce an arbitrary number of resulting elements.
 	 *
@@ -239,13 +261,15 @@ public class PatternStream<T> {
 		final PatternFlatSelectFunction<T, R> patternFlatSelectFunction) {
 
 		SingleOutputStreamOperator<Either<Tuple2<Map<String, List<T>>, Long>, Map<String, List<T>>>> patternStream =
-				CEPOperatorUtils.createTimeoutPatternStream(inputStream, pattern);
+				CEPOperatorUtils.createTimeoutPatternStream(inputStream, pattern, comparator);
 
 		TypeInformation<L> leftTypeInfo = TypeExtractor.getUnaryOperatorReturnType(
 			patternFlatTimeoutFunction,
 			PatternFlatTimeoutFunction.class,
+			0,
 			1,
-			-1,
+			new int[]{0, 1, 0},
+			new int[]{2, 0},
 			inputStream.getType(),
 			null,
 			false);
@@ -253,8 +277,10 @@ public class PatternStream<T> {
 		TypeInformation<R> rightTypeInfo = TypeExtractor.getUnaryOperatorReturnType(
 			patternFlatSelectFunction,
 			PatternFlatSelectFunction.class,
+			0,
 			1,
-			-1,
+			new int[]{0, 1, 0},
+			new int[]{1, 0},
 			inputStream.getType(),
 			null,
 			false);
@@ -396,7 +422,6 @@ public class PatternStream<T> {
 		public PatternFlatSelectMapper(PatternFlatSelectFunction<T, R> patternFlatSelectFunction) {
 			this.patternFlatSelectFunction = patternFlatSelectFunction;
 		}
-
 
 		@Override
 		public void flatMap(Map<String, List<T>> value, Collector<R> out) throws Exception {

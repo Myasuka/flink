@@ -23,6 +23,7 @@ import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.runtime.taskexecutor.TaskManagerServices;
 import org.apache.flink.util.OperatingSystem;
 import org.apache.flink.util.TestLogger;
+
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,7 +44,7 @@ import static org.junit.Assert.assertThat;
  * <tt>taskmanager.sh</tt> returns the same values as the heap size calculation of
  * {@link TaskManagerServices#calculateHeapSizeMB(long, Configuration)}.
  *
- * NOTE: the shell script uses <tt>awk</tt> to perform floating-point arithmetic which uses
+ * <p>NOTE: the shell script uses <tt>awk</tt> to perform floating-point arithmetic which uses
  * <tt>double</tt> precision but our Java code restrains to <tt>float</tt> because we actually do
  * not need high precision.
  */
@@ -55,7 +56,7 @@ public class TaskManagerHeapSizeCalculationJavaBashTest extends TestLogger {
 	/**
 	 * Number of tests with random values.
 	 *
-	 * NOTE: calling the external test script is slow and thus low numbers are preferred for general
+	 * <p>NOTE: calling the external test script is slow and thus low numbers are preferred for general
 	 * testing.
 	 */
 	private static final int NUM_RANDOM_TESTS = 20;
@@ -180,7 +181,7 @@ public class TaskManagerHeapSizeCalculationJavaBashTest extends TestLogger {
 		// note: we are testing with integers only here to avoid overly complicated checks for
 		// overflowing or negative Long values - this should be enough for any practical scenario
 		// though
-		long min = TaskManagerOptions.MEMORY_SEGMENT_SIZE.defaultValue() + ran.nextInt(Integer.MAX_VALUE);
+		long min = (long) TaskManagerOptions.MEMORY_SEGMENT_SIZE.defaultValue() + ran.nextInt(Integer.MAX_VALUE);
 		long max = ran.nextInt(Integer.MAX_VALUE) + min;
 
 		int javaMemMB = Math.max((int) (max >> 20), ran.nextInt(Integer.MAX_VALUE)) + 1;

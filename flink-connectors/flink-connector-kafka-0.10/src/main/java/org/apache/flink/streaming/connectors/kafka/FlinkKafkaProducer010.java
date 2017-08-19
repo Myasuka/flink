@@ -17,13 +17,14 @@
 
 package org.apache.flink.streaming.connectors.kafka;
 
-import java.util.Properties;
-
 import org.apache.flink.api.common.functions.IterationRuntimeContext;
 import org.apache.flink.api.common.functions.RichFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.java.typeutils.GenericTypeInfo;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -37,36 +38,37 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
 import org.apache.flink.streaming.util.serialization.KeyedSerializationSchemaWrapper;
 import org.apache.flink.streaming.util.serialization.SerializationSchema;
+
 import org.apache.kafka.clients.producer.ProducerRecord;
+
+import java.util.Properties;
 
 import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducerBase.getPartitionsByTopic;
 import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducerBase.getPropertiesFromBrokerList;
 
-
 /**
  * Flink Sink to produce data into a Kafka topic. This producer is compatible with Kafka 0.10.x
  *
- * Implementation note: This producer is a hybrid between a regular regular sink function (a)
+ * <p>Implementation note: This producer is a hybrid between a regular regular sink function (a)
  * and a custom operator (b).
  *
- * For (a), the class implements the SinkFunction and RichFunction interfaces.
+ * <p>For (a), the class implements the SinkFunction and RichFunction interfaces.
  * For (b), it extends the StreamTask class.
  *
- * Details about approach (a):
- *
+ * <p>Details about approach (a):
  *  Pre Kafka 0.10 producers only follow approach (a), allowing users to use the producer using the
  *  DataStream.addSink() method.
  *  Since the APIs exposed in that variant do not allow accessing the the timestamp attached to the record
  *  the Kafka 0.10 producer has a second invocation option, approach (b).
  *
- * Details about approach (b):
+ * <p>Details about approach (b):
  *  Kafka 0.10 supports writing the timestamp attached to a record to Kafka. When adding the
  *  FlinkKafkaProducer010 using the FlinkKafkaProducer010.writeToKafkaWithTimestamps() method, the Kafka producer
  *  can access the internal record timestamp of the record and write it to Kafka.
  *
- * All methods and constructors in this class are marked with the approach they are needed for.
+ * <p>All methods and constructors in this class are marked with the approach they are needed for.
  */
-public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunction<T>, RichFunction {
+public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunction<T>, RichFunction, CheckpointedFunction {
 
 	/**
 	 * Flag controlling whether we are writing the Flink record's timestamp into Kafka.
@@ -79,7 +81,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	 * Creates a FlinkKafkaProducer for a given topic. The sink produces a DataStream to
 	 * the topic.
 	 *
-	 * This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
+	 * <p>This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
 	 *
 	 * @param inStream The stream to write to Kafka
 	 * @param topicId ID of the Kafka topic.
@@ -93,12 +95,11 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 		return writeToKafkaWithTimestamps(inStream, topicId, serializationSchema, producerConfig, new FlinkFixedPartitioner<T>());
 	}
 
-
 	/**
 	 * Creates a FlinkKafkaProducer for a given topic. the sink produces a DataStream to
 	 * the topic.
 	 *
-	 * This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
+	 * <p>This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
 	 *
 	 * @param inStream The stream to write to Kafka
 	 * @param topicId ID of the Kafka topic.
@@ -116,7 +117,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	 * Creates a FlinkKafkaProducer for a given topic. The sink produces a DataStream to
 	 * the topic.
 	 *
-	 * This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
+	 * <p>This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
 	 *
 	 *  @param inStream The stream to write to Kafka
 	 *  @param topicId The name of the target topic
@@ -212,11 +213,11 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	public FlinkKafkaProducer010(String topicId, KeyedSerializationSchema<T> serializationSchema, Properties producerConfig) {
 		this(topicId, serializationSchema, producerConfig, new FlinkFixedPartitioner<T>());
 	}
-	
+
 	/**
-	 * Create Kafka producer
+	 * Create Kafka producer.
 	 *
-	 * This constructor does not allow writing timestamps to Kafka, it follow approach (a) (see above)
+	 * <p>This constructor does not allow writing timestamps to Kafka, it follow approach (a) (see above)
 	 */
 	public FlinkKafkaProducer010(String topicId, KeyedSerializationSchema<T> serializationSchema, Properties producerConfig, FlinkKafkaPartitioner<T> customPartitioner) {
 		// We create a Kafka 09 producer instance here and only "override" (by intercepting) the
@@ -230,7 +231,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	 * Creates a FlinkKafkaProducer for a given topic. The sink produces a DataStream to
 	 * the topic.
 	 *
-	 * This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
+	 * <p>This constructor allows writing timestamps to Kafka, it follow approach (b) (see above)
 	 *
 	 *  @param inStream The stream to write to Kafka
 	 *  @param topicId The name of the target topic
@@ -275,9 +276,9 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	}
 
 	/**
-	 * Create Kafka producer
+	 * Create Kafka producer.
 	 *
-	 * This constructor does not allow writing timestamps to Kafka, it follow approach (a) (see above)
+	 * <p>This constructor does not allow writing timestamps to Kafka, it follow approach (a) (see above)
 	 *
 	 * @deprecated This is a deprecated constructor that does not correctly handle partitioning when
 	 *             producing to multiple topics. Use
@@ -306,13 +307,13 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 		}
 
 		Long timestamp = null;
-		if(this.writeTimestampToKafka) {
+		if (this.writeTimestampToKafka) {
 			timestamp = elementTimestamp;
 		}
 
 		ProducerRecord<byte[], byte[]> record;
 		int[] partitions = internalProducer.topicPartitionsMap.get(targetTopic);
-		if(null == partitions) {
+		if (null == partitions) {
 			partitions = getPartitionsByTopic(targetTopic, internalProducer.producer);
 			internalProducer.topicPartitionsMap.put(targetTopic, partitions);
 		}
@@ -329,9 +330,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 		internalProducer.producer.send(record, internalProducer.callback);
 	}
 
-
 	// ----------------- Helper methods implementing methods from SinkFunction and RichFunction (Approach (a)) ----
-
 
 	// ---- Configuration setters
 
@@ -341,7 +340,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	 * exceptions will be eventually thrown and cause the streaming program to
 	 * fail (and enter recovery).
 	 *
-	 * Method is only accessible for approach (a) (see above)
+	 * <p>Method is only accessible for approach (a) (see above)
 	 *
 	 * @param logFailuresOnly The flag to indicate logging-only on exceptions.
 	 */
@@ -355,7 +354,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	 * to be acknowledged by the Kafka producer on a checkpoint.
 	 * This way, the producer can guarantee that messages in the Kafka buffers are part of the checkpoint.
 	 *
-	 * Method is only accessible for approach (a) (see above)
+	 * <p>Method is only accessible for approach (a) (see above)
 	 *
 	 * @param flush Flag indicating the flushing mode (true = flush on checkpoint)
 	 */
@@ -365,8 +364,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	}
 
 	/**
-	 * This method is used for approach (a) (see above)
-	 *
+	 * This method is used for approach (a) (see above).
 	 */
 	@Override
 	public void open(Configuration parameters) throws Exception {
@@ -375,7 +373,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	}
 
 	/**
-	 * This method is used for approach (a) (see above)
+	 * This method is used for approach (a) (see above).
 	 */
 	@Override
 	public IterationRuntimeContext getIterationRuntimeContext() {
@@ -384,7 +382,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	}
 
 	/**
-	 * This method is used for approach (a) (see above)
+	 * This method is used for approach (a) (see above).
 	 */
 	@Override
 	public void setRuntimeContext(RuntimeContext t) {
@@ -395,7 +393,7 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 	/**
 	 * Invoke method for using the Sink as DataStream.addSink() sink.
 	 *
-	 * This method is used for approach (a) (see above)
+	 * <p>This method is used for approach (a) (see above)
 	 *
 	 * @param value The input record.
 	 */
@@ -404,18 +402,28 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 		invokeInternal(value, Long.MAX_VALUE);
 	}
 
-
 	// ----------------- Helper methods and classes implementing methods from StreamSink (Approach (b)) ----
-
 
 	/**
 	 * Process method for using the sink with timestamp support.
 	 *
-	 * This method is used for approach (b) (see above)
+	 * <p>This method is used for approach (b) (see above)
 	 */
 	@Override
 	public void processElement(StreamRecord<T> element) throws Exception {
 		invokeInternal(element.getValue(), element.getTimestamp());
+	}
+
+	@Override
+	public void initializeState(FunctionInitializationContext context) throws Exception {
+		final FlinkKafkaProducerBase<T> internalProducer = (FlinkKafkaProducerBase<T>) userFunction;
+		internalProducer.initializeState(context);
+	}
+
+	@Override
+	public void snapshotState(FunctionSnapshotContext context) throws Exception {
+		final FlinkKafkaProducerBase<T> internalProducer = (FlinkKafkaProducerBase<T>) userFunction;
+		internalProducer.snapshotState(context);
 	}
 
 	/**
@@ -466,6 +474,5 @@ public class FlinkKafkaProducer010<T> extends StreamSink<T> implements SinkFunct
 			this.producer.writeTimestampToKafka = writeTimestampToKafka;
 		}
 	}
-
 
 }

@@ -106,7 +106,7 @@ under the License.
 		</dependency>
 
 		<!-- test dependencies -->
-		
+
 		<!-- force using the latest zkclient -->
 		<dependency>
 			<groupId>com.101tec</groupId>
@@ -187,7 +187,6 @@ under the License.
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
-	
 
 	<build>
 		<plugins>
@@ -217,6 +216,7 @@ under the License.
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>build-helper-maven-plugin</artifactId>
+				<version>1.7</version>
 				<executions>
 					<execution>
 						<phase>generate-test-sources</phase>
@@ -233,5 +233,5 @@ under the License.
 			</plugin>
 		</plugins>
 	</build>
-	
+
 </project>

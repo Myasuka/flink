@@ -68,7 +68,7 @@ public class NestedMapsStateTable<K, N, S> extends StateTable<K, N, S> {
 		this.keyGroupOffset = keyContext.getKeyGroupRange().getStartKeyGroup();
 
 		@SuppressWarnings("unchecked")
-		Map<N, Map<K, S>>[] state = (Map<N, Map<K, S>>[]) new Map[keyContext.getNumberOfKeyGroups()];
+		Map<N, Map<K, S>>[] state = (Map<N, Map<K, S>>[]) new Map[keyContext.getKeyGroupRange().getNumberOfKeyGroups()];
 		this.state = state;
 	}
 
@@ -101,8 +101,8 @@ public class NestedMapsStateTable<K, N, S> extends StateTable<K, N, S> {
 		try {
 			state[indexToOffset(keyGroupId)] = map;
 		} catch (ArrayIndexOutOfBoundsException e) {
-			throw new IllegalArgumentException("Key group index out of range of key group range [" +
-					keyGroupOffset + ", " + (keyGroupOffset + state.length) + ").");
+			throw new IllegalArgumentException("Key group index " + keyGroupId + " is out of range of key group " +
+				"range [" + keyGroupOffset + ", " + (keyGroupOffset + state.length) + ").");
 		}
 	}
 
