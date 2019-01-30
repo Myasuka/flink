@@ -48,6 +48,10 @@ before_script:
    - "export -f travis_nanoseconds"
    - "export -f travis_time_start"
    - "export -f travis_time_finish"
+# Install protobuf 2.6.1
+   - wget https://github.com/protocolbuffers/protobuf/releases/download/v2.6.1/protobuf-2.6.1.tar.gz
+   - tar -xzvf protobuf-2.6.1.tar.gz
+   - pushd protobuf-2.6.1 && ./configure --prefix=/usr && make && sudo make install && popd
 
 # Install maven 3.2.5 since trusty uses 3.3.9 for which shading is broken
 before_install:
@@ -64,10 +68,6 @@ before_install:
    - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
    - chmod +x docker-compose
    - sudo mv docker-compose /usr/local/bin
-# Install protobuf 2.6.1
-   - wget https://github.com/protocolbuffers/protobuf/releases/download/v2.6.1/protobuf-2.6.1.tar.gz
-   - tar -xzvf protobuf-2.6.1.tar.gz
-   - pushd protobuf-2.6.1 && ./configure --prefix=/usr && make && sudo make install && popd
 
 # When modifying the matrix you also have to modify travis_controller.sh#getCurrentStage
 jdk: "oraclejdk8"
