@@ -1365,7 +1365,7 @@ under the License.
 						<!-- manually installed version on travis -->
 						<exclude>apache-maven-3.2.5/**</exclude>
 						<!-- manually installed protobuf on travis -->
-						<exclude>protobuf-2.6.1/**</exclude>
+						<exclude>protobuf-2.5.0/**</exclude>
 						<!-- PyCharm -->
 						<exclude>**/.idea/**</exclude>
 						<!-- Generated code via Avro -->
