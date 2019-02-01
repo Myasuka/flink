@@ -45,7 +45,7 @@ public class TestDataGenerator {
 		.setTypeLongTest(1337L)
 		.addAllTypeArrayString(new ArrayList<>())
 		.addAllTypeArrayBoolean(new ArrayList<>())
-		.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setBoolValue(true).build())
+		.setBoolValue(true)
 		.setTypeEnum(UserProtobuf.Colors.RED)
 		.addAllTypeMap(Arrays.asList(
 			UserProtobuf.MapFieldEntry.newBuilder().setKey("1").setValue(1L).build(),
@@ -66,7 +66,7 @@ public class TestDataGenerator {
 		.setTypeLongTest(42L)
 		.setTypeDoubleTest(0.0)
 		.setTypeBoolTest(true)
-		.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setLongValue(1L).build())
+		.setLongValue(1L)
 		.addAllTypeArrayString(Collections.singletonList("hello"))
 		.addAllTypeArrayBoolean(Collections.singletonList(true))
 		.setTypeEnum(UserProtobuf.Colors.GREEN)
@@ -79,7 +79,7 @@ public class TestDataGenerator {
 		.setTypeLongTest(1L)
 		.setTypeDoubleTest(0.0)
 		.setTypeBoolTest(false)
-		.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setDoubleValue(1.0).build())
+		.setDoubleVaue(1.0)
 		.addAllTypeArrayString(Collections.singletonList("world"))
 		.addAllTypeArrayBoolean(Collections.singletonList(false))
 		.setTypeEnum(UserProtobuf.Colors.GREEN)
@@ -116,13 +116,13 @@ public class TestDataGenerator {
 
 		switch (rnd.nextInt(3)) {
 			case 0:
-				builder.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setBoolValue(rnd.nextBoolean()).build());
+				builder.setBoolValue(rnd.nextBoolean());
 				break;
 			case 1:
-				builder.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setLongValue(rnd.nextLong()).build());
+				builder.setLongValue(rnd.nextLong());
 				break;
 			case 2:
-				builder.setTypeUnion(UserProtobuf.OneOfValue.newBuilder().setDoubleValue(rnd.nextDouble()).build());
+				builder.setDoubleVaue(rnd.nextDouble());
 		}
 
 		return builder.build();
