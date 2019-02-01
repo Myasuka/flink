@@ -64,10 +64,10 @@ before_install:
    - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
    - chmod +x docker-compose
    - sudo mv docker-compose /usr/local/bin
-# Install protobuf 2.6.1
-   - wget https://github.com/protocolbuffers/protobuf/releases/download/v2.6.1/protobuf-2.6.1.tar.gz
-   - tar -xzvf protobuf-2.6.1.tar.gz
-   - pushd protobuf-2.6.1 && ./configure --prefix=/usr/local && make && sudo make install && popd
+# Download pre-built protobuf 2.5.0
+   - wget https://repo1.maven.org/maven2/com/google/protobuf/protoc/2.5.0/protoc-2.5.0-linux-x86_64.exe -O protoc
+   - chmod a+x protoc
+   - sudo mv protoc /usr/local/bin/protoc
    - export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 
 # When modifying the matrix you also have to modify travis_controller.sh#getCurrentStage
