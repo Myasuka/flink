@@ -325,12 +325,6 @@ under the License.
 				<version>${avro.version}</version>
 			</dependency>
 
-			<dependency>
-				<groupId>com.google.protobuf</groupId>
-				<artifactId>protobuf-java</artifactId>
-				<version>${protobuf.version}</version>
-			</dependency>
-
 			<!-- For dependency convergence -->
 			<dependency>
 				<groupId>org.hamcrest</groupId>

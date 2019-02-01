@@ -77,6 +77,6 @@ public class ProtobufSerializerTest extends SerializerTestBase<UserProtobuf.User
 
 		ProtobufSerializer protobufSerializer = new ProtobufSerializer(UserProtobuf.User.class, new ExecutionConfig());
 
-		assertThat(serializerConfigSnapshot.resolveSchemaCompatibility(protobufSerializer), isCompatibleAsIs());
+		assertThat(serializerConfigSnapshot.resolveSchemaCompatibility(protobufSerializer), isCompatibleAfterMigration());
 	}
 }
