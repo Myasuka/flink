@@ -543,7 +543,9 @@ public abstract class FileSystem {
 	 * @return iterator of all file status under given path.
 	 * @throws IOException
 	 */
-	public abstract Iterator<FileStatus> listStatusIterator(Path f) throws IOException;
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		throw new UnsupportedOperationException("This file system does not support to list status in iterators.");
+	}
 
 	/**
 	 * Check if exists.
