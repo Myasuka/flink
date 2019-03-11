@@ -535,6 +535,17 @@ public abstract class FileSystem {
 	public abstract FileStatus[] listStatus(Path f) throws IOException;
 
 	/**
+	 * Returns a iterator of all file status under given path.
+	 * Does not guarantee to return the iterator that traverses statuses
+	 * of the files in a sorted order.
+	 *
+	 * @param f given path
+	 * @return iterator of all file status under given path.
+	 * @throws IOException
+	 */
+	public abstract Iterator<FileStatus> listStatusIterator(Path f) throws IOException;
+
+	/**
 	 * Check if exists.
 	 *
 	 * @param f

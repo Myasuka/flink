@@ -24,6 +24,7 @@ import org.apache.flink.util.WrappingProxy;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Iterator;
 
 /**
  * This is a {@link WrappingProxy} around {@link FileSystem} which (i) wraps all opened streams as
@@ -95,6 +96,11 @@ public class SafetyNetWrapperFileSystem extends FileSystem implements WrappingPr
 	@Override
 	public FileStatus[] listStatus(Path f) throws IOException {
 		return unsafeFileSystem.listStatus(f);
+	}
+
+	@Override
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		return unsafeFileSystem.listStatusIterator(f);
 	}
 
 	@Override

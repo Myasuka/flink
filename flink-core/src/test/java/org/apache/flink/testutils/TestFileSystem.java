@@ -20,6 +20,8 @@ package org.apache.flink.testutils;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Arrays;
+import java.util.Iterator;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FSDataInputStream;
@@ -74,6 +76,11 @@ public class TestFileSystem extends LocalFileSystem {
 			newStati[i] = new LocalFileStatus(((LocalFileStatus) stati[i]).getFile(), this);
 		}
 		return newStati;
+	}
+
+	@Override
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		return Arrays.asList(listStatus(f)).iterator();
 	}
 
 	@Override

@@ -35,6 +35,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
@@ -355,6 +356,11 @@ public class LimitedConnectionsFileSystem extends FileSystem {
 	@Override
 	public FileStatus[] listStatus(Path f) throws IOException {
 		return originalFs.listStatus(f);
+	}
+
+	@Override
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		return originalFs.listStatusIterator(f);
 	}
 
 	@Override

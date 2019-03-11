@@ -41,6 +41,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -99,9 +101,11 @@ public class LocalFileSystemTest extends TestLogger {
 
 		// get status for files in this (empty) directory..
 		final FileStatus[] statusforfiles = lfs.listStatus(pathtotmpdir);
+		final Iterator<FileStatus> statusIterator = lfs.listStatusIterator(pathtotmpdir);
 
 		// no files in there.. hence, must be zero
 		assertTrue(statusforfiles.length == 0);
+		assertFalse(statusIterator.hasNext());
 
 		// check that lfs can delete directory..
 		lfs.delete(pathtotmpdir, true);
@@ -147,6 +151,7 @@ public class LocalFileSystemTest extends TestLogger {
 
 		// as well, when we call the listStatus (that is intended for directories?)
 		assertEquals(lfs.listStatus(pathtotestfile1)[0].getLen(), testfile1.length());
+		assertEquals(lfs.listStatusIterator(pathtotestfile1).next().getLen(), testfile1.length());
 
 		// test that lfs can read files properly
 		final FileOutputStream fosfile2 = new FileOutputStream(testfile2);
@@ -161,6 +166,7 @@ public class LocalFileSystemTest extends TestLogger {
 
 		// does lfs see two files?
 		assertEquals(lfs.listStatus(pathtotmpdir).length, 2);
+		assertFileStatusEquals(lfs.listStatus(pathtotmpdir), lfs.listStatusIterator(pathtotmpdir));
 
 		// do we get exactly one blocklocation per file? no matter what start and len we provide
 		assertEquals(lfs.getFileBlockLocations(lfs.getFileStatus(pathtotestfile1), 0, 0).length, 1);
@@ -368,6 +374,22 @@ public class LocalFileSystemTest extends TestLogger {
 			final long timeout = 10000L;
 			ExecutorUtils.gracefulShutdown(timeout, TimeUnit.MILLISECONDS, executor);
 		}
+	}
+
+	// --------------------------------------------------------------------------
+
+	private void assertFileStatusEquals(FileStatus[] expectedFileStatus, Iterator<FileStatus> statusIterator) {
+		List<String> fileStatuses = new ArrayList<>();
+		for (FileStatus fileStatus : expectedFileStatus) {
+			fileStatuses.add(fileStatus.getPath().toString());
+		}
+		int count = 0;
+		while (statusIterator.hasNext()) {
+			FileStatus fileStatus = statusIterator.next();
+			assertTrue(fileStatuses.contains(fileStatus.getPath().toString()));
+			count++;
+		}
+		assertEquals(expectedFileStatus.length, count);
 	}
 
 	private Collection<File> createTargetDirectories(File root, int directoryDepth, int numberDirectories) {

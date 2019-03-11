@@ -50,6 +50,8 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
+import java.util.Iterator;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -176,6 +178,11 @@ public class LocalFileSystem extends FileSystem {
 		}
 
 		return results;
+	}
+
+	@Override
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		return Arrays.asList(listStatus(f)).iterator();
 	}
 
 	@Override

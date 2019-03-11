@@ -25,9 +25,14 @@ import org.apache.flink.core.fs.FileSystemKind;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
 
+import org.apache.hadoop.fs.RemoteIterator;
+
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.Iterator;
 import java.util.Locale;
+import java.util.NoSuchElementException;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -163,6 +168,37 @@ public class HadoopFileSystem extends FileSystem {
 		}
 
 		return files;
+	}
+
+	@Override
+	public Iterator<FileStatus> listStatusIterator(Path f) throws IOException {
+		// TODO use reflection to verify whether listLocatedStatus method existed
+		RemoteIterator<org.apache.hadoop.fs.LocatedFileStatus> statusIterator = this.fs.listLocatedStatus(new org.apache.hadoop.fs.Path(f.toString()));
+		return new Iterator<FileStatus>() {
+
+			@Override
+			public boolean hasNext() {
+				try {
+					return statusIterator.hasNext();
+				} catch (IOException e) {
+					throw new UncheckedIOException(e);
+				}
+			}
+
+			@Override
+			public FileStatus next() {
+				if (!hasNext()) {
+					throw new NoSuchElementException("No more files in path " + f);
+				}
+				org.apache.hadoop.fs.LocatedFileStatus fileStatus;
+				try {
+					fileStatus = statusIterator.next();
+				} catch (IOException e) {
+					throw new UncheckedIOException(e);
+				}
+				return new HadoopFileStatus(fileStatus);
+			}
+		};
 	}
 
 	@Override
