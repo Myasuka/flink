@@ -110,6 +110,7 @@ public class CheckpointCoordinator {
 	private final ExecutionVertex[] tasksToWaitFor;
 
 	/** Tasks who need to be sent a message when a checkpoint is confirmed. */
+	// TODO currently we use commit vertices to receive "abort checkpoint" messages.
 	private final ExecutionVertex[] tasksToCommitTo;
 
 	/** The operator coordinators that need to be checkpointed. */
@@ -1072,6 +1073,7 @@ public class CheckpointCoordinator {
 					}
 				});
 
+				sendAbortedMessages(checkpointId, pendingCheckpoint.getCheckpointTimestamp());
 				throw new CheckpointException("Could not complete the pending checkpoint " + checkpointId + '.',
 					CheckpointFailureReason.FINALIZE_CHECKPOINT_FAILURE, exception);
 			}
@@ -1122,6 +1124,16 @@ public class CheckpointCoordinator {
 		// commit coordinators
 		for (OperatorCoordinatorCheckpointContext coordinatorContext : coordinatorsToCheckpoint) {
 			coordinatorContext.coordinator().checkpointComplete(checkpointId);
+		}
+	}
+
+	private void sendAbortedMessages(long checkpointId, long timeStamp) {
+		// send the "abort checkpoint" messages to necessary vertices.
+		for (ExecutionVertex ev : tasksToCommitTo) {
+			Execution ee = ev.getCurrentExecutionAttempt();
+			if (ee != null) {
+				ee.notifyCheckpointAborted(checkpointId, timeStamp);
+			}
 		}
 	}
 
@@ -1617,6 +1629,7 @@ public class CheckpointCoordinator {
 						exception, pendingCheckpoint.getCheckpointId());
 				}
 			} finally {
+				sendAbortedMessages(pendingCheckpoint.getCheckpointId(), pendingCheckpoint.getCheckpointTimestamp());
 				pendingCheckpoints.remove(pendingCheckpoint.getCheckpointId());
 				rememberRecentCheckpointId(pendingCheckpoint.getCheckpointId());
 

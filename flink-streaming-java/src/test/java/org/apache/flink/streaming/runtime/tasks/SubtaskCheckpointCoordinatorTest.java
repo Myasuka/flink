@@ -18,6 +18,9 @@
 
 package org.apache.flink.streaming.runtime.tasks;
 
+import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
+import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.io.network.api.writer.NonRecordWriter;
 import org.apache.flink.runtime.operators.testutils.DummyEnvironment;
 import org.apache.flink.runtime.operators.testutils.MockEnvironment;
@@ -41,9 +44,7 @@ public class SubtaskCheckpointCoordinatorTest {
 			.setEnvironment(mockEnvironment)
 			.build();
 
-		final OperatorChain<?, ?> operatorChain = new OperatorChain<>(
-			new MockStreamTaskBuilder(new DummyEnvironment()).build(),
-			new NonRecordWriter<>());
+		final OperatorChain<?, ?> operatorChain = getOperatorChain();
 
 		long checkpointId = 42L;
 		{
@@ -58,4 +59,84 @@ public class SubtaskCheckpointCoordinatorTest {
 			assertEquals(newCheckpointId, stateManager.getNotifiedCompletedCheckpointId());
 		}
 	}
+
+	@Test
+	public void testNotifyCheckpointAbortedToStateManager() throws Exception {
+		TestTaskStateManager stateManager = new TestTaskStateManager();
+		MockEnvironment mockEnvironment = MockEnvironment.builder().setTaskStateManager(stateManager).build();
+		SubtaskCheckpointCoordinator subtaskCheckpointCoordinator = new MockSubtaskCheckpointCoordinatorBuilder()
+			.setEnvironment(mockEnvironment)
+			.build();
+
+		final OperatorChain<?, ?> operatorChain = getOperatorChain();
+
+		long checkpointId = 42L;
+		subtaskCheckpointCoordinator.notifyCheckpointAborted(checkpointId, operatorChain, () -> true);
+		assertEquals(checkpointId, stateManager.getNotifiedAbortedCheckpointId());
+	}
+
+	@Test
+	public void testNotifyCheckpointAbortedManyTimes() throws Exception {
+		MockEnvironment mockEnvironment = MockEnvironment.builder().build();
+		SubtaskCheckpointCoordinatorImpl subtaskCheckpointCoordinator = (SubtaskCheckpointCoordinatorImpl) new MockSubtaskCheckpointCoordinatorBuilder()
+			.setEnvironment(mockEnvironment)
+			.build();
+
+		final OperatorChain<?, ?> operatorChain = getOperatorChain();
+
+		long notifyAbortedTimes = SubtaskCheckpointCoordinatorImpl.DEFAULT_MAX_RECORDED_ABOTRED_CHECKPOINTS + 42;
+		for (int i = 1; i < notifyAbortedTimes; i++) {
+			subtaskCheckpointCoordinator.notifyCheckpointAborted(i, operatorChain, () -> true);
+			assertEquals(Math.min(SubtaskCheckpointCoordinatorImpl.DEFAULT_MAX_RECORDED_ABOTRED_CHECKPOINTS, i), subtaskCheckpointCoordinator.getAbortedCheckpointSize());
+		}
+	}
+
+	@Test
+	public void testNotifyCheckpointAbortedBeforeTrigger() throws Exception {
+		MockEnvironment mockEnvironment = MockEnvironment.builder().build();
+		SubtaskCheckpointCoordinatorImpl subtaskCheckpointCoordinator = (SubtaskCheckpointCoordinatorImpl) new MockSubtaskCheckpointCoordinatorBuilder()
+			.setEnvironment(mockEnvironment)
+			.build();
+
+		final OperatorChain<?, ?> operatorChain = getOperatorChain();
+		long checkpointId = 42L;
+		// notify checkpoint aborted before execution.
+		subtaskCheckpointCoordinator.notifyCheckpointAborted(checkpointId, operatorChain, () -> true);
+		assertEquals(1, subtaskCheckpointCoordinator.getAbortedCheckpointSize());
+		subtaskCheckpointCoordinator.checkpointState(
+			new CheckpointMetaData(checkpointId, System.currentTimeMillis()),
+			CheckpointOptions.forCheckpointWithDefaultLocation(),
+			new CheckpointMetrics(),
+			operatorChain,
+			() -> true);
+		assertEquals(0, subtaskCheckpointCoordinator.getAbortedCheckpointSize());
+		assertEquals(0, subtaskCheckpointCoordinator.getCloseableRegistry().getAsyncCheckpointOperations().size());
+	}
+
+	@Test
+	public void testNotifyCheckpointAbortedDuringAsyncPhase() throws Exception {
+		MockEnvironment mockEnvironment = MockEnvironment.builder().build();
+		SubtaskCheckpointCoordinatorImpl subtaskCheckpointCoordinator = (SubtaskCheckpointCoordinatorImpl) new MockSubtaskCheckpointCoordinatorBuilder()
+			.setEnvironment(mockEnvironment)
+			.build();
+
+		final OperatorChain<?, ?> operatorChain = getOperatorChain();
+		long checkpointId = 42L;
+		subtaskCheckpointCoordinator.checkpointState(
+			new CheckpointMetaData(checkpointId, System.currentTimeMillis()),
+			CheckpointOptions.forCheckpointWithDefaultLocation(),
+			new CheckpointMetrics(),
+			operatorChain,
+			() -> true);
+//		assertEquals(1, subtaskCheckpointCoordinator.getCloseableRegistry().getAsyncCheckpointOperations().size());
+		subtaskCheckpointCoordinator.notifyCheckpointAborted(checkpointId, operatorChain, () -> true);
+//		assertEquals(0, subtaskCheckpointCoordinator.getCloseableRegistry().getAsyncCheckpointOperations().size());
+	}
+
+	private OperatorChain<?, ?> getOperatorChain() throws Exception {
+		return new OperatorChain<>(
+			new MockStreamTaskBuilder(new DummyEnvironment()).build(),
+			new NonRecordWriter<>());
+	}
+
 }

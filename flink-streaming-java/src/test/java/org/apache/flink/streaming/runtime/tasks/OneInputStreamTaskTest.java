@@ -250,6 +250,8 @@ public class OneInputStreamTaskTest extends TestLogger {
 
 		List<String> resultElements = TestHarnessUtil.getRawElementsFromOutput(testHarness.getOutput());
 		assertEquals(2, resultElements.size());
+		TestingStreamOperator.numberRestoreCalls = 0;
+		TestingStreamOperator.numberSnapshotCalls = 0;
 	}
 
 	/**
@@ -410,6 +412,8 @@ public class OneInputStreamTaskTest extends TestLogger {
 		testHarness.waitForTaskCompletion();
 
 		TestHarnessUtil.assertOutputEquals("Output was not correct.", expectedOutput, testHarness.getOutput());
+		TestingStreamOperator.numberRestoreCalls = 0;
+		TestingStreamOperator.numberSnapshotCalls = 0;
 	}
 
 	/**

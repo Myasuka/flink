@@ -20,7 +20,6 @@ package org.apache.flink.streaming.runtime.tasks;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.TaskManagerOptions;
-import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
@@ -182,7 +181,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	protected final TimerService timerService;
 
 	/** The currently active background materialization threads. */
-	private final CloseableRegistry cancelables = new CloseableRegistry();
+	private final AsyncCheckpointRunnableRegistry cancelables = new AsyncCheckpointRunnableRegistry();
 
 	private final StreamTaskAsyncExceptionHandler asyncExceptionHandler;
 
@@ -876,6 +875,21 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		}
 	}
 
+	@Override
+	public Future<Void> notifyCheckpointAbortAsync(long checkpointId) {
+		return mailboxProcessor.getMailboxExecutor(TaskMailbox.MAX_PRIORITY).submit(
+			() -> notifyCheckpointAborted(checkpointId),
+			"checkpoint %d aborted", checkpointId);
+	}
+
+	private void notifyCheckpointAborted(long checkpointId) {
+		try {
+			subtaskCheckpointCoordinator.notifyCheckpointAborted(checkpointId, operatorChain, this::isRunning);
+		} catch (Exception e) {
+			handleException(new RuntimeException("Error while aborting checkpoint", e));
+		}
+	}
+
 	private void tryShutdownTimerService() {
 
 		if (!timerService.isTerminated()) {
@@ -1008,7 +1022,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		}
 	}
 
-	public final CloseableRegistry getCancelables() {
+	public final AsyncCheckpointRunnableRegistry getCancelables() {
 		return cancelables;
 	}
 
