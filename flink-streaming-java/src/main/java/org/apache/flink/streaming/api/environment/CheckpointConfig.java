@@ -69,8 +69,10 @@ public class CheckpointConfig implements java.io.Serializable {
 	/** Cleanup behaviour for persistent checkpoints. */
 	private ExternalizedCheckpointCleanup externalizedCheckpointCleanup;
 
-	/** Determines if a tasks are failed or not if there is an error in their checkpointing. Default: true */
-	private boolean failOnCheckpointingErrors = true;
+	/**
+	 * Task would not fail if there is an error in their checkpointing.
+	 */
+	private boolean failOnCheckpointingErrors = false;
 
 	/** Determines if a job will fallback to checkpoint when there is a more recent savepoint. **/
 	private boolean preferCheckpointForRecovery = false;
@@ -241,17 +243,30 @@ public class CheckpointConfig implements java.io.Serializable {
 	/**
 	 * This determines the behaviour of tasks if there is an error in their local checkpointing. If this returns true,
 	 * tasks will fail as a reaction. If this returns false, task will only decline the failed checkpoint.
+	 *
+	 * @deprecated This method is still kept to not break the backward compatibility.
+	 * However, fail on checkpointing errors would not support in order to fix FLINK-11662.
 	 */
+	@Deprecated
 	public boolean isFailOnCheckpointingErrors() {
 		return failOnCheckpointingErrors;
 	}
 
 	/**
-	 * Sets the expected behaviour for tasks in case that they encounter an error in their checkpointing procedure.
-	 * If this is set to true, the task will fail on checkpointing error. If this is set to false, the task will only
-	 * decline a the checkpoint and continue running. The default is true.
+	 * In order to fix FLINK-11662, this method would not support to set as true.
+	 * Task will only decline that checkpoint and continue running in case that they encounter an error when checkpointing.
+	 * And job manager would then decide whether to fail the whole job.
+	 *
+	 * @deprecated This method is still kept to not break the backward compatibility.
+	 * However, fail on checkpointing errors would not support in order to fix FLINK-11662.
 	 */
+	@Deprecated
 	public void setFailOnCheckpointingErrors(boolean failOnCheckpointingErrors) {
+		if (failOnCheckpointingErrors) {
+			throw new IllegalArgumentException("We would not support to configure 'failTaskOnCheckpointException' as true." +
+				" Task should not fail on checkpointing error, it would only send decline message to job manager" +
+				" and then let it to decide whether to fail the job.");
+		}
 		this.failOnCheckpointingErrors = failOnCheckpointingErrors;
 	}
 

@@ -323,9 +323,8 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 			CheckpointExceptionHandlerFactory cpExceptionHandlerFactory = createCheckpointExceptionHandlerFactory();
 
-			synchronousCheckpointExceptionHandler = cpExceptionHandlerFactory.createCheckpointExceptionHandler(
-				getExecutionConfig().isFailTaskOnCheckpointError(),
-				getEnvironment());
+			synchronousCheckpointExceptionHandler = cpExceptionHandlerFactory
+				.createCheckpointExceptionHandler(getEnvironment());
 
 			asynchronousCheckpointExceptionHandler = new AsyncCheckpointExceptionHandler(this);
 
