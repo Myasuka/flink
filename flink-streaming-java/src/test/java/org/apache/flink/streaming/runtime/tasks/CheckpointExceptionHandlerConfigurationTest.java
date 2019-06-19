@@ -38,7 +38,7 @@ public class CheckpointExceptionHandlerConfigurationTest extends TestLogger {
 		StreamExecutionEnvironment streamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment();
 		CheckpointConfig checkpointConfig = streamExecutionEnvironment.getCheckpointConfig();
 		Assert.assertTrue(checkpointConfig.isFailOnCheckpointingErrors());
-		Assert.assertEquals(-1, checkpointConfig.getTolerableCheckpointFailureNumber());
+		Assert.assertEquals(CheckpointFailureManager.UNDEFINED_TOLERABLE_CHECKPOINT_NUMBER, checkpointConfig.getTolerableCheckpointFailureNumber());
 	}
 
 	@Test

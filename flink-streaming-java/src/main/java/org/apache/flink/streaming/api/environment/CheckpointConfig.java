@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static java.util.Objects.requireNonNull;
+import static org.apache.flink.runtime.checkpoint.CheckpointFailureManager.UNDEFINED_TOLERABLE_CHECKPOINT_NUMBER;
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureManager.UNLIMITED_TOLERABLE_FAILURE_NUMBER;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -90,7 +91,7 @@ public class CheckpointConfig implements java.io.Serializable {
 	 * -1 means undetermined by calling {@link #setTolerableCheckpointFailureNumber(int)} but still acts as fail the
 	 * whole job once a checkpoint fail.
 	 * */
-	private int tolerableCheckpointFailureNumber = -1;
+	private int tolerableCheckpointFailureNumber = UNDEFINED_TOLERABLE_CHECKPOINT_NUMBER;
 
 	// ------------------------------------------------------------------------
 
@@ -279,7 +280,7 @@ public class CheckpointConfig implements java.io.Serializable {
 	 */
 	@Deprecated
 	public void setFailOnCheckpointingErrors(boolean failOnCheckpointingErrors) {
-		if (tolerableCheckpointFailureNumber != -1) {
+		if (tolerableCheckpointFailureNumber != UNDEFINED_TOLERABLE_CHECKPOINT_NUMBER) {
 			LOG.warn("Since tolerableCheckpointFailureNumber has been configured as {}, deprecated #setFailOnCheckpointingErrors(boolean) " +
 				"method would not take any effect and please use #setTolerableCheckpointFailureNumber(int) method to " +
 				"determine your expected behaviour when checkpoint errors on task side.", tolerableCheckpointFailureNumber);
@@ -307,7 +308,7 @@ public class CheckpointConfig implements java.io.Serializable {
 	 */
 	public void setTolerableCheckpointFailureNumber(int tolerableCheckpointFailureNumber) {
 		if (tolerableCheckpointFailureNumber < 0) {
-			throw new IllegalArgumentException("The tolerable failure checkpoint number must be at non-negative.");
+			throw new IllegalArgumentException("The tolerable failure checkpoint number must be non-negative.");
 		}
 		this.tolerableCheckpointFailureNumber = tolerableCheckpointFailureNumber;
 	}
