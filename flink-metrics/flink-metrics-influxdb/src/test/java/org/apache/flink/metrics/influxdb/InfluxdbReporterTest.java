@@ -56,6 +56,7 @@ import static org.junit.Assert.assertTrue;
 public class InfluxdbReporterTest extends TestLogger {
 	private static final String TEST_INFLUXDB_DB = "test-42";
 	private static final String METRIC_HOSTNAME = "task-mgr-1";
+	private static final String METRIC_FQDN_HOSTNAME = "task-mgr-1.domain";
 	private static final String METRIC_TM_ID = "tm-id-123";
 
 	@Rule
@@ -133,7 +134,7 @@ public class InfluxdbReporterTest extends TestLogger {
 	}
 
 	private static Counter registerTestMetric(String metricName, MetricRegistry metricRegistry) {
-		TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(metricRegistry, METRIC_HOSTNAME, METRIC_TM_ID);
+		TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(metricRegistry, METRIC_HOSTNAME, METRIC_FQDN_HOSTNAME, METRIC_TM_ID);
 		return metricGroup.counter(metricName);
 	}
 }

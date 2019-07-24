@@ -63,6 +63,7 @@ import static org.junit.Assert.assertThat;
 public class PrometheusReporterTest extends TestLogger {
 
 	private static final String HOST_NAME = "hostname";
+	private static final String FQDN_HOST_NAME = "hostname.domain";
 	private static final String TASK_MANAGER = "tm";
 
 	private static final String HELP_PREFIX = "# HELP ";
@@ -85,7 +86,7 @@ public class PrometheusReporterTest extends TestLogger {
 		registry = new MetricRegistryImpl(
 			MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 			Collections.singletonList(createReporterSetup("test1", portRangeProvider.next())));
-		metricGroup = new FrontMetricGroup<>(0, new TaskManagerMetricGroup(registry, HOST_NAME, TASK_MANAGER));
+		metricGroup = new FrontMetricGroup<>(0, new TaskManagerMetricGroup(registry, HOST_NAME, FQDN_HOST_NAME, TASK_MANAGER));
 		reporter = (PrometheusReporter) registry.getReporters().get(0);
 	}
 
@@ -167,7 +168,7 @@ public class PrometheusReporterTest extends TestLogger {
 
 	@Test
 	public void metricIsRemovedWhenCollectorIsNotUnregisteredYet() throws UnirestException {
-		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, TASK_MANAGER);
+		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, FQDN_HOST_NAME, TASK_MANAGER);
 
 		String metricName = "metric";
 

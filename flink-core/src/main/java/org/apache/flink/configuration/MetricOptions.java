@@ -77,7 +77,7 @@ public class MetricOptions {
 	/** The scope format string that is applied to all metrics scoped to a JobManager. */
 	public static final ConfigOption<String> SCOPE_NAMING_JM =
 		key("metrics.scope.jm")
-			.defaultValue("<host>.jobmanager")
+			.defaultValue("<fqdn_host>.jobmanager")
 			.withDescription("Defines the scope format string that is applied to all metrics scoped to a JobManager.");
 
 	/** The scope format string that is applied to all metrics scoped to a TaskManager. */
@@ -89,13 +89,13 @@ public class MetricOptions {
 	/** The scope format string that is applied to all metrics scoped to a job on a JobManager. */
 	public static final ConfigOption<String> SCOPE_NAMING_JM_JOB =
 		key("metrics.scope.jm.job")
-			.defaultValue("<host>.jobmanager.<job_name>")
+			.defaultValue("<fqdn_host>.jobmanager.<job_name>")
 			.withDescription("Defines the scope format string that is applied to all metrics scoped to a job on a JobManager.");
 
 	/** The scope format string that is applied to all metrics scoped to a job on a TaskManager. */
 	public static final ConfigOption<String> SCOPE_NAMING_TM_JOB =
 		key("metrics.scope.tm.job")
-			.defaultValue("<host>.taskmanager.<tm_id>.<job_name>")
+			.defaultValue("<fqdn_host>.taskmanager.<tm_id>.<job_name>")
 			.withDescription("Defines the scope format string that is applied to all metrics scoped to a job on a TaskManager.");
 
 	/** The scope format string that is applied to all metrics scoped to a task. */
@@ -184,14 +184,6 @@ public class MetricOptions {
 			.withDescription("Update interval for the metric fetcher used by the web UI in milliseconds. Decrease this value for " +
 				"faster updating metrics. Increase this value if the metric fetcher causes too much load. Setting this value to 0 " +
 				"disables the metric fetching completely.");
-
-	/**
-	 * Whether the host name in task manager metrics should be fully qualified domain name.
-	 */
-	public static final ConfigOption<Boolean> METRIC_FULL_HOST_NAME =
-		key("metrics.tm.full-hostname")
-			.defaultValue(false)
-			.withDescription("Flag indicating whether Flink should use fully qualified host name in task manager metrics.");
 
 	private MetricOptions() {
 	}

@@ -55,15 +55,15 @@ public class TaskManagerJobGroupTest extends TestLogger {
 
 	@Test
 	public void testGenerateScopeDefault() {
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName", "test-tm-id");
 		JobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, new JobID(), "myJobName");
 
 		assertArrayEquals(
-				new String[] { "theHostName", "taskmanager", "test-tm-id", "myJobName"},
+				new String[] { "theHostName.theDomainName", "taskmanager", "test-tm-id", "myJobName"},
 				jmGroup.getScopeComponents());
 
 		assertEquals(
-				"theHostName.taskmanager.test-tm-id.myJobName.name",
+				"theHostName.theDomainName.taskmanager.test-tm-id.myJobName.name",
 				jmGroup.getMetricIdentifier("name"));
 	}
 
@@ -76,7 +76,7 @@ public class TaskManagerJobGroupTest extends TestLogger {
 
 		JobID jid = new JobID();
 
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName", "test-tm-id");
 		JobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, jid, "myJobName");
 
 		assertArrayEquals(
@@ -98,7 +98,7 @@ public class TaskManagerJobGroupTest extends TestLogger {
 
 		JobID jid = new JobID();
 
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName", "test-tm-id");
 		JobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, jid, "myJobName");
 
 		assertArrayEquals(
@@ -114,7 +114,7 @@ public class TaskManagerJobGroupTest extends TestLogger {
 	@Test
 	public void testCreateQueryServiceMetricInfo() {
 		JobID jid = new JobID();
-		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "id");
+		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "host.domain", "id");
 		TaskManagerJobMetricGroup job = new TaskManagerJobMetricGroup(registry, tm, jid, "jobname");
 
 		QueryScopeInfo.JobQueryScopeInfo info = job.createQueryServiceMetricInfo(new DummyCharacterFilter());

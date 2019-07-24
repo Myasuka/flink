@@ -26,13 +26,14 @@ public class TaskManagerScopeFormat extends ScopeFormat {
 	public TaskManagerScopeFormat(String format) {
 		super(format, null, new String[] {
 				SCOPE_HOST,
+				SCOPE_FQDN_HOST,
 				SCOPE_TASKMANAGER_ID
 		});
 	}
 
-	public String[] formatScope(String hostname, String taskManagerId) {
+	public String[] formatScope(String hostname, String fqdnHostName, String taskManagerId) {
 		final String[] template = copyTemplate();
-		final String[] values = { hostname, taskManagerId };
+		final String[] values = { hostname, fqdnHostName, taskManagerId };
 		return bindVariables(template, values);
 	}
 }

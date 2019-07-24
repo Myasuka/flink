@@ -200,7 +200,7 @@ public class TaskManagerLocationTest {
 	}
 
 	@Test
-	public void testGetMetricHostName() {
+	public void testGetFullHostName() {
 		try {
 			InetAddress address = mock(InetAddress.class);
 			String fqdn = "worker2.cluster.mycompany.com";
@@ -208,10 +208,7 @@ public class TaskManagerLocationTest {
 			when(address.getHostName()).thenReturn(fqdn);
 			when(address.getHostAddress()).thenReturn("127.0.0.1");
 
-			String hostName = TaskManagerLocation.getHostName(address, false);
-			assertEquals("worker2", hostName);
-
-			hostName = TaskManagerLocation.getHostName(address, true);
+			String hostName = TaskManagerLocation.getFqdnHostName(address);
 			assertEquals(fqdn, hostName);
 		}
 		catch (Exception e) {

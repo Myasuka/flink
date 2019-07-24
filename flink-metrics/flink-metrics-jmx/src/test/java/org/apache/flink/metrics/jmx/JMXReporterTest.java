@@ -56,6 +56,9 @@ import static org.junit.Assert.assertTrue;
  * Tests for the JMXReporter.
  */
 public class JMXReporterTest extends TestLogger {
+	private static final String HOST_NAME = "hostname";
+	private static final String FQDN_HOST_NAME = "hostname.domain";
+	private static final String TM_ID = "tmId";
 
 	@Test
 	public void testReplaceInvalidChars() {
@@ -105,7 +108,7 @@ public class JMXReporterTest extends TestLogger {
 			MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 			Arrays.asList(reporterSetup1, reporterSetup2));
 
-		TaskManagerMetricGroup mg = new TaskManagerMetricGroup(reg, "host", "tm");
+		TaskManagerMetricGroup mg = new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID);
 
 		List<MetricReporter> reporters = reg.getReporters();
 
@@ -127,8 +130,8 @@ public class JMXReporterTest extends TestLogger {
 			}
 		};
 
-		rep1.notifyOfAddedMetric(g1, "rep1", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, "host", "tm")));
-		rep2.notifyOfAddedMetric(g2, "rep2", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, "host", "tm")));
+		rep1.notifyOfAddedMetric(g1, "rep1", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID)));
+		rep2.notifyOfAddedMetric(g2, "rep2", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID)));
 
 		MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
 
@@ -159,7 +162,7 @@ public class JMXReporterTest extends TestLogger {
 			MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 			Arrays.asList(reporterSetup1, reporterSetup2));
 
-		TaskManagerMetricGroup mg = new TaskManagerMetricGroup(reg, "host", "tm");
+		TaskManagerMetricGroup mg = new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID);
 
 		List<MetricReporter> reporters = reg.getReporters();
 
@@ -181,9 +184,9 @@ public class JMXReporterTest extends TestLogger {
 			}
 		};
 
-		rep1.notifyOfAddedMetric(g1, "rep1", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, "host", "tm")));
+		rep1.notifyOfAddedMetric(g1, "rep1", new FrontMetricGroup<>(0, new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID)));
 
-		rep2.notifyOfAddedMetric(g2, "rep2", new FrontMetricGroup<>(1, new TaskManagerMetricGroup(reg, "host", "tm")));
+		rep2.notifyOfAddedMetric(g2, "rep2", new FrontMetricGroup<>(1, new TaskManagerMetricGroup(reg, HOST_NAME, FQDN_HOST_NAME, TM_ID)));
 
 		ObjectName objectName1 = new ObjectName(JMX_DOMAIN_PREFIX + "taskmanager.rep1", JMXReporter.generateJmxTable(mg.getAllVariables()));
 		ObjectName objectName2 = new ObjectName(JMX_DOMAIN_PREFIX + "taskmanager.rep2", JMXReporter.generateJmxTable(mg.getAllVariables()));
@@ -228,7 +231,7 @@ public class JMXReporterTest extends TestLogger {
 				MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 				Collections.singletonList(ReporterSetup.forReporter("test", new JMXReporter(null))));
 
-			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "tmId");
+			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, FQDN_HOST_NAME, TM_ID);
 
 			TestHistogram histogram = new TestHistogram();
 
@@ -276,7 +279,7 @@ public class JMXReporterTest extends TestLogger {
 				MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 				Collections.singletonList(ReporterSetup.forReporter("test", new JMXReporter(null))));
 
-			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "tmId");
+			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, FQDN_HOST_NAME, TM_ID);
 
 			TestMeter meter = new TestMeter();
 

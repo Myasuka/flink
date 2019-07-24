@@ -56,6 +56,7 @@ import org.apache.flink.runtime.webmonitor.retriever.MetricQueryServiceRetriever
 import org.apache.flink.runtime.webmonitor.retriever.impl.RpcGatewayRetriever;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
+import org.apache.flink.util.NetUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -160,11 +161,13 @@ public abstract class AbstractDispatcherResourceManagerComponentFactory<T extend
 			log.debug("Starting Dispatcher REST endpoint.");
 			webMonitorEndpoint.start();
 
-			final String hostname = getHostname(rpcService);
+			final String fqdnHostname = getFqdnHostname(rpcService);
+			final String hostname = NetUtils.getHostnameFromFQDN(fqdnHostname);
 
 			jobManagerMetricGroup = MetricUtils.instantiateJobManagerMetricGroup(
 				metricRegistry,
 				hostname,
+				fqdnHostname,
 				ConfigurationUtils.getSystemResourceMetricsProbingInterval(configuration));
 
 			resourceManager = resourceManagerFactory.createResourceManager(
@@ -175,7 +178,7 @@ public abstract class AbstractDispatcherResourceManagerComponentFactory<T extend
 				heartbeatServices,
 				metricRegistry,
 				fatalErrorHandler,
-				new ClusterInformation(hostname, blobServer.getPort()),
+				new ClusterInformation(fqdnHostname, blobServer.getPort()),
 				webMonitorEndpoint.getRestBaseUrl(),
 				jobManagerMetricGroup);
 
@@ -258,7 +261,7 @@ public abstract class AbstractDispatcherResourceManagerComponentFactory<T extend
 		}
 	}
 
-	protected String getHostname(RpcService rpcService) {
+	protected String getFqdnHostname(RpcService rpcService) {
 		final String rpcServiceAddress = rpcService.getAddress();
 		return rpcServiceAddress != null && rpcServiceAddress.isEmpty() ? "localhost" : rpcServiceAddress;
 	}

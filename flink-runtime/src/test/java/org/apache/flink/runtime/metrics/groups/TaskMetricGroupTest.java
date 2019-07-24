@@ -68,7 +68,7 @@ public class TaskMetricGroupTest extends TestLogger {
 		JobVertexID vertexId = new JobVertexID();
 		AbstractID executionId = new AbstractID();
 
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomain", "test-tm-id");
 		TaskManagerJobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, new JobID(), "myJobName");
 		TaskMetricGroup taskGroup = new TaskMetricGroup(registry, jmGroup, vertexId, executionId, "aTaskName", 13, 2);
 
@@ -93,7 +93,7 @@ public class TaskMetricGroupTest extends TestLogger {
 		JobVertexID vertexId = new JobVertexID();
 		AbstractID executionId = new AbstractID();
 
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomain", "test-tm-id");
 		TaskManagerJobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, jid, "myJobName");
 		TaskMetricGroup taskGroup = new TaskMetricGroup(
 				registry, jmGroup, vertexId, executionId, "aTaskName", 13, 2);
@@ -116,18 +116,18 @@ public class TaskMetricGroupTest extends TestLogger {
 
 		AbstractID executionId = new AbstractID();
 
-		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "test-tm-id");
+		TaskManagerMetricGroup tmGroup = new TaskManagerMetricGroup(registry, "theHostName", "theHostName.theDomain", "test-tm-id");
 		TaskManagerJobMetricGroup jmGroup = new TaskManagerJobMetricGroup(registry, tmGroup, new JobID(), "myJobName");
 
 		TaskMetricGroup taskGroup = new TaskMetricGroup(
 				registry, jmGroup, new JobVertexID(), executionId, "aTaskName", 13, 1);
 
 		assertArrayEquals(
-				new String[]{"theHostName", "taskmanager", "test-tm-id", "myJobName", executionId.toString(), "13"},
+				new String[]{"theHostName.theDomain", "taskmanager", "test-tm-id", "myJobName", executionId.toString(), "13"},
 				taskGroup.getScopeComponents());
 
 		assertEquals(
-				"theHostName.taskmanager.test-tm-id.myJobName." + executionId + ".13.name",
+				"theHostName.theDomain.taskmanager.test-tm-id.myJobName." + executionId + ".13.name",
 				taskGroup.getMetricIdentifier("name"));
 		registry.shutdown().get();
 	}
@@ -137,7 +137,7 @@ public class TaskMetricGroupTest extends TestLogger {
 		JobID jid = new JobID();
 		JobVertexID vid = new JobVertexID();
 		AbstractID eid = new AbstractID();
-		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "id");
+		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "host.domain", "id");
 		TaskManagerJobMetricGroup job = new TaskManagerJobMetricGroup(registry, tm, jid, "jobname");
 		TaskMetricGroup task = new TaskMetricGroup(registry, job, vid, eid, "taskName", 4, 5);
 
@@ -151,7 +151,7 @@ public class TaskMetricGroupTest extends TestLogger {
 	@Test
 	public void testTaskMetricGroupCleanup() throws Exception {
 		CountingMetricRegistry registry = new CountingMetricRegistry(new Configuration());
-		TaskManagerMetricGroup taskManagerMetricGroup = new TaskManagerMetricGroup(registry, "localhost", "0");
+		TaskManagerMetricGroup taskManagerMetricGroup = new TaskManagerMetricGroup(registry, "localhost", "localhost.localdomain", "0");
 		TaskManagerJobMetricGroup taskManagerJobMetricGroup = new TaskManagerJobMetricGroup(registry, taskManagerMetricGroup, new JobID(), "job");
 		TaskMetricGroup taskMetricGroup = new TaskMetricGroup(registry, taskManagerJobMetricGroup, new JobVertexID(), new AbstractID(), "task", 0, 0);
 
@@ -171,7 +171,7 @@ public class TaskMetricGroupTest extends TestLogger {
 		Configuration cfg = new Configuration();
 		cfg.setString(MetricOptions.SCOPE_NAMING_OPERATOR, ScopeFormat.SCOPE_OPERATOR_NAME);
 		MetricRegistryImpl registry = new MetricRegistryImpl(MetricRegistryConfiguration.fromConfiguration(cfg));
-		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "id");
+		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "host.domain", "id");
 		TaskManagerJobMetricGroup job = new TaskManagerJobMetricGroup(registry, tm, new JobID(), "jobname");
 		TaskMetricGroup taskMetricGroup = new TaskMetricGroup(registry, job, new JobVertexID(), new AbstractID(), "task", 0, 0);
 

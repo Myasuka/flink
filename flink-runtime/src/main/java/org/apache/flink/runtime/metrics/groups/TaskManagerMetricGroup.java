@@ -44,16 +44,23 @@ public class TaskManagerMetricGroup extends ComponentMetricGroup<TaskManagerMetr
 
 	private final String hostname;
 
+	private final String fqdnHostName;
+
 	private final String taskManagerId;
 
-	public TaskManagerMetricGroup(MetricRegistry registry, String hostname, String taskManagerId) {
-		super(registry, registry.getScopeFormats().getTaskManagerFormat().formatScope(hostname, taskManagerId), null);
+	public TaskManagerMetricGroup(MetricRegistry registry, String hostname, String fqdnHostName, String taskManagerId) {
+		super(registry, registry.getScopeFormats().getTaskManagerFormat().formatScope(hostname, fqdnHostName, taskManagerId), null);
 		this.hostname = hostname;
+		this.fqdnHostName = fqdnHostName;
 		this.taskManagerId = taskManagerId;
 	}
 
 	public String hostname() {
 		return hostname;
+	}
+
+	public String fqdnHostName() {
+		return fqdnHostName;
 	}
 
 	public String taskManagerId() {
@@ -142,6 +149,7 @@ public class TaskManagerMetricGroup extends ComponentMetricGroup<TaskManagerMetr
 	@Override
 	protected void putVariables(Map<String, String> variables) {
 		variables.put(ScopeFormat.SCOPE_HOST, hostname);
+		variables.put(ScopeFormat.SCOPE_FQDN_HOST, fqdnHostName);
 		variables.put(ScopeFormat.SCOPE_TASKMANAGER_ID, taskManagerId);
 	}
 

@@ -109,7 +109,7 @@ public class AbstractMetricGroupTest {
 				ReporterSetup.forReporter("test1", metricConfig1, new TestReporter1()),
 				ReporterSetup.forReporter("test2", metricConfig2, new TestReporter2())));
 		try {
-			MetricGroup tmGroup = new TaskManagerMetricGroup(testRegistry, "host", "id");
+			MetricGroup tmGroup = new TaskManagerMetricGroup(testRegistry, "host", "host.domain", "id");
 			tmGroup.counter("1");
 			assertEquals("Reporters were not properly instantiated", 2, testRegistry.getReporters().size());
 			for (MetricReporter reporter : testRegistry.getReporters()) {
@@ -131,7 +131,7 @@ public class AbstractMetricGroupTest {
 				ReporterSetup.forReporter("test1", new LogicalScopeReporter1()),
 				ReporterSetup.forReporter("test2", new LogicalScopeReporter2())));
 		try {
-			MetricGroup tmGroup = new TaskManagerMetricGroup(testRegistry, "host", "id")
+			MetricGroup tmGroup = new TaskManagerMetricGroup(testRegistry, "host", "host.domain", "id")
 				.addGroup("B")
 				.addGroup("C");
 			tmGroup.counter("1");
@@ -257,7 +257,7 @@ public class AbstractMetricGroupTest {
 			MetricRegistryConfiguration.fromConfiguration(config));
 
 		try {
-			TaskManagerMetricGroup group = new TaskManagerMetricGroup(testRegistry, "host", "id");
+			TaskManagerMetricGroup group = new TaskManagerMetricGroup(testRegistry, "host", "host.domain", "id");
 			assertEquals("MetricReporters list should be empty", 0, testRegistry.getReporters().size());
 
 			// default delimiter should be used

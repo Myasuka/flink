@@ -41,15 +41,15 @@ public class JobManagerJobGroupTest extends TestLogger {
 	public void testGenerateScopeDefault() throws Exception {
 		MetricRegistryImpl registry = new MetricRegistryImpl(MetricRegistryConfiguration.defaultMetricRegistryConfiguration());
 
-		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName");
+		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName");
 		JobMetricGroup jmGroup = new JobManagerJobMetricGroup(registry, tmGroup, new JobID(), "myJobName");
 
 		assertArrayEquals(
-				new String[] { "theHostName", "jobmanager", "myJobName"},
+				new String[] { "theHostName.theDomainName", "jobmanager", "myJobName"},
 				jmGroup.getScopeComponents());
 
 		assertEquals(
-				"theHostName.jobmanager.myJobName.name",
+				"theHostName.theDomainName.jobmanager.myJobName.name",
 				jmGroup.getMetricIdentifier("name"));
 
 		registry.shutdown().get();
@@ -64,7 +64,7 @@ public class JobManagerJobGroupTest extends TestLogger {
 
 		JobID jid = new JobID();
 
-		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName");
+		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName");
 		JobMetricGroup jmGroup = new JobManagerJobMetricGroup(registry, tmGroup, jid, "myJobName");
 
 		assertArrayEquals(
@@ -87,7 +87,7 @@ public class JobManagerJobGroupTest extends TestLogger {
 
 		JobID jid = new JobID();
 
-		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName");
+		JobManagerMetricGroup tmGroup = new JobManagerMetricGroup(registry, "theHostName", "theHostName.theDomainName");
 		JobMetricGroup jmGroup = new JobManagerJobMetricGroup(registry, tmGroup, jid, "myJobName");
 
 		assertArrayEquals(
@@ -105,7 +105,7 @@ public class JobManagerJobGroupTest extends TestLogger {
 	public void testCreateQueryServiceMetricInfo() {
 		JobID jid = new JobID();
 		MetricRegistryImpl registry = new MetricRegistryImpl(MetricRegistryConfiguration.defaultMetricRegistryConfiguration());
-		JobManagerMetricGroup jm = new JobManagerMetricGroup(registry, "host");
+		JobManagerMetricGroup jm = new JobManagerMetricGroup(registry, "host", "host.domain");
 		JobManagerJobMetricGroup jmj = new JobManagerJobMetricGroup(registry, jm, jid, "jobname");
 
 		QueryScopeInfo.JobQueryScopeInfo info = jmj.createQueryServiceMetricInfo(new DummyCharacterFilter());

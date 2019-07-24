@@ -29,6 +29,7 @@ public class JobManagerJobScopeFormat extends ScopeFormat {
 	public JobManagerJobScopeFormat(String format, JobManagerScopeFormat parentFormat) {
 		super(format, parentFormat, new String[] {
 				SCOPE_HOST,
+				SCOPE_FQDN_HOST,
 				SCOPE_JOB_ID,
 				SCOPE_JOB_NAME
 		});
@@ -38,6 +39,7 @@ public class JobManagerJobScopeFormat extends ScopeFormat {
 		final String[] template = copyTemplate();
 		final String[] values = {
 				parent.hostname(),
+				parent.fqdnHostName(),
 				valueOrNull(jid),
 				valueOrNull(jobName)
 		};

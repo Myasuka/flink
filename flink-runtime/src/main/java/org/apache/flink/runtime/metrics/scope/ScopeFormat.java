@@ -69,6 +69,7 @@ public abstract class ScopeFormat {
 	// ------------------------------------------------------------------------
 
 	public static final String SCOPE_HOST = asVariable("host");
+	public static final String SCOPE_FQDN_HOST = asVariable("fqdn_host");
 
 	// ----- Task Manager ----
 

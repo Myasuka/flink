@@ -52,6 +52,7 @@ import static org.junit.Assert.assertTrue;
 public class Slf4jReporterTest extends TestLogger {
 
 	private static final String HOST_NAME = "localhost";
+	private static final String FQDN_HOST_NAME = "localhost.localdomain";
 	private static final String TASK_MANAGER_ID = "tm01";
 	private static final String JOB_NAME = "jn01";
 	private static final String TASK_NAME = "tn01";
@@ -72,7 +73,7 @@ public class Slf4jReporterTest extends TestLogger {
 			Collections.singletonList(ReporterSetup.forReporter("slf4j", new Slf4jReporter())));
 		delimiter = registry.getDelimiter();
 
-		taskMetricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, TASK_MANAGER_ID)
+		taskMetricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, FQDN_HOST_NAME, TASK_MANAGER_ID)
 			.addTaskForJob(new JobID(), JOB_NAME, new JobVertexID(), new ExecutionAttemptID(), TASK_NAME, 0, 0);
 		reporter = (Slf4jReporter) registry.getReporters().get(0);
 	}

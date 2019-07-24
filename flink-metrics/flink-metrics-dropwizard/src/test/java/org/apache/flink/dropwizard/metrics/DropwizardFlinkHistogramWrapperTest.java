@@ -113,7 +113,7 @@ public class DropwizardFlinkHistogramWrapperTest extends TestLogger {
 			DropwizardHistogramWrapper histogramWrapper = new DropwizardHistogramWrapper(
 				new com.codahale.metrics.Histogram(new SlidingWindowReservoir(size)));
 
-			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "tmId");
+			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "localhost.localdomain", "tmId");
 
 			metricGroup.histogram(histogramMetricName, histogramWrapper);
 

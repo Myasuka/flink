@@ -29,6 +29,7 @@ public class OperatorScopeFormat extends ScopeFormat {
 	public OperatorScopeFormat(String format, TaskScopeFormat parentFormat) {
 		super(format, parentFormat, new String[] {
 				SCOPE_HOST,
+			SCOPE_FQDN_HOST,
 				SCOPE_TASKMANAGER_ID,
 				SCOPE_JOB_ID,
 				SCOPE_JOB_NAME,
@@ -47,6 +48,7 @@ public class OperatorScopeFormat extends ScopeFormat {
 		final String[] template = copyTemplate();
 		final String[] values = {
 				parent.parent().parent().hostname(),
+				parent.parent().parent().fqdnHostName(),
 				parent.parent().parent().taskManagerId(),
 				valueOrNull(parent.parent().jobId()),
 				valueOrNull(parent.parent().jobName()),

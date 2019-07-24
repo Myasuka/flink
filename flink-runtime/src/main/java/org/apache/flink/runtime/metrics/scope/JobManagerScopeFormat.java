@@ -25,13 +25,14 @@ public class JobManagerScopeFormat extends ScopeFormat {
 
 	public JobManagerScopeFormat(String format) {
 		super(format, null, new String[] {
-			SCOPE_HOST
+			SCOPE_HOST,
+			SCOPE_FQDN_HOST
 		});
 	}
 
-	public String[] formatScope(String hostname) {
+	public String[] formatScope(String hostname, String fqdnHostName) {
 		final String[] template = copyTemplate();
-		final String[] values = { hostname };
+		final String[] values = { hostname, fqdnHostName };
 		return bindVariables(template, values);
 	}
 }

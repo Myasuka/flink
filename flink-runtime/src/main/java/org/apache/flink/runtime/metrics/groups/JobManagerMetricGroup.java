@@ -40,13 +40,23 @@ public class JobManagerMetricGroup extends ComponentMetricGroup<JobManagerMetric
 
 	private final String hostname;
 
-	public JobManagerMetricGroup(MetricRegistry registry, String hostname) {
-		super(registry, registry.getScopeFormats().getJobManagerFormat().formatScope(hostname), null);
+	private final String fqdnHostName;
+
+	public JobManagerMetricGroup(MetricRegistry registry, String hostname, String fqdnHostName) {
+		super(
+			registry,
+			registry.getScopeFormats().getJobManagerFormat().formatScope(hostname, fqdnHostName),
+			null);
 		this.hostname = hostname;
+		this.fqdnHostName = fqdnHostName;
 	}
 
 	public String hostname() {
 		return hostname;
+	}
+
+	public String fqdnHostName() {
+		return fqdnHostName;
 	}
 
 	@Override
@@ -102,6 +112,7 @@ public class JobManagerMetricGroup extends ComponentMetricGroup<JobManagerMetric
 	@Override
 	protected void putVariables(Map<String, String> variables) {
 		variables.put(ScopeFormat.SCOPE_HOST, hostname);
+		variables.put(ScopeFormat.SCOPE_FQDN_HOST, fqdnHostName);
 	}
 
 	@Override

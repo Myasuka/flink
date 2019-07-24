@@ -57,6 +57,7 @@ public class PrometheusReporterTaskScopeTest {
 	private static final String[] LABEL_NAMES = {"job_id", "task_id", "task_attempt_id", "host", "task_name", "task_attempt_num", "job_name", "tm_id", "subtask_index"};
 
 	private static final String TASK_MANAGER_HOST = "taskManagerHostName";
+	private static final String TASK_MANAGER_FQDN_HOST = "taskManagerHostName.taskManagerDomainName";
 	private static final String TASK_MANAGER_ID = "taskManagerId";
 	private static final String JOB_NAME = "jobName";
 	private static final String TASK_NAME = "taskName";
@@ -86,7 +87,7 @@ public class PrometheusReporterTaskScopeTest {
 			Collections.singletonList(createReporterSetup("test1", "9400-9500")));
 		reporter = (PrometheusReporter) registry.getReporters().get(0);
 
-		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(registry, TASK_MANAGER_HOST, TASK_MANAGER_ID);
+		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(registry, TASK_MANAGER_HOST, TASK_MANAGER_FQDN_HOST, TASK_MANAGER_ID);
 		TaskManagerJobMetricGroup tmJobMetricGroup = new TaskManagerJobMetricGroup(registry, tmMetricGroup, jobId, JOB_NAME);
 		taskMetricGroup1 = new TaskMetricGroup(registry, tmJobMetricGroup, taskId1, taskAttemptId1, TASK_NAME, SUBTASK_INDEX_1, ATTEMPT_NUMBER);
 		taskMetricGroup2 = new TaskMetricGroup(registry, tmJobMetricGroup, taskId2, taskAttemptId2, TASK_NAME, SUBTASK_INDEX_2, ATTEMPT_NUMBER);

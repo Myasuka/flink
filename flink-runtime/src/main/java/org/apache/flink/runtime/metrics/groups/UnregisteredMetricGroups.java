@@ -62,9 +62,10 @@ public class UnregisteredMetricGroups {
 	 */
 	public static class UnregisteredJobManagerMetricGroup extends JobManagerMetricGroup {
 		private static final String DEFAULT_HOST_NAME = "UnregisteredHost";
+		private static final String DEFAULT_FQDN_HOST_NAME = "UnregisteredFqdnHost";
 
 		private UnregisteredJobManagerMetricGroup() {
-			super(NoOpMetricRegistry.INSTANCE, DEFAULT_HOST_NAME);
+			super(NoOpMetricRegistry.INSTANCE, DEFAULT_HOST_NAME, DEFAULT_FQDN_HOST_NAME);
 		}
 
 		@Override
@@ -90,10 +91,11 @@ public class UnregisteredMetricGroups {
 	 */
 	public static class UnregisteredTaskManagerMetricGroup extends TaskManagerMetricGroup {
 		private static final String DEFAULT_HOST_NAME = "UnregisteredHost";
+		private static final String DEFAULT_FQDN_HOST_NAME = "UnregisteredFqdnHost";
 		private static final String DEFAULT_TASKMANAGER_ID = "0";
 
 		protected UnregisteredTaskManagerMetricGroup() {
-			super(NoOpMetricRegistry.INSTANCE, DEFAULT_HOST_NAME, DEFAULT_TASKMANAGER_ID);
+			super(NoOpMetricRegistry.INSTANCE, DEFAULT_HOST_NAME, DEFAULT_FQDN_HOST_NAME, DEFAULT_TASKMANAGER_ID);
 		}
 
 		@Override

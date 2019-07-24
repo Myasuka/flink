@@ -80,6 +80,7 @@ public class ScheduledDropwizardReporterTest {
 		String taskName = "test\"Ta\"..sk";
 		String jobName = "testJ\"ob:-!ax..?";
 		String hostname = "loc<>al\"::host\".:";
+		String fdqnhostname = "loc<>al\"::host\".:.localdomain";
 		String taskManagerId = "tas:kMana::ger";
 		String counterName = "testCounter";
 
@@ -94,7 +95,7 @@ public class ScheduledDropwizardReporterTest {
 
 		char delimiter = metricRegistry.getDelimiter();
 
-		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(metricRegistry, hostname, taskManagerId);
+		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(metricRegistry, hostname, fdqnhostname, taskManagerId);
 		TaskManagerJobMetricGroup tmJobMetricGroup = new TaskManagerJobMetricGroup(metricRegistry, tmMetricGroup, new JobID(), jobName);
 		TaskMetricGroup taskMetricGroup = new TaskMetricGroup(metricRegistry, tmJobMetricGroup, new JobVertexID(), new AbstractID(), taskName, 0, 0);
 

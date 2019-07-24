@@ -74,10 +74,12 @@ public class MetricUtils {
 	public static JobManagerMetricGroup instantiateJobManagerMetricGroup(
 			final MetricRegistry metricRegistry,
 			final String hostname,
+			final String fdqnHostname,
 			final Optional<Time> systemResourceProbeInterval) {
 		final JobManagerMetricGroup jobManagerMetricGroup = new JobManagerMetricGroup(
 			metricRegistry,
-			hostname);
+			hostname,
+			fdqnHostname);
 
 		MetricGroup statusGroup = jobManagerMetricGroup.addGroup(METRIC_GROUP_STATUS_NAME);
 
@@ -93,11 +95,13 @@ public class MetricUtils {
 	public static Tuple2<TaskManagerMetricGroup, MetricGroup> instantiateTaskManagerMetricGroup(
 			MetricRegistry metricRegistry,
 			String hostName,
+			String fdqnHostName,
 			ResourceID resourceID,
 			Optional<Time> systemResourceProbeInterval) {
 		final TaskManagerMetricGroup taskManagerMetricGroup = new TaskManagerMetricGroup(
 			metricRegistry,
 			hostName,
+			fdqnHostName,
 			resourceID.toString());
 
 		MetricGroup statusGroup = taskManagerMetricGroup.addGroup(METRIC_GROUP_STATUS_NAME);

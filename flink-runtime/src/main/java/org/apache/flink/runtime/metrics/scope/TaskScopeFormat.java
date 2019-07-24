@@ -29,6 +29,7 @@ public class TaskScopeFormat extends ScopeFormat {
 	public TaskScopeFormat(String format, TaskManagerJobScopeFormat parentFormat) {
 		super(format, parentFormat, new String[] {
 				SCOPE_HOST,
+				SCOPE_FQDN_HOST,
 				SCOPE_TASKMANAGER_ID,
 				SCOPE_JOB_ID,
 				SCOPE_JOB_NAME,
@@ -48,6 +49,7 @@ public class TaskScopeFormat extends ScopeFormat {
 		final String[] template = copyTemplate();
 		final String[] values = {
 				parent.parent().hostname(),
+				parent.parent().fqdnHostName(),
 				parent.parent().taskManagerId(),
 				valueOrNull(parent.jobId()),
 				valueOrNull(parent.jobName()),

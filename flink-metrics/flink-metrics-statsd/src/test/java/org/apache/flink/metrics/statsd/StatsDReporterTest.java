@@ -84,6 +84,7 @@ public class StatsDReporterTest extends TestLogger {
 		String taskName = "testTask";
 		String jobName = "testJob:-!ax..?";
 		String hostname = "local::host:";
+		String fqdnHostname = "local::host:.local::domain:";
 		String taskManagerId = "tas:kMana::ger";
 		String counterName = "testCounter";
 
@@ -96,7 +97,7 @@ public class StatsDReporterTest extends TestLogger {
 
 		char delimiter = metricRegistry.getDelimiter();
 
-		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(metricRegistry, hostname, taskManagerId);
+		TaskManagerMetricGroup tmMetricGroup = new TaskManagerMetricGroup(metricRegistry, hostname, fqdnHostname, taskManagerId);
 		TaskManagerJobMetricGroup tmJobMetricGroup = new TaskManagerJobMetricGroup(metricRegistry, tmMetricGroup, new JobID(), jobName);
 		TaskMetricGroup taskMetricGroup = new TaskMetricGroup(metricRegistry, tmJobMetricGroup, new JobVertexID(), new AbstractID(), taskName, 0, 0);
 

@@ -51,7 +51,7 @@ public class MetricGroupRegistrationTest extends TestLogger {
 			MetricRegistryConfiguration.defaultMetricRegistryConfiguration(),
 			Collections.singletonList(ReporterSetup.forReporter("test", new TestReporter1())));
 
-		MetricGroup root = new TaskManagerMetricGroup(registry, "host", "id");
+		MetricGroup root = new TaskManagerMetricGroup(registry, "host", "host.domain", "id");
 
 		Counter counter = root.counter("counter");
 		assertEquals(counter, TestReporter1.lastPassedMetric);
@@ -113,7 +113,7 @@ public class MetricGroupRegistrationTest extends TestLogger {
 
 		MetricRegistryImpl registry = new MetricRegistryImpl(MetricRegistryConfiguration.fromConfiguration(config));
 
-		MetricGroup root = new TaskManagerMetricGroup(registry, "host", "id");
+		MetricGroup root = new TaskManagerMetricGroup(registry, "host", "host.domain", "id");
 
 		MetricGroup group1 = root.addGroup("group");
 		MetricGroup group2 = root.addGroup("group");
