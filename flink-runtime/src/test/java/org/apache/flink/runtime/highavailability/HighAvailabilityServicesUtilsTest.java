@@ -76,7 +76,7 @@ public class HighAvailabilityServicesUtilsTest extends TestLogger {
 	 */
 	public static class TestHAFactory implements HighAvailabilityServicesFactory {
 
-		static HighAvailabilityServices haServices;
+		public static HighAvailabilityServices haServices;
 
 		@Override
 		public HighAvailabilityServices createHAServices(Configuration configuration, Executor executor) {

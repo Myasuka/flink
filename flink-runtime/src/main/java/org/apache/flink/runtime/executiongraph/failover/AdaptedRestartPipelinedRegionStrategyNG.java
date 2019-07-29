@@ -52,8 +52,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -108,8 +106,7 @@ public class AdaptedRestartPipelinedRegionStrategyNG extends FailoverStrategy {
 
 		FutureUtils.assertNoException(
 			cancelTasks(verticesToRestart)
-				.thenRunAsync(resetAndRescheduleTasks(globalModVersion, vertexVersions), executionGraph.getJobMasterMainThreadExecutor())
-				.handle(failGlobalOnError()));
+				.thenRunAsync(resetAndRescheduleTasks(globalModVersion, vertexVersions), executionGraph.getJobMasterMainThreadExecutor()));
 	}
 
 	private Runnable resetAndRescheduleTasks(final long globalModVersion, final Set<ExecutionVertexVersion> vertexVersions) {
@@ -148,19 +145,10 @@ public class AdaptedRestartPipelinedRegionStrategyNG extends FailoverStrategy {
 			} catch (GlobalModVersionMismatch e) {
 				throw new IllegalStateException(
 					"Bug: ExecutionGraph was concurrently modified outside of main thread", e);
-			} catch (Exception e) {
-				throw new CompletionException(e);
-			}
-		};
-	}
-
-	private BiFunction<Object, Throwable, Object> failGlobalOnError() {
-		return (Object ignored, Throwable t) -> {
-			if (t != null) {
+			} catch (Throwable t) {
 				LOG.info("Unexpected error happens in region failover. Fail globally.", t);
 				failGlobal(t);
 			}
-			return null;
 		};
 	}
 

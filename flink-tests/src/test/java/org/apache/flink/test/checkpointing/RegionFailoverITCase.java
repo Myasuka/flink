@@ -30,12 +30,20 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.JobManagerOptions;
+import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
+import org.apache.flink.runtime.checkpoint.StandaloneCheckpointIDCounter;
+import org.apache.flink.runtime.checkpoint.StandaloneCompletedCheckpointStore;
+import org.apache.flink.runtime.checkpoint.TestingCheckpointRecoveryFactory;
+import org.apache.flink.runtime.highavailability.HighAvailabilityServicesUtilsTest;
+import org.apache.flink.runtime.highavailability.nonha.embedded.EmbeddedHaServices;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
+import org.apache.flink.runtime.testingUtils.TestingUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -46,6 +54,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
+import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.TestLogger;
 
 import org.apache.commons.collections.CollectionUtils;
@@ -62,6 +71,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -78,9 +88,13 @@ public class RegionFailoverITCase extends TestLogger {
 	private static final int FAIL_BASE = 1000;
 	private static final int NUM_OF_REGIONS = 3;
 	private static final int MAX_PARALLELISM = 2 * NUM_OF_REGIONS;
-	private static final Set<Integer> EXPECTED_INDICES = IntStream.range(0, NUM_OF_REGIONS).boxed().collect(Collectors.toSet());
+	private static final Set<Integer> EXPECTED_INDICES_MULTI_REGION = IntStream.range(0, NUM_OF_REGIONS).boxed().collect(Collectors.toSet());
+	private static final Set<Integer> EXPECTED_INDICES_SINGLE_REGION = Collections.singleton(0);
 	private static final int NUM_OF_RESTARTS = 3;
 	private static final int NUM_ELEMENTS = FAIL_BASE * 10;
+
+	private static final String SINGLE_REGION_SOURCE_NAME = "single-source";
+	private static final String MULTI_REGION_SOURCE_NAME = "multi-source";
 
 	private static AtomicLong lastCompletedCheckpointId = new AtomicLong(0);
 	private static AtomicInteger numCompletedCheckpoints = new AtomicInteger(0);
@@ -97,8 +111,10 @@ public class RegionFailoverITCase extends TestLogger {
 
 	@Before
 	public void setup() throws Exception {
+		HighAvailabilityServicesUtilsTest.TestHAFactory.haServices = new FailHaServices(new TestingCheckpointRecoveryFactory(new FailRecoverCompletedCheckpointStore(1, 1), new StandaloneCheckpointIDCounter()), TestingUtils.defaultExecutor());
 		Configuration configuration = new Configuration();
 		configuration.setString(JobManagerOptions.EXECUTION_FAILOVER_STRATEGY, "region");
+		configuration.setString(HighAvailabilityOptions.HA_MODE, HighAvailabilityServicesUtilsTest.TestHAFactory.class.getName());
 
 		cluster = new MiniClusterWithClientResource(
 			new MiniClusterResourceConfiguration.Builder()
@@ -159,12 +175,14 @@ public class RegionFailoverITCase extends TestLogger {
 		env.enableCheckpointing(200, CheckpointingMode.EXACTLY_ONCE);
 		env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
 		env.disableOperatorChaining();
-		env.getConfig().setRestartStrategy(RestartStrategies.fixedDelayRestart(NUM_OF_RESTARTS, 0L));
+		// region failover times: NUM_OF_RESTARTS, global failover times: 1
+		env.getConfig().setRestartStrategy(RestartStrategies.fixedDelayRestart(NUM_OF_RESTARTS + 1, 0L));
 		env.getConfig().disableSysoutLogging();
 
 		// Use DataStreamUtils#reinterpretAsKeyed to avoid merge regions and this stream graph would exist num of 'NUM_OF_REGIONS' individual regions.
 		DataStreamUtils.reinterpretAsKeyedStream(
 			env.addSource(new StringGeneratingSourceFunction(NUM_ELEMENTS, NUM_ELEMENTS / NUM_OF_RESTARTS))
+				.name(MULTI_REGION_SOURCE_NAME)
 				.setParallelism(NUM_OF_REGIONS),
 			(KeySelector<Tuple2<Integer, Integer>, Integer>) value -> value.f0,
 			TypeInformation.of(Integer.class))
@@ -174,7 +192,8 @@ public class RegionFailoverITCase extends TestLogger {
 			.setParallelism(NUM_OF_REGIONS);
 
 		// another stream graph totally disconnected with the above one.
-		env.addSource(new StringGeneratingSourceFunction(NUM_ELEMENTS, NUM_ELEMENTS / NUM_OF_RESTARTS)).setParallelism(1)
+		env.addSource(new StringGeneratingSourceFunction(NUM_ELEMENTS, NUM_ELEMENTS / NUM_OF_RESTARTS)).
+			name(SINGLE_REGION_SOURCE_NAME).setParallelism(1)
 			.map((MapFunction<Tuple2<Integer, Integer>, Object>) value -> value).setParallelism(1);
 
 		return env.getStreamGraph().getJobGraph();
@@ -282,7 +301,11 @@ public class RegionFailoverITCase extends TestLogger {
 
 				unionListState = context.getOperatorStateStore().getUnionListState(unionStateDescriptor);
 				Set<Integer> actualIndices = StreamSupport.stream(unionListState.get().spliterator(), false).collect(Collectors.toSet());
-				Assert.assertTrue(CollectionUtils.isEqualCollection(EXPECTED_INDICES, actualIndices));
+				if (getRuntimeContext().getTaskName().contains(SINGLE_REGION_SOURCE_NAME)) {
+					Assert.assertTrue(CollectionUtils.isEqualCollection(EXPECTED_INDICES_SINGLE_REGION, actualIndices));
+				} else {
+					Assert.assertTrue(CollectionUtils.isEqualCollection(EXPECTED_INDICES_MULTI_REGION, actualIndices));
+				}
 
 				if (indexOfThisSubtask == 0) {
 					listState = context.getOperatorStateStore().getListState(stateDescriptor);
@@ -390,5 +413,41 @@ public class RegionFailoverITCase extends TestLogger {
 
 	private static class TestException extends IOException{
 		private static final long serialVersionUID = 1L;
+	}
+
+	private static class FailHaServices extends EmbeddedHaServices {
+		private final CheckpointRecoveryFactory checkpointRecoveryFactory;
+
+		public FailHaServices(CheckpointRecoveryFactory checkpointRecoveryFactory, Executor executor) {
+			super(executor);
+			this.checkpointRecoveryFactory = checkpointRecoveryFactory;
+		}
+
+		@Override
+		public CheckpointRecoveryFactory getCheckpointRecoveryFactory() {
+			return checkpointRecoveryFactory;
+		}
+	}
+
+	/**
+	 * An implementation of CompletedCheckpointStore which would fail at {@link #failToRecoverPosition} when recover.
+	 */
+	private static class FailRecoverCompletedCheckpointStore extends StandaloneCompletedCheckpointStore {
+
+		private final int failToRecoverPosition;
+		private final AtomicInteger failedCount;
+
+		public FailRecoverCompletedCheckpointStore(int maxNumberOfCheckpointsToRetain, int failToRecoverPosition) {
+			super(maxNumberOfCheckpointsToRetain);
+			this.failToRecoverPosition = failToRecoverPosition;
+			this.failedCount = new AtomicInteger(0);
+		}
+
+		@Override
+		public void recover() throws Exception {
+			if (failedCount.getAndIncrement() == failToRecoverPosition) {
+				throw new FlinkException("Could not recover from checkpoints.");
+			}
+		}
 	}
 }
