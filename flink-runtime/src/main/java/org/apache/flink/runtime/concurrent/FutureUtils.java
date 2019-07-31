@@ -189,6 +189,36 @@ public class FutureUtils {
 			scheduledExecutor);
 	}
 
+	/**
+	 * Schedule the operation with given delay.
+	 *
+	 * @param operation to schedule
+	 * @param delay delay to schedule
+	 * @param scheduledExecutor executor to be used for the operation
+	 * @param <T> type of the result
+	 * @return Future which schedule the given operation with given delay.
+	 */
+	public static <T> CompletableFuture<T> scheduleAsync(
+			final Supplier<T> operation,
+			final Time delay,
+			final ScheduledExecutor scheduledExecutor) {
+		final CompletableFuture<T> resultFuture = new CompletableFuture<>();
+
+		scheduledExecutor.schedule(
+			() -> {
+				try {
+					resultFuture.complete(operation.get());
+				} catch (Throwable t) {
+					resultFuture.completeExceptionally(t);
+				}
+			},
+			delay.getSize(),
+			delay.getUnit()
+		);
+
+		return resultFuture;
+	}
+
 	private static <T> void retryOperationWithDelay(
 			final CompletableFuture<T> resultFuture,
 			final Supplier<CompletableFuture<T>> operation,

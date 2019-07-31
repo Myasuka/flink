@@ -18,13 +18,16 @@
 
 package org.apache.flink.runtime.executiongraph.restart;
 
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.util.Preconditions;
 
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import scala.concurrent.duration.Duration;
 
@@ -60,9 +63,13 @@ public class FixedDelayRestartStrategy implements RestartStrategy {
 	}
 
 	@Override
-	public void restart(final RestartCallback restarter, ScheduledExecutor executor) {
+	public CompletableFuture<Void> restart(final RestartCallback restarter, ScheduledExecutor executor) {
 		currentRestartAttempt++;
-		executor.schedule(restarter::triggerFullRecovery, delayBetweenRestartAttempts, TimeUnit.MILLISECONDS);
+		Supplier<Void> supplier = () -> {
+			restarter.triggerFullRecovery();
+			return null;
+		};
+		return FutureUtils.scheduleAsync(supplier, Time.milliseconds(delayBetweenRestartAttempts), executor);
 	}
 
 	/**
