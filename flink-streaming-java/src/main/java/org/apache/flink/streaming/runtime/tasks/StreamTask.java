@@ -812,6 +812,11 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 		// notify the coordinator that we decline this checkpoint
 		getEnvironment().declineCheckpoint(checkpointId, cause);
+
+		// notify all downstream operators that they should not wait for a barrier from us
+		synchronized (lock) {
+			operatorChain.broadcastCheckpointCancelMarker(checkpointId);
+		}
 	}
 
 	private boolean performCheckpoint(

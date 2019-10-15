@@ -34,6 +34,7 @@ import org.apache.flink.metrics.Gauge;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
+import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
 import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.metrics.MetricNames;
@@ -471,6 +472,7 @@ public class OneInputStreamTaskTest extends TestLogger {
 		testHarness.processEvent(new CheckpointBarrier(1, 1, CheckpointOptions.forCheckpointWithDefaultLocation()), 1, 0);
 		testHarness.processEvent(new CheckpointBarrier(1, 1, CheckpointOptions.forCheckpointWithDefaultLocation()), 1, 1);
 
+		expectedOutput.add(new CancelCheckpointMarker(0));
 		expectedOutput.add(new StreamRecord<String>("Hello-0-0", initialTime));
 		expectedOutput.add(new StreamRecord<String>("Ciao-0-0", initialTime));
 		expectedOutput.add(new CheckpointBarrier(1, 1, CheckpointOptions.forCheckpointWithDefaultLocation()));
@@ -592,7 +594,7 @@ public class OneInputStreamTaskTest extends TestLogger {
 		final OneInputStreamTask<String, String> streamTask = testHarness.getTask();
 
 		CheckpointMetaData checkpointMetaData = new CheckpointMetaData(1L, 1L);
-		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false);
+		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false).get();
 		Map<Long, StreamTask.AsyncCheckpointRunnable> asyncCheckpointOperations = streamTask.getAsyncCheckpointOperations();
 		assertEquals(1, asyncCheckpointOperations.size());
 		assertEquals(1L, (long) asyncCheckpointOperations.keySet().iterator().next());
@@ -601,8 +603,8 @@ public class OneInputStreamTaskTest extends TestLogger {
 		assertFalse(chk1Runnable.isCancelled());
 
 		checkpointMetaData = new CheckpointMetaData(2L, 2L);
-		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false);
-		streamTask.notifyCheckpointAbortAsync(1L);
+		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false).get();
+		streamTask.notifyCheckpointAbortAsync(1L).get();
 		asyncCheckpointOperations = streamTask.getAsyncCheckpointOperations();
 		assertEquals(1, asyncCheckpointOperations.size());
 		assertEquals(2L, (long) asyncCheckpointOperations.keySet().iterator().next());
@@ -613,9 +615,9 @@ public class OneInputStreamTaskTest extends TestLogger {
 		assertFalse(chk2Runnable.isCancelled());
 
 		checkpointMetaData = new CheckpointMetaData(3L, 3L);
-		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false);
+		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false).get();
 		StreamTask.AsyncCheckpointRunnable chk3Runnable = streamTask.getAsyncCheckpointOperations().get(checkpointMetaData.getCheckpointId());
-		streamTask.notifyCheckpointAbortAsync(3L);
+		streamTask.notifyCheckpointAbortAsync(3L).get();
 		asyncCheckpointOperations = streamTask.getAsyncCheckpointOperations();
 		assertEquals(1, asyncCheckpointOperations.size());
 		assertEquals(2L, (long) asyncCheckpointOperations.keySet().iterator().next());
@@ -644,14 +646,14 @@ public class OneInputStreamTaskTest extends TestLogger {
 		testHarness.waitForTaskRunning(deadline.timeLeft().toMillis());
 
 		final OneInputStreamTask<String, String> streamTask = testHarness.getTask();
-		streamTask.notifyCheckpointAbortAsync(1L);
+		streamTask.notifyCheckpointAbortAsync(1L).get();
 		CheckpointMetaData checkpointMetaData = new CheckpointMetaData(1L, 1L);
-		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false);
+		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false).get();
 		Map<Long, StreamTask.AsyncCheckpointRunnable> asyncCheckpointOperations = streamTask.getAsyncCheckpointOperations();
 		assertTrue(asyncCheckpointOperations.isEmpty());
 
 		checkpointMetaData = new CheckpointMetaData(2L, 2L);
-		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false);
+		streamTask.triggerCheckpointAsync(checkpointMetaData, CheckpointOptions.forCheckpointWithDefaultLocation(), false).get();
 		asyncCheckpointOperations = streamTask.getAsyncCheckpointOperations();
 		assertFalse(asyncCheckpointOperations.isEmpty());
 		assertEquals(2L, (long) asyncCheckpointOperations.keySet().iterator().next());
