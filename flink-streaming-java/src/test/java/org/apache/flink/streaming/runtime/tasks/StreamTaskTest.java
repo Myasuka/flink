@@ -359,7 +359,7 @@ public class StreamTaskTest extends TestLogger {
 		waitTaskIsRunning(task.streamTask, task.invocationFuture);
 		long notifyAbortedTimes = StreamTask.DEFAULT_MAX_RECORDED_ABOTRED_CHECKPOINTS + 10;
 		for (long i = 1; i < notifyAbortedTimes; i++) {
-			task.streamTask.notifyCheckpointAbortAsync(i);
+			task.streamTask.notifyCheckpointAbortAsync(i).get();
 			assertEquals(Math.min(StreamTask.DEFAULT_MAX_RECORDED_ABOTRED_CHECKPOINTS, i), task.streamTask.getAbortedCheckpointSize());
 		}
 	}
