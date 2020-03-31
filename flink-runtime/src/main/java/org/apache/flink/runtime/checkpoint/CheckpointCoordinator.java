@@ -1441,6 +1441,7 @@ public class CheckpointCoordinator {
 
 		// do not traverse pendingCheckpoints directly, because it might be changed during traversing
 		for (PendingCheckpoint pendingCheckpoint : pendingCheckpointsToFail) {
+			LOG.info("Aborting checkpoint {}.", pendingCheckpoint.getCheckpointId());
 			abortPendingCheckpoint(pendingCheckpoint, exception);
 		}
 	}
@@ -1671,6 +1672,7 @@ public class CheckpointCoordinator {
 	}
 
 	private void abortPendingAndQueuedCheckpoints(CheckpointException exception) {
+		LOG.info("abort pending checkpoints due to: ", exception);
 		CheckpointTriggerRequest request;
 		while ((request = triggerRequestQueue.poll()) != null) {
 			request.onCompletionPromise.completeExceptionally(exception);
