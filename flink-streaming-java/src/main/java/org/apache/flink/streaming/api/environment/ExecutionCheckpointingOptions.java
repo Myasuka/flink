@@ -78,6 +78,12 @@ public class ExecutionCheckpointingOptions {
 			.withDescription("If enabled, a job recovery should fallback to checkpoint when there is a more recent " +
 				"savepoint.");
 
+	public static final ConfigOption<Boolean> SEND_ABORTED_MESSAGES_ON_FAILLURE =
+		ConfigOptions.key("execution.checkpointing.send-aborted-messages-on-failure")
+			.booleanType()
+			.defaultValue(true)
+			.withDescription("If enabled, sending aborted messages from checkpoint-coordinator to task side on checkpoint failure.");
+
 	public static final ConfigOption<Integer> TOLERABLE_FAILURE_NUMBER =
 		ConfigOptions.key("execution.checkpointing.tolerable-failed-checkpoints")
 			.intType()

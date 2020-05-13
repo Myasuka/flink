@@ -80,6 +80,12 @@ public class CheckpointConfigFromConfigurationTest {
 				.getterVia(CheckpointConfig::isPreferCheckpointForRecovery)
 				.nonDefaultValue(true),
 
+			TestSpec.testValue(false)
+				.whenSetFromFile("execution.checkpointing.send-aborted-messages-on-failure", "false")
+				.viaSetter(CheckpointConfig::setSendAbortedMessagesOnFailure)
+				.getterVia(CheckpointConfig::isSendAbortedMessagesOnFailure)
+				.nonDefaultValue(false),
+
 			TestSpec.testValue(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
 				.whenSetFromFile("execution.checkpointing.externalized-checkpoint-retention", "RETAIN_ON_CANCELLATION")
 				.viaSetter(CheckpointConfig::enableExternalizedCheckpoints)

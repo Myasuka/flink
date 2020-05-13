@@ -190,6 +190,8 @@ public class CheckpointCoordinator {
 
 	private boolean isPreferCheckpointForRecovery;
 
+	private boolean isSendAbortedMessagesOnFailure;
+
 	private final CheckpointFailureManager failureManager;
 
 	private final Clock clock;
@@ -283,6 +285,7 @@ public class CheckpointCoordinator {
 		this.sharedStateRegistryFactory = checkNotNull(sharedStateRegistryFactory);
 		this.sharedStateRegistry = sharedStateRegistryFactory.create(executor);
 		this.isPreferCheckpointForRecovery = chkConfig.isPreferCheckpointForRecovery();
+		this.isSendAbortedMessagesOnFailure = chkConfig.isSendAbortedMessagesOnFailure();
 		this.failureManager = checkNotNull(failureManager);
 		this.clock = checkNotNull(clock);
 		this.isExactlyOnceMode = chkConfig.isExactlyOnce();
@@ -1016,7 +1019,7 @@ public class CheckpointCoordinator {
 					}
 				});
 
-				sendAbortedMessages(checkpointId, pendingCheckpoint.getCheckpointTimestamp());
+				sendAbortedMessagesIfNecessary(checkpointId, pendingCheckpoint.getCheckpointTimestamp());
 				throw new CheckpointException("Could not complete the pending checkpoint " + checkpointId + '.',
 					CheckpointFailureReason.FINALIZE_CHECKPOINT_FAILURE, exception);
 			}
@@ -1069,17 +1072,19 @@ public class CheckpointCoordinator {
 		}
 	}
 
-	private void sendAbortedMessages(long checkpointId, long timeStamp) {
-		// send notification of aborted checkpoints asynchronously.
-		executor.execute(() -> {
-			// send the "abort checkpoint" messages to necessary vertices.
-			for (ExecutionVertex ev : tasksToCommitTo) {
-				Execution ee = ev.getCurrentExecutionAttempt();
-				if (ee != null) {
-					ee.notifyCheckpointAborted(checkpointId, timeStamp);
+	private void sendAbortedMessagesIfNecessary(long checkpointId, long timeStamp) {
+		if (isSendAbortedMessagesOnFailure) {
+			// send notification of aborted checkpoints asynchronously.
+			executor.execute(() -> {
+				// send the "abort checkpoint" messages to necessary vertices.
+				for (ExecutionVertex ev : tasksToCommitTo) {
+					Execution ee = ev.getCurrentExecutionAttempt();
+					if (ee != null) {
+						ee.notifyCheckpointAborted(checkpointId, timeStamp);
+					}
 				}
-			}
-		});
+			});
+		}
 	}
 
 	/**
@@ -1591,7 +1596,7 @@ public class CheckpointCoordinator {
 						exception, pendingCheckpoint.getCheckpointId());
 				}
 			} finally {
-				sendAbortedMessages(pendingCheckpoint.getCheckpointId(), pendingCheckpoint.getCheckpointTimestamp());
+				sendAbortedMessagesIfNecessary(pendingCheckpoint.getCheckpointId(), pendingCheckpoint.getCheckpointTimestamp());
 				pendingCheckpoints.remove(pendingCheckpoint.getCheckpointId());
 				rememberRecentCheckpointId(pendingCheckpoint.getCheckpointId());
 				timer.execute(this::executeQueuedRequest);

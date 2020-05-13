@@ -96,6 +96,11 @@ public class CheckpointConfig implements java.io.Serializable {
 	private boolean preferCheckpointForRecovery = false;
 
 	/**
+	 * Determines if sending aborted messages on checkpoint failure.
+	 */
+	private boolean sendAbortedMessagesOnFailure = true;
+
+	/**
 	 * Determines the threshold that we tolerance declined checkpoint failure number.
 	 * The default value is -1 meaning undetermined and not set via {@link #setTolerableCheckpointFailureNumber(int)}.
 	 * */
@@ -382,6 +387,24 @@ public class CheckpointConfig implements java.io.Serializable {
 	}
 
 	/**
+	 * Returns whether sending aborted messages on checkpoint failure.
+	 *
+	 * @return <code>true</code> if a job recovery should fallback to checkpoint.
+	 */
+	@PublicEvolving
+	public boolean isSendAbortedMessagesOnFailure() {
+		return sendAbortedMessagesOnFailure;
+	}
+
+	/**
+	 * Sets whether sending aborted messages on checkpoint failure.
+	 */
+	@PublicEvolving
+	public void setSendAbortedMessagesOnFailure(boolean sendAbortedMessagesOnFailure) {
+		this.sendAbortedMessagesOnFailure = sendAbortedMessagesOnFailure;
+	}
+
+	/**
 	 * Enables unaligned checkpoints, which greatly reduce checkpointing times under backpressure.
 	 *
 	 * <p>Unaligned checkpoints contain data stored in buffers as part of the checkpoint state, which allows
@@ -506,6 +529,8 @@ public class CheckpointConfig implements java.io.Serializable {
 			.ifPresent(m -> this.setMinPauseBetweenCheckpoints(m.toMillis()));
 		configuration.getOptional(ExecutionCheckpointingOptions.PREFER_CHECKPOINT_FOR_RECOVERY)
 			.ifPresent(this::setPreferCheckpointForRecovery);
+		configuration.getOptional(ExecutionCheckpointingOptions.SEND_ABORTED_MESSAGES_ON_FAILLURE)
+			.ifPresent(this::setSendAbortedMessagesOnFailure);
 		configuration.getOptional(ExecutionCheckpointingOptions.TOLERABLE_FAILURE_NUMBER)
 			.ifPresent(this::setTolerableCheckpointFailureNumber);
 		configuration.getOptional(ExecutionCheckpointingOptions.EXTERNALIZED_CHECKPOINT)

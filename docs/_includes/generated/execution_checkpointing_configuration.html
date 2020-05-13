@@ -45,6 +45,12 @@
             <td>If enabled, a job recovery should fallback to checkpoint when there is a more recent savepoint.</td>
         </tr>
         <tr>
+            <td><h5>execution.checkpointing.send-aborted-messages-on-failure</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>If enabled, sending aborted messages from checkpoint-coordinator to task side on checkpoint failure.</td>
+        </tr>
+        <tr>
             <td><h5>execution.checkpointing.timeout</h5></td>
             <td style="word-wrap: break-word;">10 min</td>
             <td>Duration</td>

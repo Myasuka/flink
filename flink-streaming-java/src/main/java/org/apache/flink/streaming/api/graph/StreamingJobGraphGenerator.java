@@ -967,6 +967,7 @@ public class StreamingJobGraphGenerator {
 				.setPreferCheckpointForRecovery(cfg.isPreferCheckpointForRecovery())
 				.setTolerableCheckpointFailureNumber(cfg.getTolerableCheckpointFailureNumber())
 				.setUnalignedCheckpointsEnabled(cfg.isUnalignedCheckpointsEnabled())
+				.setSendAbortedMessagesOnFailure(cfg.isSendAbortedMessagesOnFailure())
 				.build(),
 			serializedStateBackend,
 			serializedHooks);

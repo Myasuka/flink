@@ -61,6 +61,8 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 
 	private final boolean isPreferCheckpointForRecovery;
 
+	private final boolean isSendAbortedMessagesOnFailure;
+
 	private final boolean isUnalignedCheckpointsEnabled;
 
 	/**
@@ -87,7 +89,8 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 			isExactlyOnce,
 			isPreferCheckpointForRecovery,
 			tolerableCpFailureNumber,
-			isUnalignedCheckpoint);
+			isUnalignedCheckpoint,
+			true);
 	}
 
 	private CheckpointCoordinatorConfiguration(
@@ -99,7 +102,8 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 			boolean isExactlyOnce,
 			boolean isPreferCheckpointForRecovery,
 			int tolerableCpFailureNumber,
-			boolean isUnalignedCheckpointsEnabled) {
+			boolean isUnalignedCheckpointsEnabled,
+			boolean isSendAbortedMessagesOnFailure) {
 
 		// sanity checks
 		if (checkpointInterval < MINIMAL_CHECKPOINT_TIME || checkpointTimeout < MINIMAL_CHECKPOINT_TIME ||
@@ -117,6 +121,7 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 		this.checkpointRetentionPolicy = Preconditions.checkNotNull(checkpointRetentionPolicy);
 		this.isExactlyOnce = isExactlyOnce;
 		this.isPreferCheckpointForRecovery = isPreferCheckpointForRecovery;
+		this.isSendAbortedMessagesOnFailure = isSendAbortedMessagesOnFailure;
 		this.tolerableCheckpointFailureNumber = tolerableCpFailureNumber;
 		this.isUnalignedCheckpointsEnabled = isUnalignedCheckpointsEnabled;
 	}
@@ -149,6 +154,10 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 		return isPreferCheckpointForRecovery;
 	}
 
+	public boolean isSendAbortedMessagesOnFailure() {
+		return isSendAbortedMessagesOnFailure;
+	}
+
 	public int getTolerableCheckpointFailureNumber() {
 		return tolerableCheckpointFailureNumber;
 	}
@@ -174,6 +183,7 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 			isUnalignedCheckpointsEnabled == that.isUnalignedCheckpointsEnabled &&
 			checkpointRetentionPolicy == that.checkpointRetentionPolicy &&
 			isPreferCheckpointForRecovery == that.isPreferCheckpointForRecovery &&
+			isSendAbortedMessagesOnFailure == that.isSendAbortedMessagesOnFailure &&
 			tolerableCheckpointFailureNumber == that.tolerableCheckpointFailureNumber;
 	}
 
@@ -188,6 +198,7 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 				isExactlyOnce,
 				isUnalignedCheckpointsEnabled,
 				isPreferCheckpointForRecovery,
+				isSendAbortedMessagesOnFailure,
 				tolerableCheckpointFailureNumber);
 	}
 
@@ -202,6 +213,7 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 			", isExactlyOnce=" + isExactlyOnce +
 			", isUnalignedCheckpoint=" + isUnalignedCheckpointsEnabled +
 			", isPreferCheckpointForRecovery=" + isPreferCheckpointForRecovery +
+			", isSendAbortedMessagesOnFailure=" + isSendAbortedMessagesOnFailure +
 			", tolerableCheckpointFailureNumber=" + tolerableCheckpointFailureNumber +
 			'}';
 	}
@@ -223,6 +235,7 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 		private boolean isPreferCheckpointForRecovery = true;
 		private int tolerableCheckpointFailureNumber;
 		private boolean isUnalignedCheckpointsEnabled;
+		private boolean isSendAbortedMessagesOnFailure = true;
 
 		public CheckpointCoordinatorConfiguration build() {
 			return new CheckpointCoordinatorConfiguration(
@@ -234,7 +247,8 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 				isExactlyOnce,
 				isPreferCheckpointForRecovery,
 				tolerableCheckpointFailureNumber,
-				isUnalignedCheckpointsEnabled
+				isUnalignedCheckpointsEnabled,
+				isSendAbortedMessagesOnFailure
 			);
 		}
 
@@ -280,6 +294,11 @@ public class CheckpointCoordinatorConfiguration implements Serializable {
 
 		public CheckpointCoordinatorConfigurationBuilder setUnalignedCheckpointsEnabled(boolean unalignedCheckpointsEnabled) {
 			isUnalignedCheckpointsEnabled = unalignedCheckpointsEnabled;
+			return this;
+		}
+
+		public CheckpointCoordinatorConfigurationBuilder setSendAbortedMessagesOnFailure(boolean sendAbortedMessagesOnFailure) {
+			isSendAbortedMessagesOnFailure = sendAbortedMessagesOnFailure;
 			return this;
 		}
 	}
