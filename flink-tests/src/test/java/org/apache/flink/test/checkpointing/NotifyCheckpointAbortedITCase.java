@@ -213,33 +213,27 @@ public class NotifyCheckpointAbortedITCase extends TestLogger {
 
 		ClientUtils.submitJob(clusterClient, jobGraph);
 
-		TestingCompletedCheckpointStore.addCheckpointLatch.await(deadline.timeLeft().toMillis(), TimeUnit.MILLISECONDS);
+		TestingCompletedCheckpointStore.addCheckpointLatch.await();
 
 		Set<File> localStoredStates = new HashSet<>();
-		while (deadline.hasTimeLeft()) {
+		do {
 			// found the local state manager has stored states for checkpoint-1.
 			localStoredStates.addAll(collectLocalStoredStates());
-			if (!localStoredStates.isEmpty()) {
-				break;
-			}
-		}
+		} while (localStoredStates.isEmpty());
 
 		// let the checkpoint-1 failed finally.
 		TestingCompletedCheckpointStore.abortCheckpointLatch.trigger();
-		while (deadline.hasTimeLeft()) {
+		do {
 			// verify the local state manager has been cleaned up once notified as checkpoint-1 aborted.
 			localStoredStates.removeIf(file -> !file.exists());
-			if (localStoredStates.isEmpty()) {
-				break;
-			}
-		}
+		} while (!localStoredStates.isEmpty());
 
 		// wait for StuckAsyncCheckpointMap notified as checkpoint aborted.
-		StuckAsyncCheckpointMap.checkpointAbortedLatch.await(deadline.timeLeft().toMillis(), TimeUnit.MILLISECONDS);
+		StuckAsyncCheckpointMap.checkpointAbortedLatch.await();
 		assertTrue(stuckAsyncSnapshotStrategy.blockingRunnableFuture.isCancelled());
 
 		// verify BeforeExecuteCheckpointSink never execute checkpoint-1.
-		while (deadline.hasTimeLeft()) {
+		while (true) {
 			if (!BeforeExecuteCheckpointSink.snapshotIds.isEmpty()) {
 				if (!BeforeExecuteCheckpointSink.snapshotIds.contains(ABORTED_CHECKPOINT_ID)) {
 					break;

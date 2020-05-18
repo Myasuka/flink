@@ -48,10 +48,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.NavigableSet;
-import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -77,7 +77,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 	private final boolean unalignedCheckpointEnabled;
 	private final BiFunctionWithException<ChannelStateWriter, Long, CompletableFuture<Void>, IOException> prepareInputSnapshot;
 	/** The IDs of the checkpoint for which we are notified aborted. */
-	private final NavigableSet<Long> abortedCheckpointIds;
+	private final Deque<Long> abortedCheckpointIds;
 	private final int maxRecordAbortedCheckpoints;
 	private long lastCheckpointId;
 
@@ -125,7 +125,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 		this.channelStateWriter = unalignedCheckpointEnabled ? openChannelStateWriter() : ChannelStateWriter.NO_OP;
 		this.unalignedCheckpointEnabled = unalignedCheckpointEnabled;
 		this.prepareInputSnapshot = prepareInputSnapshot;
-		this.abortedCheckpointIds = new TreeSet<>();
+		this.abortedCheckpointIds = new ArrayDeque<>();
 		this.maxRecordAbortedCheckpoints = maxRecordAbortedCheckpoints;
 		this.lastCheckpointId = -1L;
 		closeableRegistry.registerCloseable(this);
@@ -244,7 +244,7 @@ class SubtaskCheckpointCoordinatorImpl implements SubtaskCheckpointCoordinator {
 			LOG.debug("Notification of aborted checkpoint for task {}", taskName);
 			// only happens when the task always received checkpoints to abort but never trigger or executing.
 			if (abortedCheckpointIds.size() >= maxRecordAbortedCheckpoints) {
-				abortedCheckpointIds.pollFirst();
+				abortedCheckpointIds.poll();
 			}
 
 			channelStateWriter.abort(checkpointId, new NotifiedCheckpointAbortedException(checkpointId));

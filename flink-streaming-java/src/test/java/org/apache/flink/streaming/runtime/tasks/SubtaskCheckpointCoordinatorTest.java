@@ -56,7 +56,6 @@ import java.util.concurrent.TimeUnit;
 import static org.apache.flink.runtime.checkpoint.CheckpointType.SAVEPOINT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -192,17 +191,10 @@ public class SubtaskCheckpointCoordinatorTest {
 		rawKeyedStateHandleFuture.awaitRun();
 		assertEquals(1, subtaskCheckpointCoordinator.getAsyncCheckpointRunnableSize());
 		assertFalse(rawKeyedStateHandleFuture.isCancelled());
-		assertNotNull(subtaskCheckpointCoordinator.getChannelStateWriter().getWriteResult(checkpointId));
 
 		subtaskCheckpointCoordinator.notifyCheckpointAborted(checkpointId, operatorChain, () -> true);
 		assertTrue(rawKeyedStateHandleFuture.isCancelled());
 		assertEquals(0, subtaskCheckpointCoordinator.getAsyncCheckpointRunnableSize());
-		try {
-			subtaskCheckpointCoordinator.getChannelStateWriter().getWriteResult(checkpointId);
-			fail();
-		} catch (IllegalArgumentException expected) {
-			// excepted IllegalArgumentException as this checkpoint has not been executed in channel state writer.
-		}
 	}
 
 	@Test
