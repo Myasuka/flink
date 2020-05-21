@@ -142,7 +142,7 @@ public class CheckpointingOptions {
 	@Documentation.Section(Documentation.Sections.EXPERT_STATE_BACKENDS)
 	public static final ConfigOption<Integer> FS_SMALL_FILE_THRESHOLD = ConfigOptions
 			.key("state.backend.fs.memory-threshold")
-			.defaultValue(1024)
+			.defaultValue(20 * 1024)
 			.withDescription("The minimum size of state data files. All state chunks smaller than that are stored" +
 				" inline in the root checkpoint metadata file.");
 
