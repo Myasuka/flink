@@ -1,0 +1,209 @@
+[INFO] Scanning for projects...
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for org.apache.flink:flink-statebackend-rocksdb_2.11:jar:1.12-SNAPSHOT
+[WARNING] 'artifactId' contains an expression but should be a constant. @ org.apache.flink:flink-statebackend-rocksdb_${scala.binary.version}:[unknown-version], /Users/myasuka/Documents/GitHub/flink/flink-state-backends/flink-statebackend-rocksdb/pom.xml, line 34, column 14
+[WARNING] 
+[WARNING] It is highly recommended to fix these problems because they threaten the stability of your build.
+[WARNING] 
+[WARNING] For this reason, future Maven versions might no longer support building such malformed projects.
+[WARNING] 
+[INFO]                                                                         
+[INFO] ------------------------------------------------------------------------
+[INFO] Building flink-statebackend-rocksdb 1.12-SNAPSHOT
+[INFO] ------------------------------------------------------------------------
+[INFO] 
+[INFO] --- maven-checkstyle-plugin:2.17:check (validate) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-enforcer-plugin:3.0.0-M1:enforce (enforce-maven-version) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-enforcer-plugin:3.0.0-M1:enforce (enforce-maven) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-enforcer-plugin:3.0.0-M1:enforce (ban-unsafe-jackson) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-enforcer-plugin:3.0.0-M1:enforce (forbid-log4j-1) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-enforcer-plugin:3.0.0-M1:enforce (enforce-versions) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- directory-maven-plugin:0.1:highest-basedir (directories) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] Highest basedir set to: /Users/myasuka/Documents/GitHub/flink
+[INFO] 
+[INFO] --- maven-remote-resources-plugin:1.5:process (process-resource-bundles) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] --- maven-resources-plugin:3.1.0:resources (default-resources) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /Users/myasuka/Documents/GitHub/flink/flink-state-backends/flink-statebackend-rocksdb/src/main/resources
+[INFO] Copying 3 resources
+[INFO] 
+[INFO] --- maven-compiler-plugin:3.8.0:compile (default-compile) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- maven-resources-plugin:3.1.0:testResources (default-testResources) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Copying 1 resource
+[INFO] Copying 3 resources
+[INFO] 
+[INFO] --- maven-compiler-plugin:3.8.0:testCompile (default-testCompile) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- maven-surefire-plugin:2.22.1:test (default-test) @ flink-statebackend-rocksdb_2.11 ---
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running org.apache.flink.contrib.streaming.state.benchmark.StateBackendBenchmarkUtilsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBWriteBatchWrapperTest
+[INFO] Running org.apache.flink.contrib.streaming.state.benchmark.RocksDBWriteBatchPerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.benchmark.RocksDBPerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.benchmark.RocksDBListStatePerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateDownloaderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDbMultiClassLoaderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBOptionsFactoryCompatibilityTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.548 s - in org.apache.flink.contrib.streaming.state.RocksDBWriteBatchWrapperTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateUploaderTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.8 s - in org.apache.flink.contrib.streaming.state.RocksDBOptionsFactoryCompatibilityTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.845 s - in org.apache.flink.contrib.streaming.state.RocksDBStateDownloaderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.ttl.IncSnapshotRocksDbTtlStateTest
+[INFO] Running org.apache.flink.contrib.streaming.state.ttl.FullSnapshotRocksDbTtlStateTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.149 s - in org.apache.flink.contrib.streaming.state.benchmark.RocksDBListStatePerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksIncrementalCheckpointRescalingTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.203 s - in org.apache.flink.contrib.streaming.state.RocksDBStateUploaderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBAsyncSnapshotTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.033 s - in org.apache.flink.contrib.streaming.state.benchmark.RocksDBWriteBatchPerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBNativeMetricMonitorTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.128 s - in org.apache.flink.contrib.streaming.state.RocksDbMultiClassLoaderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBKeySerializationUtilsTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.157 s - in org.apache.flink.contrib.streaming.state.RocksDBNativeMetricMonitorTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBResourceContainerTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.106 s - in org.apache.flink.contrib.streaming.state.RocksDBKeySerializationUtilsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBSerializedCompositeKeyBuilderTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.016 s - in org.apache.flink.contrib.streaming.state.RocksDBSerializedCompositeKeyBuilderTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.135 s - in org.apache.flink.contrib.streaming.state.RocksDBResourceContainerTest
+[ERROR] Tests run: 3, Failures: 0, Errors: 2, Skipped: 0, Time elapsed: 0.045 s <<< FAILURE! - in org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBPropertyTest
+[ERROR] testMergeIteratorShort(org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest)  Time elapsed: 0.031 s  <<< ERROR!
+java.lang.UnsatisfiedLinkError: org.rocksdb.ReadOptions.newReadOptions()J
+	at org.rocksdb.ReadOptions.newReadOptions(Native Method)
+	at org.rocksdb.ReadOptions.<init>(ReadOptions.java:16)
+	at org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIterator(RocksKeyGroupsRocksSingleStateIteratorTest.java:78)
+	at org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIteratorShort(RocksKeyGroupsRocksSingleStateIteratorTest.java:72)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:48)
+	at org.junit.rules.RunRules.evaluate(RunRules.java:20)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.execute(JUnit4Provider.java:365)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.executeWithRerun(JUnit4Provider.java:273)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.executeTestSet(JUnit4Provider.java:238)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.invoke(JUnit4Provider.java:159)
+	at org.apache.maven.surefire.booter.ForkedBooter.invokeProviderInSameClassLoader(ForkedBooter.java:384)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:345)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:126)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:418)
+
+[ERROR] testMergeIteratorByte(org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest)  Time elapsed: 0 s  <<< ERROR!
+java.lang.UnsatisfiedLinkError: org.rocksdb.ReadOptions.newReadOptions()J
+	at org.rocksdb.ReadOptions.newReadOptions(Native Method)
+	at org.rocksdb.ReadOptions.<init>(ReadOptions.java:16)
+	at org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIterator(RocksKeyGroupsRocksSingleStateIteratorTest.java:78)
+	at org.apache.flink.contrib.streaming.state.RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIteratorByte(RocksKeyGroupsRocksSingleStateIteratorTest.java:65)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:48)
+	at org.junit.rules.RunRules.evaluate(RunRules.java:20)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.execute(JUnit4Provider.java:365)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.executeWithRerun(JUnit4Provider.java:273)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.executeTestSet(JUnit4Provider.java:238)
+	at org.apache.maven.surefire.junit4.JUnit4Provider.invoke(JUnit4Provider.java:159)
+	at org.apache.maven.surefire.booter.ForkedBooter.invokeProviderInSameClassLoader(ForkedBooter.java:384)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:345)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:126)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:418)
+
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBOperationsUtilsTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.026 s - in org.apache.flink.contrib.streaming.state.RocksDBPropertyTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBInitTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.498 s - in org.apache.flink.contrib.streaming.state.benchmark.StateBackendBenchmarkUtilsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateMisuseOptionTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.708 s - in org.apache.flink.contrib.streaming.state.benchmark.RocksDBPerformanceTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateBackendTest
+[WARNING] Tests run: 1, Failures: 0, Errors: 0, Skipped: 1, Time elapsed: 0.723 s - in org.apache.flink.contrib.streaming.state.RocksDBOperationsUtilsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBIncrementalCheckpointUtilsTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.695 s - in org.apache.flink.contrib.streaming.state.RocksDBStateMisuseOptionTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateBackendMigrationTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.287 s - in org.apache.flink.contrib.streaming.state.RocksIncrementalCheckpointRescalingTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateBackendFactoryTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.015 s - in org.apache.flink.contrib.streaming.state.RocksDBStateBackendFactoryTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBRocksStateKeysIteratorTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.576 s - in org.apache.flink.contrib.streaming.state.RocksDBIncrementalCheckpointUtilsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBNativeMetricOptionsTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.018 s - in org.apache.flink.contrib.streaming.state.RocksDBNativeMetricOptionsTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBMemoryControllerUtilsTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.149 s - in org.apache.flink.contrib.streaming.state.RocksDBRocksStateKeysIteratorTest
+[INFO] Running org.apache.flink.contrib.streaming.state.RocksDBStateBackendConfigTest
+[INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.843 s - in org.apache.flink.contrib.streaming.state.RocksDBStateBackendConfigTest
+[INFO] Running org.apache.flink.contrib.streaming.state.KeyGroupPartitionedPriorityQueueWithRocksDBStoreTest
+[INFO] Tests run: 58, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.365 s - in org.apache.flink.contrib.streaming.state.RocksDBStateBackendMigrationTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.138 s - in org.apache.flink.contrib.streaming.state.RocksDBMemoryControllerUtilsTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.798 s - in org.apache.flink.contrib.streaming.state.KeyGroupPartitionedPriorityQueueWithRocksDBStoreTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.67 s - in org.apache.flink.contrib.streaming.state.RocksDBAsyncSnapshotTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.367 s - in org.apache.flink.contrib.streaming.state.RocksDBInitTest
+[WARNING] Tests run: 153, Failures: 0, Errors: 0, Skipped: 14, Time elapsed: 26.308 s - in org.apache.flink.contrib.streaming.state.ttl.FullSnapshotRocksDbTtlStateTest
+[WARNING] Tests run: 153, Failures: 0, Errors: 0, Skipped: 32, Time elapsed: 28.298 s - in org.apache.flink.contrib.streaming.state.ttl.IncSnapshotRocksDbTtlStateTest
+[INFO] Tests run: 144, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 125.345 s - in org.apache.flink.contrib.streaming.state.RocksDBStateBackendTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[ERROR] Errors: 
+[ERROR]   RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIteratorByte:65->testMergeIterator:78 » UnsatisfiedLink
+[ERROR]   RocksKeyGroupsRocksSingleStateIteratorTest.testMergeIteratorShort:72->testMergeIterator:78 » UnsatisfiedLink
+[INFO] 
+[ERROR] Tests run: 610, Failures: 0, Errors: 2, Skipped: 47
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time: 02:17 min
+[INFO] Finished at: 2020-06-18T17:35:39+08:00
+[INFO] Final Memory: 30M/610M
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:2.22.1:test (default-test) on project flink-statebackend-rocksdb_2.11: There are test failures.
+[ERROR] 
+[ERROR] Please refer to /Users/myasuka/Documents/GitHub/flink/flink-state-backends/flink-statebackend-rocksdb/target/surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
