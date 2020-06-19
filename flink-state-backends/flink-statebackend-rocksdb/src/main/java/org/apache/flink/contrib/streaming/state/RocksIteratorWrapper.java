@@ -27,6 +27,7 @@ import org.rocksdb.RocksIteratorInterface;
 import javax.annotation.Nonnull;
 
 import java.io.Closeable;
+import java.nio.ByteBuffer;
 
 /**
  * This is a wrapper around {@link RocksIterator} to check the iterator status for all the methods mentioned
@@ -71,6 +72,16 @@ public class RocksIteratorWrapper implements RocksIteratorInterface, Closeable {
 	public void seekForPrev(byte[] target) {
 		iterator.seekForPrev(target);
 		status();
+	}
+
+	@Override
+	public void seek(ByteBuffer byteBuffer) {
+
+	}
+
+	@Override
+	public void seekForPrev(ByteBuffer byteBuffer) {
+
 	}
 
 	@Override
