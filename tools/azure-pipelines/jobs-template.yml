@@ -103,6 +103,14 @@ jobs:
         module: core
       core7:
         module: core
+      core8:
+        module: core
+      core9:
+        module: core
+      core10:
+        module: core
+      core11:
+        module: core
   steps:
   # if on Azure, free up disk space
   - script: ./tools/azure-pipelines/free_disk_space.sh
