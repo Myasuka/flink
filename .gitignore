@@ -25,6 +25,9 @@ flink-formats/flink-parquet/src/test/java/org/apache/flink/formats/parquet/gener
 flink-runtime-web/web-dashboard/node/
 flink-runtime-web/web-dashboard/node_modules/
 flink-runtime-web/web-dashboard/web/
+flink-state-backends/flink-statebackend-rocksdb/build*
+flink-state-backends/flink-statebackend-rocksdb/result*
+flink-state-backends/flink-statebackend-rocksdb/*out
 flink-python/dist/
 flink-python/build/
 flink-python/pyflink.egg-info/
