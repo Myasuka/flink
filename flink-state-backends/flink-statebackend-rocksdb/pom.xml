@@ -57,7 +57,7 @@ under the License.
 		<dependency>
 			<groupId>io.github.myasuka</groupId>
 			<artifactId>frocksdbjni</artifactId>
-			<version>5.17.2-artisans-2.0-debug</version>
+			<version>5.17.2-artisans-2.0-debug2</version>
 		</dependency>
 
 		<!-- test dependencies -->
