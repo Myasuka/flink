@@ -71,8 +71,9 @@ public class RocksDBStateMisuseOptionTest {
 	@Test
 	public void testMisuseOptimizePointLookupWithMapState() throws Exception {
 		RocksDBStateBackend rocksDBStateBackend = createStateBackendWithOptimizePointLookup();
-		try (RocksDBKeyedStateBackend<Integer> keyedStateBackend =
-				createKeyedStateBackend(rocksDBStateBackend, new MockEnvironmentBuilder().build(), IntSerializer.INSTANCE)) {
+		RocksDBKeyedStateBackend<Integer> keyedStateBackend =
+			createKeyedStateBackend(rocksDBStateBackend, new MockEnvironmentBuilder().build(), IntSerializer.INSTANCE);
+		try {
 			MapStateDescriptor<Integer, Long> stateDescriptor = new MapStateDescriptor<>("map", IntSerializer.INSTANCE, LongSerializer.INSTANCE);
 			MapState<Integer, Long> mapState = keyedStateBackend.getPartitionedState(VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, stateDescriptor);
 
@@ -92,6 +93,8 @@ public class RocksDBStateMisuseOptionTest {
 			}
 			assertTrue(expectedResult.isEmpty());
 			assertTrue(mapState.isEmpty());
+		} finally {
+			keyedStateBackend.dispose();
 		}
 	}
 
@@ -103,8 +106,9 @@ public class RocksDBStateMisuseOptionTest {
 	@Test
 	public void testMisuseOptimizePointLookupWithPriorityQueue() throws IOException {
 		RocksDBStateBackend rocksDBStateBackend = createStateBackendWithOptimizePointLookup();
-		try (RocksDBKeyedStateBackend<Integer> keyedStateBackend =
-				createKeyedStateBackend(rocksDBStateBackend, new MockEnvironmentBuilder().build(), IntSerializer.INSTANCE)) {
+		RocksDBKeyedStateBackend<Integer> keyedStateBackend =
+			createKeyedStateBackend(rocksDBStateBackend, new MockEnvironmentBuilder().build(), IntSerializer.INSTANCE);
+		try {
 			KeyGroupedInternalPriorityQueue<TimerHeapInternalTimer<Integer, VoidNamespace>> priorityQueue =
 				keyedStateBackend.create("timer", new TimerSerializer<>(keyedStateBackend.getKeySerializer(), VoidNamespaceSerializer.INSTANCE));
 
@@ -125,6 +129,8 @@ public class RocksDBStateMisuseOptionTest {
 			}
 			assertTrue(expectedPriorityQueue.isEmpty());
 			assertTrue(priorityQueue.isEmpty());
+		} finally {
+			keyedStateBackend.dispose();
 		}
 
 	}
