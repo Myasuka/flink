@@ -195,7 +195,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 	 * to store state. The different k/v states that we have don't each have their own RocksDB
 	 * instance. They all write to this instance but to their own column family.
 	 */
-	protected final RocksDB db;
+	protected final RocksDBWrapper db;
 
 	// mark whether this backend is already disposed and prevent duplicate disposing
 	private boolean disposed = false;
@@ -211,7 +211,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 		TypeSerializer<K> keySerializer,
 		ExecutionConfig executionConfig,
 		TtlTimeProvider ttlTimeProvider,
-		RocksDB db,
+		RocksDBWrapper db,
 		LinkedHashMap<String, RocksDbKvStateInfo> kvStateInformation,
 		int keyGroupPrefixBytes,
 		CloseableRegistry cancelStreamRegistry,
@@ -290,7 +290,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 			throw new FlinkRuntimeException("Failed to get keys from RocksDB state backend.", ex);
 		}
 
-		RocksIteratorWrapper iterator = RocksDBOperationUtils.getRocksIterator(db, columnInfo.columnFamilyHandle);
+		RocksIteratorWrapper iterator = RocksDBOperationUtils.getRocksIterator(db.getDb(), columnInfo.columnFamilyHandle);
 		iterator.seekToFirst();
 
 		final RocksStateKeysIterator<K> iteratorWrapper = new RocksStateKeysIterator<>(iterator, state, getKeySerializer(), keyGroupPrefixBytes,
@@ -505,9 +505,9 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 				StateSnapshotTransformFactory.noTransform());
 
 			newRocksStateInfo = RocksDBOperationUtils.createStateInfo(
-				newMetaInfo, db, columnFamilyOptionsFactory, ttlCompactFiltersManager);
+				newMetaInfo, db.getDb(), columnFamilyOptionsFactory, ttlCompactFiltersManager);
 			RocksDBOperationUtils.registerKvStateInformation(this.kvStateInformation, this.nativeMetricMonitor,
-				stateDesc.getName(), newRocksStateInfo);
+				this.db.getAccessMetric(), stateDesc.getName(), newRocksStateInfo);
 		}
 
 		StateSnapshotTransformFactory<SV> wrappedSnapshotTransformFactory = wrapStateSnapshotTransformFactory(
@@ -597,10 +597,10 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 		@SuppressWarnings("unchecked")
 		AbstractRocksDBState<?, ?, SV> rocksDBState = (AbstractRocksDBState<?, ?, SV>) state;
 
-		Snapshot rocksDBSnapshot = db.getSnapshot();
+		Snapshot rocksDBSnapshot = db.getDb().getSnapshot();
 		try (
-			RocksIteratorWrapper iterator = RocksDBOperationUtils.getRocksIterator(db, stateMetaInfo.f0);
-			RocksDBWriteBatchWrapper batchWriter = new RocksDBWriteBatchWrapper(db, getWriteOptions(), getWriteBatchSize())
+			RocksIteratorWrapper iterator = RocksDBOperationUtils.getRocksIterator(db.getDb(), stateMetaInfo.f0);
+			RocksDBWriteBatchWrapper batchWriter = new RocksDBWriteBatchWrapper(db.getDb(), getWriteOptions(), getWriteBatchSize())
 		) {
 			iterator.seekToFirst();
 
@@ -621,7 +621,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 				iterator.next();
 			}
 		} finally {
-			db.releaseSnapshot(rocksDBSnapshot);
+			db.getDb().releaseSnapshot(rocksDBSnapshot);
 			rocksDBSnapshot.close();
 		}
 	}
@@ -674,7 +674,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 
 		for (RocksDbKvStateInfo metaInfo : kvStateInformation.values()) {
 			//TODO maybe filterOrTransform only for k/v states
-			try (RocksIteratorWrapper rocksIterator = RocksDBOperationUtils.getRocksIterator(db, metaInfo.columnFamilyHandle)) {
+			try (RocksIteratorWrapper rocksIterator = RocksDBOperationUtils.getRocksIterator(db.getDb(), metaInfo.columnFamilyHandle)) {
 				rocksIterator.seekToFirst();
 
 				while (rocksIterator.isValid()) {
@@ -713,7 +713,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 	@VisibleForTesting
 	public void compactState(StateDescriptor<?, ?> stateDesc) throws RocksDBException {
 		RocksDbKvStateInfo kvStateInfo = kvStateInformation.get(stateDesc.getName());
-		db.compactRange(kvStateInfo.columnFamilyHandle);
+		db.getDb().compactRange(kvStateInfo.columnFamilyHandle);
 	}
 
 	@Nonnegative

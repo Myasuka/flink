@@ -39,12 +39,15 @@ import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.SharedStateRegistryFactory;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.util.Collection;
+
+import static org.apache.flink.runtime.state.SharedStateRegistry.DEFAULT_FACTORY;
 
 /** mack state backend. */
 public class MockStateBackend extends AbstractStateBackend {
@@ -83,7 +86,7 @@ public class MockStateBackend extends AbstractStateBackend {
 				return new CheckpointStorageLocation() {
 
 					@Override
-					public CheckpointStateOutputStream createCheckpointStateOutputStream(CheckpointedStateScope scope) {
+					public CheckpointStateOutputStream createCheckpointStateOutputStream(long checkpointId, CheckpointedStateScope scope) {
 						return null;
 					}
 
@@ -154,5 +157,10 @@ public class MockStateBackend extends AbstractStateBackend {
 		@Nonnull Collection<OperatorStateHandle> stateHandles,
 		CloseableRegistry cancelStreamRegistry) {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public SharedStateRegistryFactory getSharedStateRegistryFactory() {
+		return DEFAULT_FACTORY;
 	}
 }

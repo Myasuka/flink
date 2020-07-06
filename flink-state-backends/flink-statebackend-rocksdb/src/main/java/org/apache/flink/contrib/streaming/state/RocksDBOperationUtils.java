@@ -95,22 +95,31 @@ public class RocksDBOperationUtils {
 	}
 
 	public static RocksIteratorWrapper getRocksIterator(RocksDB db) {
-		return new RocksIteratorWrapper(db.newIterator());
+		return new RocksIteratorWrapper(db.newIterator(), null, null);
 	}
 
 	public static RocksIteratorWrapper getRocksIterator(RocksDB db, ColumnFamilyHandle columnFamilyHandle) {
-		return new RocksIteratorWrapper(db.newIterator(columnFamilyHandle));
+		return new RocksIteratorWrapper(db.newIterator(columnFamilyHandle), null, null);
+	}
+
+	public static RocksIteratorWrapper getRocksIterator(RocksDBWrapper db, ColumnFamilyHandleWrapper columnFamilyHandle) {
+		return new RocksIteratorWrapper(db.getDb().newIterator(columnFamilyHandle.getColumnFamilyHandle()), db.getAccessMetric(), columnFamilyHandle);
 	}
 
 	public static void registerKvStateInformation(
 		Map<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation,
 		RocksDBNativeMetricMonitor nativeMetricMonitor,
+		RocksDBAccessMetric accessMetric,
 		String columnFamilyName,
 		RocksDBKeyedStateBackend.RocksDbKvStateInfo registeredColumn) {
 
 		kvStateInformation.put(columnFamilyName, registeredColumn);
 		if (nativeMetricMonitor != null) {
 			nativeMetricMonitor.registerColumnFamily(columnFamilyName, registeredColumn.columnFamilyHandle);
+		}
+
+		if (accessMetric != null) {
+			accessMetric.registerColumnFamily(columnFamilyName, registeredColumn.columnFamilyHandle);
 		}
 	}
 

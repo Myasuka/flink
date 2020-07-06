@@ -24,7 +24,10 @@ import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
 import org.apache.flink.runtime.checkpoint.MasterState;
 import org.apache.flink.runtime.checkpoint.OperatorState;
+
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -37,9 +40,12 @@ import java.util.Random;
 import static org.junit.Assert.assertEquals;
 
 /**
- * Various tests for the version 2 format serializer of a checkpoint. 
+ * Various tests for the version 2 format serializer of a checkpoint.
  */
 public class SavepointV2SerializerTest {
+
+	@Rule
+	public TemporaryFolder folder = new TemporaryFolder();
 
 	@Test
 	public void testCheckpointWithNoState() throws Exception {
@@ -65,7 +71,7 @@ public class SavepointV2SerializerTest {
 			final Collection<OperatorState> operatorStates = Collections.emptyList();
 
 			final int numMasterStates = rnd.nextInt(maxNumMasterStates) + 1;
-			final Collection<MasterState> masterStates = 
+			final Collection<MasterState> masterStates =
 					CheckpointTestUtils.createRandomMasterStates(rnd, numMasterStates);
 
 			testCheckpointSerialization(checkpointId, operatorStates, masterStates);
@@ -83,8 +89,8 @@ public class SavepointV2SerializerTest {
 
 			final int numTasks = rnd.nextInt(maxTaskStates) + 1;
 			final int numSubtasks = rnd.nextInt(maxNumSubtasks) + 1;
-			final Collection<OperatorState> taskStates = 
-					CheckpointTestUtils.createOperatorStates(rnd, numTasks, numSubtasks);
+			final Collection<OperatorState> taskStates =
+					CheckpointTestUtils.createOperatorStates(rnd, numTasks, numSubtasks, folder);
 
 			final Collection<MasterState> masterStates = Collections.emptyList();
 
@@ -106,7 +112,7 @@ public class SavepointV2SerializerTest {
 			final int numTasks = rnd.nextInt(maxTaskStates) + 1;
 			final int numSubtasks = rnd.nextInt(maxNumSubtasks) + 1;
 			final Collection<OperatorState> taskStates =
-					CheckpointTestUtils.createOperatorStates(rnd, numTasks, numSubtasks);
+					CheckpointTestUtils.createOperatorStates(rnd, numTasks, numSubtasks, folder);
 
 			final int numMasterStates = rnd.nextInt(maxNumMasterStates) + 1;
 			final Collection<MasterState> masterStates =
@@ -139,8 +145,7 @@ public class SavepointV2SerializerTest {
 
 		assertEquals(masterStates.size(), deserialized.getMasterStates().size());
 		for (Iterator<MasterState> a = masterStates.iterator(), b = deserialized.getMasterStates().iterator();
-				a.hasNext();)
-		{
+				a.hasNext();) {
 			CheckpointTestUtils.assertMasterStateEquality(a.next(), b.next());
 		}
 	}

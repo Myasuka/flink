@@ -41,8 +41,10 @@ import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.LocalRecoveryConfig;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.SharedStateRegistryFactory;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
+import org.apache.flink.runtime.state.filesystem.FsSegmentStateBackend;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 import org.apache.flink.util.AbstractID;
@@ -75,6 +77,8 @@ import static org.apache.flink.contrib.streaming.state.RocksDBConfigurableOption
 import static org.apache.flink.contrib.streaming.state.RocksDBOptions.CHECKPOINT_TRANSFER_THREAD_NUM;
 import static org.apache.flink.contrib.streaming.state.RocksDBOptions.TIMER_SERVICE_FACTORY;
 import static org.apache.flink.contrib.streaming.state.RocksDBOptions.TTL_COMPACT_FILTER_ENABLED;
+import static org.apache.flink.runtime.state.SharedSegmentStateRegistry.SEGMENT_STATE_FACTORY;
+import static org.apache.flink.runtime.state.SharedStateRegistry.DEFAULT_FACTORY;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -159,6 +163,9 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	/** The default rocksdb metrics options. */
 	private final RocksDBNativeMetricOptions defaultMetricOptions;
 
+	/** The options to track rocksdb latency. */
+	private final RocksDBAccessMetric.Builder accessMetricBuilder;
+
 	// -- runtime values, set on TaskManager when initializing / using the backend
 
 	/** Base paths for RocksDB directory, as initialized. */
@@ -192,7 +199,7 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	 * @param checkpointDataUri The URI describing the filesystem and path to the checkpoint data directory.
 	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
 	 */
-	public RocksDBStateBackend(String checkpointDataUri) throws IOException {
+	public RocksDBStateBackend(String checkpointDataUri) {
 		this(new Path(checkpointDataUri).toUri());
 	}
 
@@ -209,8 +216,26 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	 * @param enableIncrementalCheckpointing True if incremental checkpointing is enabled.
 	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
 	 */
-	public RocksDBStateBackend(String checkpointDataUri, boolean enableIncrementalCheckpointing) throws IOException {
+	public RocksDBStateBackend(String checkpointDataUri, boolean enableIncrementalCheckpointing) {
 		this(new Path(checkpointDataUri).toUri(), enableIncrementalCheckpointing);
+	}
+
+	/**
+	 * Creates a new {@code RocksDBStateBackend} that stores its checkpoint data in the
+	 * file system and location defined by the given URI.
+	 *
+	 * <p>A state backend that stores checkpoints in HDFS or S3 must specify the file system
+	 * host and port in the URI, or have the Hadoop configuration that describes the file system
+	 * (host / high-availability group / possibly credentials) either referenced from the Flink
+	 * config, or included in the classpath.
+	 *
+	 * @param checkpointDataUri The URI describing the filesystem and path to the checkpoint data directory.
+	 * @param enableIncrementalCheckpointing True if incremental checkpointing is enabled.
+	 * @param useSegmentStreamFactory True if we use FsSegmentStateBackend, otherwise will use FsStateBackend.
+	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
+	 */
+	public RocksDBStateBackend(String checkpointDataUri, boolean enableIncrementalCheckpointing, boolean useSegmentStreamFactory) {
+		this(new Path(checkpointDataUri).toUri(), enableIncrementalCheckpointing, useSegmentStreamFactory);
 	}
 
 	/**
@@ -225,7 +250,7 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	 * @param checkpointDataUri The URI describing the filesystem and path to the checkpoint data directory.
 	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
 	 */
-	public RocksDBStateBackend(URI checkpointDataUri) throws IOException {
+	public RocksDBStateBackend(URI checkpointDataUri) {
 		this(new FsStateBackend(checkpointDataUri));
 	}
 
@@ -242,8 +267,29 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	 * @param enableIncrementalCheckpointing True if incremental checkpointing is enabled.
 	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
 	 */
-	public RocksDBStateBackend(URI checkpointDataUri, boolean enableIncrementalCheckpointing) throws IOException {
+	@SuppressWarnings("deprecation")
+	public RocksDBStateBackend(URI checkpointDataUri, boolean enableIncrementalCheckpointing) {
 		this(new FsStateBackend(checkpointDataUri), enableIncrementalCheckpointing);
+	}
+
+	/**
+	 * Creates a new {@code RocksDBStateBackend} that stores its checkpoint data in the
+	 * file system and location defined by the given URI.
+	 *
+	 * <p>A state backend that stores checkpoints in HDFS or S3 must specify the file system
+	 * host and port in the URI, or have the Hadoop configuration that describes the file system
+	 * (host / high-availability group / possibly credentials) either referenced from the Flink
+	 * config, or included in the classpath.
+	 *
+	 * @param checkpointDataUri The URI describing the filesystem and path to the checkpoint data directory.
+	 * @param enableIncrementalCheckpointing True if incremental checkpointing is enabled.
+	 * @param contactCheckpointStream True if we use FsSegmentStateBackend, otherwise will use FsStateBackend.
+	 * @throws IOException Thrown, if no file system can be found for the scheme in the URI.
+	 */
+	@SuppressWarnings("deprecation")
+	public RocksDBStateBackend(URI checkpointDataUri, boolean enableIncrementalCheckpointing, boolean contactCheckpointStream) {
+		this(contactCheckpointStream ? new FsSegmentStateBackend(checkpointDataUri) : new FsStateBackend(checkpointDataUri),
+			enableIncrementalCheckpointing);
 	}
 
 	/**
@@ -276,6 +322,7 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 		this.enableIncrementalCheckpointing = enableIncrementalCheckpointing;
 		this.numberOfTransferThreads = UNDEFINED_NUMBER_OF_TRANSFER_THREADS;
 		this.defaultMetricOptions = new RocksDBNativeMetricOptions();
+		this.accessMetricBuilder = new RocksDBAccessMetric.Builder();
 		this.enableTtlCompactionFilter = TernaryBoolean.UNDEFINED;
 		this.memoryConfiguration = new RocksDBMemoryConfiguration();
 		this.writeBatchSize = UNDEFINED_WRITE_BATCH_SIZE;
@@ -310,15 +357,16 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 		this.checkpointStreamBackend = originalStreamBackend instanceof ConfigurableStateBackend ?
 				((ConfigurableStateBackend) originalStreamBackend).configure(config, classLoader) :
 				originalStreamBackend;
+		LOG.info("Configured with checkpoint stream backend: {}.", checkpointStreamBackend);
 
 		// configure incremental checkpoints
 		this.enableIncrementalCheckpointing = original.enableIncrementalCheckpointing.resolveUndefined(
 			config.getBoolean(CheckpointingOptions.INCREMENTAL_CHECKPOINTS));
 
 		if (original.numberOfTransferThreads == UNDEFINED_NUMBER_OF_TRANSFER_THREADS) {
-			this.numberOfTransferThreads = config.getInteger(CHECKPOINT_TRANSFER_THREAD_NUM);
+			this.numberOfTransferThreads = getValidNumberOfTransferThreads(config.getInteger(CHECKPOINT_TRANSFER_THREAD_NUM));
 		} else {
-			this.numberOfTransferThreads = original.numberOfTransferThreads;
+			this.numberOfTransferThreads = getValidNumberOfTransferThreads(original.numberOfTransferThreads);
 		}
 
 		if (original.writeBatchSize == UNDEFINED_WRITE_BATCH_SIZE) {
@@ -359,6 +407,7 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 
 		// configure metric options
 		this.defaultMetricOptions = RocksDBNativeMetricOptions.fromConfig(config);
+		this.accessMetricBuilder = RocksDBAccessMetric.builderFromConfig(config);
 
 		// configure RocksDB predefined options
 		this.predefinedOptions = original.predefinedOptions == null ?
@@ -375,6 +424,15 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 		} catch (DynamicCodeLoadingException e) {
 			throw new FlinkRuntimeException(e);
 		}
+	}
+
+	private int getValidNumberOfTransferThreads(int numberOfTransferThreads) {
+		if (checkpointStreamBackend instanceof FsSegmentStateBackend && numberOfTransferThreads > 1) {
+			LOG.warn("When contacting checkpoint-stream is enabled, the number of transfer threads cannot be larger than 1." +
+				" Disable multi number of transferring.");
+			return 1;
+		}
+		return numberOfTransferThreads;
 	}
 
 	// ------------------------------------------------------------------------
@@ -544,6 +602,7 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 			.setEnableTtlCompactionFilter(isTtlCompactionFilterEnabled())
 			.setNumberOfTransferingThreads(getNumberOfTransferThreads())
 			.setNativeMetricOptions(resourceContainer.getMemoryWatcherOptions(defaultMetricOptions))
+			.setAccessMetricBuilder(accessMetricBuilder)
 			.setWriteBatchSize(getWriteBatchSize());
 		return builder.build();
 	}
@@ -563,6 +622,15 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 			asyncSnapshots,
 			stateHandles,
 			cancelStreamRegistry).build();
+	}
+
+	@Override
+	public SharedStateRegistryFactory getSharedStateRegistryFactory() {
+		if (checkpointStreamBackend instanceof FsSegmentStateBackend) {
+			return SEGMENT_STATE_FACTORY;
+		} else {
+			return DEFAULT_FACTORY;
+		}
 	}
 
 	private RocksDBOptionsFactory configureOptionsFactory(

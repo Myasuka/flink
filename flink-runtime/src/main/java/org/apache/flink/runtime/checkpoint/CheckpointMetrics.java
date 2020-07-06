@@ -18,9 +18,9 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import static org.apache.flink.util.Preconditions.checkArgument;
-
 import java.io.Serializable;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
  * A collection of simple metrics, around the triggering of a checkpoint.
@@ -29,16 +29,16 @@ public class CheckpointMetrics implements Serializable {
 
 	private static final long serialVersionUID = 1L;
 
-	/** The number of bytes that were buffered during the checkpoint alignment phase */
+	/** The number of bytes that were buffered during the checkpoint alignment phase. */
 	private long bytesBufferedInAlignment;
 
-	/** The duration (in nanoseconds) that the stream alignment for the checkpoint took */
+	/** The duration (in nanoseconds) that the stream alignment for the checkpoint took. */
 	private long alignmentDurationNanos;
 
-	/* The duration (in milliseconds) of the synchronous part of the operator checkpoint */
+	/** The duration (in milliseconds) of the synchronous part of the operator checkpoint. */
 	private long syncDurationMillis;
 
-	/* The duration (in milliseconds) of the asynchronous part of the operator checkpoint  */
+	/** The duration (in milliseconds) of the asynchronous part of the operator checkpoint.  */
 	private long asyncDurationMillis;
 
 	public CheckpointMetrics() {
@@ -110,9 +110,9 @@ public class CheckpointMetrics implements Serializable {
 
 		CheckpointMetrics that = (CheckpointMetrics) o;
 
-		return bytesBufferedInAlignment == that.bytesBufferedInAlignment && 
-				alignmentDurationNanos == that.alignmentDurationNanos && 
-				syncDurationMillis == that.syncDurationMillis && 
+		return bytesBufferedInAlignment == that.bytesBufferedInAlignment &&
+				alignmentDurationNanos == that.alignmentDurationNanos &&
+				syncDurationMillis == that.syncDurationMillis &&
 				asyncDurationMillis == that.asyncDurationMillis;
 
 	}

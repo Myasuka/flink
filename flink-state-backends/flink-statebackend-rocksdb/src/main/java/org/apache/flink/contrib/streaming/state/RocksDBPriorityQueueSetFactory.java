@@ -73,6 +73,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
 	private final RocksDB db;
 	private final RocksDBWriteBatchWrapper writeBatchWrapper;
 	private final RocksDBNativeMetricMonitor nativeMetricMonitor;
+	private final RocksDBAccessMetric accessMetric;
 	private final Function<String, ColumnFamilyOptions> columnFamilyOptionsFactory;
 
 	RocksDBPriorityQueueSetFactory(
@@ -83,6 +84,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
 		RocksDB db,
 		RocksDBWriteBatchWrapper writeBatchWrapper,
 		RocksDBNativeMetricMonitor nativeMetricMonitor,
+		RocksDBAccessMetric accessMetric,
 		Function<String, ColumnFamilyOptions> columnFamilyOptionsFactory) {
 		this.keyGroupRange = keyGroupRange;
 		this.keyGroupPrefixBytes = keyGroupPrefixBytes;
@@ -91,6 +93,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
 		this.db = db;
 		this.writeBatchWrapper = writeBatchWrapper;
 		this.nativeMetricMonitor = nativeMetricMonitor;
+		this.accessMetric = accessMetric;
 		this.columnFamilyOptionsFactory = columnFamilyOptionsFactory;
 		this.sharedElementOutView = new DataOutputSerializer(128);
 		this.sharedElementInView = new DataInputDeserializer();
@@ -122,6 +125,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
 						keyGroupId,
 						keyGroupPrefixBytes,
 						db,
+						accessMetric,
 						columnFamilyHandle,
 						byteOrderedElementSerializer,
 						sharedElementOutView,
@@ -148,7 +152,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
 			RegisteredPriorityQueueStateBackendMetaInfo<T> metaInfo =
 				new RegisteredPriorityQueueStateBackendMetaInfo<>(stateName, byteOrderedElementSerializer);
 			stateInfo = RocksDBOperationUtils.createStateInfo(metaInfo, db, columnFamilyOptionsFactory, null);
-			RocksDBOperationUtils.registerKvStateInformation(kvStateInformation, nativeMetricMonitor, stateName, stateInfo);
+			RocksDBOperationUtils.registerKvStateInformation(kvStateInformation, nativeMetricMonitor, accessMetric, stateName, stateInfo);
 		} else {
 			// TODO we implement the simple way of supporting the current functionality, mimicking keyed state
 			// because this should be reworked in FLINK-9376 and then we should have a common algorithm over

@@ -61,7 +61,7 @@ public abstract class AbstractRocksDBState<K, N, V> implements InternalKvState<K
 	protected RocksDBKeyedStateBackend<K> backend;
 
 	/** The column family of this particular instance of state. */
-	protected ColumnFamilyHandle columnFamily;
+	protected ColumnFamilyHandleWrapper columnFamily;
 
 	protected final V defaultValue;
 
@@ -92,7 +92,7 @@ public abstract class AbstractRocksDBState<K, N, V> implements InternalKvState<K
 		this.namespaceSerializer = namespaceSerializer;
 		this.backend = backend;
 
-		this.columnFamily = columnFamily;
+		this.columnFamily = new ColumnFamilyHandleWrapper(columnFamily);
 
 		this.writeOptions = backend.getWriteOptions();
 		this.valueSerializer = Preconditions.checkNotNull(valueSerializer, "State value serializer");

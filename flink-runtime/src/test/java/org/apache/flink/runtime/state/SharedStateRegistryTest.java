@@ -20,9 +20,8 @@
 package org.apache.flink.runtime.state;
 
 import org.apache.flink.core.fs.FSDataInputStream;
-import org.junit.Test;
 
-import java.io.IOException;
+import org.junit.Test;
 
 import static junit.framework.TestCase.assertFalse;
 import static org.junit.Assert.assertEquals;
@@ -40,7 +39,7 @@ public class SharedStateRegistryTest {
 
 		// register one state
 		TestSharedState firstState = new TestSharedState("first");
-		SharedStateRegistry.Result result = sharedStateRegistry.registerReference(firstState.getRegistrationKey(), firstState);
+		Result result = sharedStateRegistry.registerReference(firstState.getRegistrationKey(), firstState);
 		assertEquals(1, result.getReferenceCount());
 		assertTrue(firstState == result.getReference());
 		assertFalse(firstState.isDiscarded());
@@ -107,7 +106,7 @@ public class SharedStateRegistryTest {
 		}
 
 		@Override
-		public void discardState() throws Exception {
+		public void discardState() {
 			this.discarded = true;
 		}
 
@@ -122,7 +121,7 @@ public class SharedStateRegistryTest {
 		}
 
 		@Override
-		public FSDataInputStream openInputStream() throws IOException {
+		public FSDataInputStream openInputStream() {
 			throw new UnsupportedOperationException();
 		}
 

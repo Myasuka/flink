@@ -37,12 +37,18 @@ public interface CheckpointStreamFactory {
 	 * Creates an new {@link CheckpointStateOutputStream}. When the stream
 	 * is closed, it returns a state handle that can retrieve the state back.
 	 *
+	 * @param checkpointId The checkpointID of the given checkpoint.
 	 * @param scope The state's scope, whether it is exclusive or shared.
 	 * @return An output stream that writes state for the given checkpoint.
 	 *
 	 * @throws IOException Exceptions may occur while creating the stream and should be forwarded.
 	 */
-	CheckpointStateOutputStream createCheckpointStateOutputStream(CheckpointedStateScope scope) throws IOException;
+	CheckpointStateOutputStream createCheckpointStateOutputStream(long checkpointId, CheckpointedStateScope scope) throws IOException;
+
+	/**
+	 * Dispose this checkpoint stream factory in the end of phase.
+	 */
+	default void dispose() {}
 
 	/**
 	 * A dedicated output stream that produces a {@link StreamStateHandle} when closed.

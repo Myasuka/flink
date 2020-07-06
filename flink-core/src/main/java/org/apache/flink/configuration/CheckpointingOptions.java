@@ -74,6 +74,14 @@ public class CheckpointingOptions {
 				" complete checkpoint state. Some state backends may not support incremental checkpoints and ignore" +
 				" this option.");
 
+	@Documentation.Section(Documentation.Sections.EXPERT_STATE_BACKENDS)
+	public static final ConfigOption<Boolean> CHECKPOINT_CONCAT_STREAM_ENABLED = ConfigOptions
+		.key("state.backend.checkpoint.stream-concat-enabled")
+		.booleanType()
+		.defaultValue(false)
+		.withDescription("The flag indicating whether to contact checkpoint streams when executing checkpoints." +
+			" Currently, this flag only take effects on RocksDB state-backend with incremental checkpoint mode.");
+
 	/**
 	 * This option configures local recovery for this state backend. By default, local recovery is deactivated.
 	 *

@@ -19,12 +19,13 @@
 package org.apache.flink.contrib.streaming.state.restore;
 
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricMonitor;
+import org.apache.flink.contrib.streaming.state.RocksDBWrapper;
 import org.apache.flink.runtime.state.StateHandleID;
+import org.apache.flink.runtime.state.StreamStateHandle;
 
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
 
-import java.util.Set;
+import java.util.Map;
 import java.util.SortedMap;
 import java.util.UUID;
 
@@ -32,22 +33,22 @@ import java.util.UUID;
  * Entity holding result of RocksDB instance restore.
  */
 public class RocksDBRestoreResult {
-	private final RocksDB db;
+	private final RocksDBWrapper db;
 	private final ColumnFamilyHandle defaultColumnFamilyHandle;
 	private final RocksDBNativeMetricMonitor nativeMetricMonitor;
 
 	// fields only for incremental restore
 	private final long lastCompletedCheckpointId;
 	private final UUID backendUID;
-	private final SortedMap<Long, Set<StateHandleID>> restoredSstFiles;
+	private final SortedMap<Long, Map<StateHandleID, StreamStateHandle>> restoredSstFiles;
 
 	public RocksDBRestoreResult(
-		RocksDB db,
+		RocksDBWrapper db,
 		ColumnFamilyHandle defaultColumnFamilyHandle,
 		RocksDBNativeMetricMonitor nativeMetricMonitor,
 		long lastCompletedCheckpointId,
 		UUID backendUID,
-		SortedMap<Long, Set<StateHandleID>> restoredSstFiles) {
+		SortedMap<Long, Map<StateHandleID, StreamStateHandle>> restoredSstFiles) {
 		this.db = db;
 		this.defaultColumnFamilyHandle = defaultColumnFamilyHandle;
 		this.nativeMetricMonitor = nativeMetricMonitor;
@@ -56,7 +57,7 @@ public class RocksDBRestoreResult {
 		this.restoredSstFiles = restoredSstFiles;
 	}
 
-	public RocksDB getDb() {
+	public RocksDBWrapper getDb() {
 		return db;
 	}
 
@@ -68,7 +69,7 @@ public class RocksDBRestoreResult {
 		return backendUID;
 	}
 
-	public SortedMap<Long, Set<StateHandleID>> getRestoredSstFiles() {
+	public SortedMap<Long, Map<StateHandleID, StreamStateHandle>> getRestoredSstFiles() {
 		return restoredSstFiles;
 	}
 

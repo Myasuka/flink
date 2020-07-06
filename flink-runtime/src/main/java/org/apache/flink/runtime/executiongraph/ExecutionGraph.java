@@ -72,7 +72,6 @@ import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingResultPartition;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
 import org.apache.flink.runtime.shuffle.ShuffleMaster;
-import org.apache.flink.runtime.state.SharedStateRegistry;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.runtime.taskmanager.DispatcherThreadFactory;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
@@ -493,7 +492,7 @@ public class ExecutionGraph implements AccessExecutionGraph {
 			checkpointStateBackend,
 			ioExecutor,
 			new ScheduledExecutorServiceAdapter(checkpointCoordinatorTimer),
-			SharedStateRegistry.DEFAULT_FACTORY,
+			checkpointStateBackend.getSharedStateRegistryFactory(),
 			failureManager);
 
 		// register the master hooks on the checkpoint coordinator

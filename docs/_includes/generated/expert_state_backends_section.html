@@ -15,6 +15,12 @@
             <td>Option whether the state backend should use an asynchronous snapshot method where possible and configurable. Some state backends may not support asynchronous snapshots, or only support asynchronous snapshots, and ignore this option.</td>
         </tr>
         <tr>
+            <td><h5>state.backend.checkpoint.stream-concat-enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>The flag indicating whether to contact checkpoint streams when executing checkpoints. Currently, this flag only take effects on RocksDB state-backend with incremental checkpoint mode.</td>
+        </tr>
+        <tr>
             <td><h5>state.backend.fs.memory-threshold</h5></td>
             <td style="word-wrap: break-word;">1024</td>
             <td>Integer</td>

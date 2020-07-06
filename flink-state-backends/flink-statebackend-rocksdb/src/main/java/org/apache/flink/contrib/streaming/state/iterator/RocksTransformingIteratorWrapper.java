@@ -38,7 +38,7 @@ public class RocksTransformingIteratorWrapper extends RocksIteratorWrapper {
 	public RocksTransformingIteratorWrapper(
 		@Nonnull RocksIterator iterator,
 		@Nonnull StateSnapshotTransformer<byte[]> stateSnapshotTransformer) {
-		super(iterator);
+		super(iterator, null, null);
 		this.stateSnapshotTransformer = stateSnapshotTransformer;
 	}
 

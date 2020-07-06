@@ -36,7 +36,6 @@ import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.StateMigrationException;
 
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,11 +137,11 @@ class RocksDBMapState<K, N, UK, UV>
 			return;
 		}
 
-		try (RocksDBWriteBatchWrapper writeBatchWrapper = new RocksDBWriteBatchWrapper(backend.db, writeOptions, backend.getWriteBatchSize())) {
+		try (RocksDBWriteBatchWrapper writeBatchWrapper = new RocksDBWriteBatchWrapper(backend.db.getDb(), writeOptions, backend.getWriteBatchSize())) {
 			for (Map.Entry<UK, UV> entry : map.entrySet()) {
 				byte[] rawKeyBytes = serializeCurrentKeyWithGroupAndNamespacePlusUserKey(entry.getKey(), userKeySerializer);
 				byte[] rawValueBytes = serializeValueNullSensitive(entry.getValue(), userValueSerializer);
-				writeBatchWrapper.put(columnFamily, rawKeyBytes, rawValueBytes);
+				writeBatchWrapper.put(columnFamily.getColumnFamilyHandle(), rawKeyBytes, rawValueBytes);
 			}
 		}
 	}
@@ -255,7 +254,7 @@ class RocksDBMapState<K, N, UK, UV>
 	public void clear() {
 		try {
 			try (RocksIteratorWrapper iterator = RocksDBOperationUtils.getRocksIterator(backend.db, columnFamily);
-				RocksDBWriteBatchWrapper rocksDBWriteBatchWrapper = new RocksDBWriteBatchWrapper(backend.db, backend.getWriteOptions(), backend.getWriteBatchSize())) {
+				RocksDBWriteBatchWrapper rocksDBWriteBatchWrapper = new RocksDBWriteBatchWrapper(backend.db.getDb(), backend.getWriteOptions(), backend.getWriteBatchSize())) {
 
 				final byte[] keyPrefixBytes = serializeCurrentKeyWithGroupAndNamespace();
 				iterator.seek(keyPrefixBytes);
@@ -263,7 +262,7 @@ class RocksDBMapState<K, N, UK, UV>
 				while (iterator.isValid()) {
 					byte[] keyBytes = iterator.key();
 					if (startWithKeyPrefix(keyPrefixBytes, keyBytes)) {
-						rocksDBWriteBatchWrapper.remove(columnFamily, keyBytes);
+						rocksDBWriteBatchWrapper.remove(columnFamily.getColumnFamilyHandle(), keyBytes);
 					} else {
 						break;
 					}
@@ -376,7 +375,7 @@ class RocksDBMapState<K, N, UK, UV>
 
 	/** A map entry in RocksDBMapState. */
 	private class RocksDBMapEntry implements Map.Entry<UK, UV> {
-		private final RocksDB db;
+		private final RocksDBWrapper db;
 
 		/** The raw bytes of the key stored in RocksDB. Each user key is stored in RocksDB
 		 * with the format #KeyGroup#Key#Namespace#UserKey. */
@@ -404,7 +403,7 @@ class RocksDBMapState<K, N, UK, UV>
 		private final DataInputDeserializer dataInputView;
 
 		RocksDBMapEntry(
-				@Nonnull final RocksDB db,
+				@Nonnull final RocksDBWrapper db,
 				@Nonnegative final int userKeyOffset,
 				@Nonnull final byte[] rawKeyBytes,
 				@Nonnull final byte[] rawValueBytes,
@@ -491,7 +490,7 @@ class RocksDBMapState<K, N, UK, UV>
 		private static final int CACHE_SIZE_LIMIT = 128;
 
 		/** The db where data resides. */
-		private final RocksDB db;
+		private final RocksDBWrapper db;
 
 		/**
 		 * The prefix bytes of the key being accessed. All entries under the same key
@@ -519,7 +518,7 @@ class RocksDBMapState<K, N, UK, UV>
 		private final DataInputDeserializer dataInputView;
 
 		RocksDBMapIterator(
-			final RocksDB db,
+			final RocksDBWrapper db,
 			final byte[] keyPrefixBytes,
 			final TypeSerializer<UK> keySerializer,
 			final TypeSerializer<UV> valueSerializer,

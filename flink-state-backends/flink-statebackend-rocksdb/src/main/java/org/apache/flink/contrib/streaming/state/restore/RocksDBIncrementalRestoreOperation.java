@@ -18,6 +18,7 @@
 
 package org.apache.flink.contrib.streaming.state.restore;
 
+import org.apache.flink.contrib.streaming.state.RocksDBAccessMetric;
 import org.apache.flink.contrib.streaming.state.RocksDBIncrementalCheckpointUtils;
 import org.apache.flink.contrib.streaming.state.RocksDBKeySerializationUtils;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend.RocksDbKvStateInfo;
@@ -71,7 +72,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -87,7 +87,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 	private static final Logger LOG = LoggerFactory.getLogger(RocksDBIncrementalRestoreOperation.class);
 
 	private final String operatorIdentifier;
-	private final SortedMap<Long, Set<StateHandleID>> restoredSstFiles;
+	private final SortedMap<Long, Map<StateHandleID, StreamStateHandle>> restoredSstFiles;
 	private long lastCompletedCheckpointId;
 	private UUID backendUID;
 	private final long writeBatchSize;
@@ -106,6 +106,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 		DBOptions dbOptions,
 		Function<String, ColumnFamilyOptions> columnFamilyOptionsFactory,
 		RocksDBNativeMetricOptions nativeMetricOptions,
+		RocksDBAccessMetric.Builder accessMetricBuilder,
 		MetricGroup metricGroup,
 		@Nonnull Collection<KeyedStateHandle> restoreStateHandles,
 		@Nonnull RocksDbTtlCompactFiltersManager ttlCompactFiltersManager,
@@ -122,6 +123,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 			dbOptions,
 			columnFamilyOptionsFactory,
 			nativeMetricOptions,
+			accessMetricBuilder,
 			metricGroup,
 			restoreStateHandles,
 			ttlCompactFiltersManager);
@@ -182,7 +184,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 		backendUID = localKeyedStateHandle.getBackendIdentifier();
 		restoredSstFiles.put(
 			localKeyedStateHandle.getCheckpointId(),
-			localKeyedStateHandle.getSharedStateHandleIDs());
+			localKeyedStateHandle.getSharedState());
 		lastCompletedCheckpointId = localKeyedStateHandle.getCheckpointId();
 	}
 
@@ -240,7 +242,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 			new DirectoryStateHandle(temporaryRestoreInstancePath),
 			restoreStateHandle.getKeyGroupRange(),
 			restoreStateHandle.getMetaStateHandle(),
-			restoreStateHandle.getSharedState().keySet());
+			restoreStateHandle.getSharedState());
 	}
 
 	private void cleanUpPathQuietly(@Nonnull Path path) {
@@ -296,7 +298,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 			try (RestoredDBInstance tmpRestoreDBInfo = restoreDBInstanceFromStateHandle(
 				(IncrementalRemoteKeyedStateHandle) rawStateHandle,
 				temporaryRestoreInstancePath);
-				RocksDBWriteBatchWrapper writeBatchWrapper = new RocksDBWriteBatchWrapper(this.db, writeBatchSize)) {
+				RocksDBWriteBatchWrapper writeBatchWrapper = new RocksDBWriteBatchWrapper(this.db.getDb(), writeBatchSize)) {
 
 				List<ColumnFamilyDescriptor> tmpColumnFamilyDescriptors = tmpRestoreDBInfo.columnFamilyDescriptors;
 				List<ColumnFamilyHandle> tmpColumnFamilyHandles = tmpRestoreDBInfo.columnFamilyHandles;
@@ -343,7 +345,7 @@ public class RocksDBIncrementalRestoreOperation<K> extends AbstractRocksDBRestor
 		// 2. Clip the base DB instance
 		try {
 			RocksDBIncrementalCheckpointUtils.clipDBWithKeyGroupRange(
-				db,
+				db.getDb(),
 				columnFamilyHandles,
 				keyGroupRange,
 				initialHandle.getKeyGroupRange(),

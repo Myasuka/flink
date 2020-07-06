@@ -164,6 +164,7 @@ public class RocksFullSnapshotStrategy<K> extends RocksDBSnapshotStrategyBase<K>
 				localRecoveryConfig.getLocalStateDirectoryProvider()) :
 
 			() -> CheckpointStreamWithResultProvider.createSimpleStream(
+				checkpointId,
 				CheckpointedStateScope.EXCLUSIVE,
 				primaryStreamFactory);
 	}
@@ -420,7 +421,7 @@ public class RocksFullSnapshotStrategy<K> extends RocksDBSnapshotStrategyBase<K>
 		ReadOptions readOptions) {
 		RocksIterator rocksIterator = db.newIterator(columnFamilyHandle, readOptions);
 		return stateSnapshotTransformer == null ?
-			new RocksIteratorWrapper(rocksIterator) :
+			new RocksIteratorWrapper(rocksIterator, null, null) :
 			new RocksTransformingIteratorWrapper(rocksIterator, stateSnapshotTransformer);
 	}
 

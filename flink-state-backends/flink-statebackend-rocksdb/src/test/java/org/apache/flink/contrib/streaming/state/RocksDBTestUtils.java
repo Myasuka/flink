@@ -22,6 +22,7 @@ import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.CloseableRegistry;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.query.KvStateRegistry;
@@ -75,27 +76,38 @@ public final class RocksDBTestUtils {
 			ColumnFamilyHandle defaultCFHandle,
 			ColumnFamilyOptions columnFamilyOptions) {
 
+		return builderForTestDB(instanceBasePath, keySerializer, db, defaultCFHandle, columnFamilyOptions, new UnregisteredMetricsGroup());
+	}
+
+	public static <K> RocksDBKeyedStateBackendBuilder<K> builderForTestDB(
+		File instanceBasePath,
+		TypeSerializer<K> keySerializer,
+		RocksDB db,
+		ColumnFamilyHandle defaultCFHandle,
+		ColumnFamilyOptions columnFamilyOptions,
+		MetricGroup metricGroup) {
+
 		final RocksDBResourceContainer optionsContainer = new RocksDBResourceContainer();
 
 		return new RocksDBKeyedStateBackendBuilder<>(
-				"no-op",
-				ClassLoader.getSystemClassLoader(),
-				instanceBasePath,
-				optionsContainer,
-				stateName -> columnFamilyOptions,
-				new KvStateRegistry().createTaskRegistry(new JobID(), new JobVertexID()),
-				keySerializer,
-				2,
-				new KeyGroupRange(0, 1),
-				new ExecutionConfig(),
-				TestLocalRecoveryConfig.disabled(),
-				RocksDBStateBackend.PriorityQueueStateType.HEAP,
-				TtlTimeProvider.DEFAULT,
-				new UnregisteredMetricsGroup(),
-				Collections.emptyList(),
-				UncompressedStreamCompressionDecorator.INSTANCE,
-				db,
-				defaultCFHandle,
-				new CloseableRegistry());
+			"no-op",
+			ClassLoader.getSystemClassLoader(),
+			instanceBasePath,
+			optionsContainer,
+			stateName -> columnFamilyOptions,
+			new KvStateRegistry().createTaskRegistry(new JobID(), new JobVertexID()),
+			keySerializer,
+			2,
+			new KeyGroupRange(0, 1),
+			new ExecutionConfig(),
+			TestLocalRecoveryConfig.disabled(),
+			RocksDBStateBackend.PriorityQueueStateType.HEAP,
+			TtlTimeProvider.DEFAULT,
+			metricGroup,
+			Collections.emptyList(),
+			UncompressedStreamCompressionDecorator.INSTANCE,
+			db,
+			defaultCFHandle,
+			new CloseableRegistry());
 	}
 }

@@ -40,6 +40,7 @@ import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.LocalRecoveryConfig;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.SharedStateRegistryFactory;
 import org.apache.flink.runtime.state.TaskStateManager;
 import org.apache.flink.runtime.state.heap.HeapKeyedStateBackendBuilder;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
@@ -55,6 +56,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Collection;
 
+import static org.apache.flink.runtime.state.SharedStateRegistry.DEFAULT_FACTORY;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -355,7 +357,7 @@ public class FsStateBackend extends AbstractFileStateBackend implements Configur
 	 * @param original The state backend to re-configure
 	 * @param configuration The configuration
 	 */
-	private FsStateBackend(FsStateBackend original, Configuration configuration, ClassLoader classLoader) {
+	protected FsStateBackend(FsStateBackend original, Configuration configuration, ClassLoader classLoader) {
 		super(original.getCheckpointPath(), original.getSavepointPath(), configuration);
 
 		// if asynchronous snapshots were configured, use that setting,
@@ -472,6 +474,9 @@ public class FsStateBackend extends AbstractFileStateBackend implements Configur
 	 */
 	@Override
 	public FsStateBackend configure(Configuration config, ClassLoader classLoader) {
+		if (config.getBoolean(CheckpointingOptions.CHECKPOINT_CONCAT_STREAM_ENABLED)) {
+			return new FsSegmentStateBackend(this.getCheckpointPath().toUri()).configure(config, classLoader);
+		}
 		return new FsStateBackend(this, config, classLoader);
 	}
 
@@ -542,6 +547,11 @@ public class FsStateBackend extends AbstractFileStateBackend implements Configur
 			isUsingAsynchronousSnapshots(),
 			stateHandles,
 			cancelStreamRegistry).build();
+	}
+
+	@Override
+	public SharedStateRegistryFactory getSharedStateRegistryFactory() {
+		return DEFAULT_FACTORY;
 	}
 
 	// ------------------------------------------------------------------------

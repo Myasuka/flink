@@ -21,6 +21,7 @@ package org.apache.flink.runtime.checkpoint;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import javax.annotation.Nullable;
+
 import java.io.Serializable;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -37,7 +38,7 @@ public class TaskStateStats implements Serializable {
 	/** ID of the task the stats belong to. */
 	private final JobVertexID jobVertexId;
 
-	/** Stats for each subtask */
+	/** Stats for each subtask. */
 	private final SubtaskStateStats[] subtaskStats;
 
 	/** A summary of the subtask stats. */

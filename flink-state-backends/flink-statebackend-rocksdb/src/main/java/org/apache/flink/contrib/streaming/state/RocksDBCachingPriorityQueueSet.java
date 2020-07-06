@@ -63,9 +63,12 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 	@Nonnull
 	private final RocksDB db;
 
+	@Nullable
+	private final RocksDBAccessMetric accessMetric;
+
 	/** Handle to the column family of the RocksDB instance in which the elements are stored. */
 	@Nonnull
-	private final ColumnFamilyHandle columnFamilyHandle;
+	private final ColumnFamilyHandleWrapper columnFamilyHandle;
 
 	/**
 	 * Serializer for the contained elements. The lexicographical order of the bytes of serialized objects must be
@@ -112,6 +115,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 		@Nonnegative int keyGroupId,
 		@Nonnegative int keyGroupPrefixBytes,
 		@Nonnull RocksDB db,
+		@Nullable RocksDBAccessMetric accessMetric,
 		@Nonnull ColumnFamilyHandle columnFamilyHandle,
 		@Nonnull TypeSerializer<E> byteOrderProducingSerializer,
 		@Nonnull DataOutputSerializer outputStream,
@@ -119,7 +123,8 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 		@Nonnull RocksDBWriteBatchWrapper batchWrapper,
 		@Nonnull OrderedByteArraySetCache orderedByteArraySetCache) {
 		this.db = db;
-		this.columnFamilyHandle = columnFamilyHandle;
+		this.accessMetric = accessMetric;
+		this.columnFamilyHandle = new ColumnFamilyHandleWrapper(columnFamilyHandle);
 		this.byteOrderProducingSerializer = byteOrderProducingSerializer;
 		this.batchWrapper = batchWrapper;
 		this.outputView = outputStream;
@@ -303,8 +308,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 	private RocksBytesIterator orderedBytesIterator() {
 		flushWriteBatch();
 		return new RocksBytesIterator(
-			new RocksIteratorWrapper(
-				db.newIterator(columnFamilyHandle)));
+			new RocksIteratorWrapper(db.newIterator(columnFamilyHandle.getColumnFamilyHandle()), accessMetric, columnFamilyHandle));
 	}
 
 	/**
@@ -320,7 +324,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 
 	private void addToRocksDB(@Nonnull byte[] toAddBytes) {
 		try {
-			batchWrapper.put(columnFamilyHandle, toAddBytes, DUMMY_BYTES);
+			batchWrapper.put(columnFamilyHandle.getColumnFamilyHandle(), toAddBytes, DUMMY_BYTES);
 		} catch (RocksDBException e) {
 			throw new FlinkRuntimeException(e);
 		}
@@ -328,7 +332,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 
 	private void removeFromRocksDB(@Nonnull byte[] toRemoveBytes) {
 		try {
-			batchWrapper.remove(columnFamilyHandle, toRemoveBytes);
+			batchWrapper.remove(columnFamilyHandle.getColumnFamilyHandle(), toRemoveBytes);
 		} catch (RocksDBException e) {
 			throw new FlinkRuntimeException(e);
 		}

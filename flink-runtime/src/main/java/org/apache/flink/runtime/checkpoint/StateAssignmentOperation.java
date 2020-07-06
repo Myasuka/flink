@@ -389,7 +389,7 @@ public class StateAssignmentOperation {
 
 	/**
 	 * Collect {@link KeyGroupsStateHandle  managedKeyedStateHandles} which have intersection with given
-	 * {@link KeyGroupRange} from {@link TaskState operatorState}
+	 * {@link KeyGroupRange} from {@link TaskState operatorState}.
 	 *
 	 * @param operatorState        all state handles of a operator
 	 * @param subtaskKeyGroupRange the KeyGroupRange of a subtask
@@ -424,7 +424,7 @@ public class StateAssignmentOperation {
 
 	/**
 	 * Collect {@link KeyGroupsStateHandle  rawKeyedStateHandles} which have intersection with given
-	 * {@link KeyGroupRange} from {@link TaskState operatorState}
+	 * {@link KeyGroupRange} from {@link TaskState operatorState}.
 	 *
 	 * @param operatorState        all state handles of a operator
 	 * @param subtaskKeyGroupRange the KeyGroupRange of a subtask
@@ -483,8 +483,8 @@ public class StateAssignmentOperation {
 	 * Groups the available set of key groups into key group partitions. A key group partition is
 	 * the set of key groups which is assigned to the same task. Each set of the returned list
 	 * constitutes a key group partition.
-	 * <p>
-	 * <b>IMPORTANT</b>: The assignment of key groups to partitions has to be in sync with the
+	 *
+	 * <p><b>IMPORTANT</b>: The assignment of key groups to partitions has to be in sync with the
 	 * KeyGroupStreamPartitioner.
 	 *
 	 * @param numberKeyGroups Number of available key groups (indexed from 0 to numberKeyGroups - 1)

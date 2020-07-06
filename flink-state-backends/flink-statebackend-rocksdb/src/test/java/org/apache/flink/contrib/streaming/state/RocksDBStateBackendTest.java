@@ -19,13 +19,26 @@
 package org.apache.flink.contrib.streaming.state;
 
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.metrics.CharacterFilter;
+import org.apache.flink.metrics.Metric;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.metrics.MetricRegistry;
+import org.apache.flink.runtime.metrics.dump.QueryScopeInfo;
+import org.apache.flink.runtime.metrics.groups.AbstractMetricGroup;
+import org.apache.flink.runtime.metrics.scope.ScopeFormats;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyedStateHandle;
@@ -36,10 +49,12 @@ import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.VoidNamespace;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
+import org.apache.flink.runtime.state.filesystem.FsSegmentStateBackend;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.util.BlockerCheckpointStreamFactory;
 import org.apache.flink.runtime.util.BlockingCheckpointOutputStream;
 import org.apache.flink.util.IOUtils;
+import org.apache.flink.util.StringUtils;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
@@ -73,6 +88,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static junit.framework.TestCase.assertNotNull;
 import static org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackendBuilder.DB_INSTANCE_DIR_STRING;
@@ -100,13 +116,20 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 	private ValueState<Integer> testState1;
 	private ValueState<String> testState2;
 
-	@Parameterized.Parameters(name = "Incremental checkpointing: {0}")
-	public static Collection<Boolean> parameters() {
-		return Arrays.asList(false, true);
+	@Parameterized.Parameters(name = "Incremental checkpointing: {0}, use segment statebackend: {1}")
+	public static Collection<Boolean[]> parameters() {
+		return Arrays.asList(new Boolean[][] {
+			{true, true},
+			{true, false},
+			{false, true},
+			{false, false}});
 	}
 
 	@Parameterized.Parameter
 	public boolean enableIncrementalCheckpointing;
+
+	@Parameterized.Parameter(1)
+	public boolean useSegmentStateBackend;
 
 	@Rule
 	public final TemporaryFolder tempFolder = new TemporaryFolder();
@@ -131,7 +154,8 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 	protected RocksDBStateBackend getStateBackend() throws IOException {
 		dbPath = tempFolder.newFolder().getAbsolutePath();
 		String checkpointPath = tempFolder.newFolder().toURI().toString();
-		RocksDBStateBackend backend = new RocksDBStateBackend(new FsStateBackend(checkpointPath), enableIncrementalCheckpointing);
+		RocksDBStateBackend backend = new RocksDBStateBackend(useSegmentStateBackend ?
+			new FsSegmentStateBackend(checkpointPath) : new FsStateBackend(checkpointPath), enableIncrementalCheckpointing);
 		Configuration configuration = new Configuration();
 		configuration.setString(
 			RocksDBOptions.TIMER_SERVICE_FACTORY,
@@ -205,7 +229,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 				allCreatedCloseables.add(rocksIterator);
 				return rocksIterator;
 			}
-		}).when(keyedStateBackend.db).newIterator(any(ColumnFamilyHandle.class), any(ReadOptions.class));
+		}).when(keyedStateBackend.db.getDb()).newIterator(any(ColumnFamilyHandle.class), any(ReadOptions.class));
 
 		doAnswer(new Answer<Object>() {
 
@@ -215,7 +239,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 				allCreatedCloseables.add(snapshot);
 				return snapshot;
 			}
-		}).when(keyedStateBackend.db).getSnapshot();
+		}).when(keyedStateBackend.db.getDb()).getSnapshot();
 
 		doAnswer(new Answer<Object>() {
 
@@ -225,7 +249,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 				allCreatedCloseables.add(snapshot);
 				return snapshot;
 			}
-		}).when(keyedStateBackend.db).createColumnFamily(any(ColumnFamilyDescriptor.class));
+		}).when(keyedStateBackend.db.getDb()).createColumnFamily(any(ColumnFamilyDescriptor.class));
 
 		for (int i = 0; i < 100; ++i) {
 			keyedStateBackend.setCurrentKey(i);
@@ -277,7 +301,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 			RunnableFuture<SnapshotResult<KeyedStateHandle>> snapshot =
 				keyedStateBackend.snapshot(0L, 0L, testStreamFactory, CheckpointOptions.forCheckpointWithDefaultLocation());
 
-			RocksDB spyDB = keyedStateBackend.db;
+			RocksDB spyDB = keyedStateBackend.db.getDb();
 
 			if (!enableIncrementalCheckpointing) {
 				verify(spyDB, times(1)).getSnapshot();
@@ -508,6 +532,104 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 		}
 	}
 
+	@Test
+	public void testTrackLatencyMetrics() throws Exception {
+		prepareRocksDB();
+		final ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions();
+		RocksDBKeyedStateBackend<Integer> stateBackend = null;
+
+		SimpleMetricRegistry registry = new SimpleMetricRegistry();
+		SimpleMetricGroup group = new SimpleMetricGroup(registry);
+
+		int sampleInterval = 200;
+		long slidingWindowSize = Time.days(1).toMilliseconds();
+		RocksDBAccessMetric.Builder builder = new RocksDBAccessMetric.Builder()
+			.setEnabled(true)
+			.setSampleInterval(sampleInterval)
+			.setHistogramSlidingWindow(slidingWindowSize)
+			.setMetricGroup(group);
+
+		try {
+			stateBackend = RocksDBTestUtils.builderForTestDB(
+				tempFolder.newFolder(),
+				IntSerializer.INSTANCE,
+				db,
+				defaultCFHandle,
+				columnFamilyOptions,
+				group)
+				.setAccessMetricBuilder(builder)
+				.build();
+
+			ValueStateDescriptor<String> valueStateDescriptor =
+				new ValueStateDescriptor<>("value-state", StringSerializer.INSTANCE);
+			ValueState<String> valueState = stateBackend.createInternalState(VoidNamespaceSerializer.INSTANCE, valueStateDescriptor);
+
+			ListStateDescriptor<String> listStateDescriptor =
+				new ListStateDescriptor<>("list-state", StringSerializer.INSTANCE);
+			ListState<String> listState = stateBackend.createInternalState(VoidNamespaceSerializer.INSTANCE, listStateDescriptor);
+
+			MapStateDescriptor<Integer, String> mapStateDescriptor =
+				new MapStateDescriptor<>("map-state", IntSerializer.INSTANCE, StringSerializer.INSTANCE);
+			MapState<Integer, String> mapState = stateBackend.createInternalState(VoidNamespaceSerializer.INSTANCE, mapStateDescriptor);
+
+			ArrayList<RocksDBAccessMetric.HistogramWrapper> histograms = registry.histograms;
+			assertEquals(0, histograms.size());
+
+			stateBackend.setCurrentKey(-1);
+			String value = StringUtils.getRandomString(ThreadLocalRandom.current(), 1, 10);
+			valueState.update(value);
+			assertEquals(1, histograms.size());
+
+			valueState.value();
+			assertEquals(2, histograms.size());
+
+			valueState.clear();
+			assertEquals(3, histograms.size());
+
+			listState.add(value);
+			assertEquals(4, histograms.size());
+
+			listState.get();
+			assertEquals(5, histograms.size());
+
+			mapState.put(ThreadLocalRandom.current().nextInt(), value);
+			assertEquals(6, histograms.size());
+
+			mapState.isEmpty();
+			assertEquals(7, histograms.size());
+
+			mapState.keys().iterator().next();
+			assertEquals(8, histograms.size());
+
+			for (RocksDBAccessMetric.HistogramWrapper histogram : histograms) {
+				assertEquals(1, histogram.getCount());
+			}
+
+			for (int i = 0; i < sampleInterval; i++) {
+				stateBackend.setCurrentKey(i);
+				value = StringUtils.getRandomString(ThreadLocalRandom.current(), 1, 10);
+				valueState.update(value);
+				valueState.value();
+				valueState.clear();
+				listState.add(value);
+				listState.get();
+				mapState.put(ThreadLocalRandom.current().nextInt(), value);
+				mapState.keys().iterator().next();
+			}
+
+			for (RocksDBAccessMetric.HistogramWrapper histogram : histograms) {
+				assertEquals(2, histogram.getCount());
+			}
+
+		} finally {
+			if (stateBackend != null) {
+				IOUtils.closeQuietly(stateBackend);
+				stateBackend.dispose();
+			}
+			columnFamilyOptions.close();
+		}
+	}
+
 	private void checkRemove(IncrementalRemoteKeyedStateHandle remove, SharedStateRegistry registry) throws Exception {
 		for (StateHandleID id : remove.getSharedState().keySet()) {
 			verify(registry, times(0)).unregisterReference(
@@ -540,7 +662,7 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 		}
 
 		assertNotNull(null, keyedStateBackend.db);
-		RocksDB spyDB = keyedStateBackend.db;
+		RocksDB spyDB = keyedStateBackend.db.getDb();
 
 		if (!enableIncrementalCheckpointing) {
 			verify(spyDB, times(1)).getSnapshot();
@@ -561,6 +683,71 @@ public class RocksDBStateBackendTest extends StateBackendTestBase<RocksDBStateBa
 		@Override
 		public boolean accept(File file, String s) {
 			return true;
+		}
+	}
+
+	private static class SimpleMetricRegistry implements MetricRegistry {
+		ArrayList<RocksDBAccessMetric.HistogramWrapper> histograms = new ArrayList<>();
+
+		@Override
+		public char getDelimiter() {
+			return 0;
+		}
+
+		@Override
+		public int getNumberReporters() {
+			return 0;
+		}
+
+		@Override
+		public void register(Metric metric, String metricName, AbstractMetricGroup group) {
+			if (metric instanceof RocksDBAccessMetric.HistogramWrapper) {
+				histograms.add((RocksDBAccessMetric.HistogramWrapper) metric);
+			}
+		}
+
+		@Override
+		public void unregister(Metric metric, String metricName, AbstractMetricGroup group) {
+
+		}
+
+		@Override
+		public ScopeFormats getScopeFormats() {
+			Configuration config = new Configuration();
+
+			config.setString(MetricOptions.SCOPE_NAMING_TM, "A");
+			config.setString(MetricOptions.SCOPE_NAMING_TM_JOB, "B");
+			config.setString(MetricOptions.SCOPE_NAMING_TASK, "C");
+			config.setString(MetricOptions.SCOPE_NAMING_OPERATOR, "D");
+
+			return ScopeFormats.fromConfig(config);
+		}
+	}
+
+	private static class SimpleMetricGroup extends AbstractMetricGroup {
+
+		public SimpleMetricGroup(MetricRegistry registry) {
+			super(registry, new String[0], null);
+		}
+
+		@Override
+		protected QueryScopeInfo createQueryServiceMetricInfo(CharacterFilter filter) {
+			return null;
+		}
+
+		@Override
+		protected String getGroupName(CharacterFilter filter) {
+			return "test";
+		}
+
+		@Override
+		protected void addMetric(String name, Metric metric) {
+			registry.register(metric, name, this);
+		}
+
+		@Override
+		public MetricGroup addGroup(String name) {
+			return null;
 		}
 	}
 }

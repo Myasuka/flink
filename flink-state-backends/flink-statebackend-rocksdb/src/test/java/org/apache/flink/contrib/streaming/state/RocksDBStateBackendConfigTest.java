@@ -36,6 +36,7 @@ import org.apache.flink.runtime.query.KvStateRegistry;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.StateBackend;
+import org.apache.flink.runtime.state.filesystem.FsSegmentStateBackend;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
@@ -55,6 +56,7 @@ import org.rocksdb.DBOptions;
 import org.rocksdb.util.SizeUnit;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -93,6 +95,7 @@ public class RocksDBStateBackendConfigTest {
 
 		RocksDBStateBackend backend = new RocksDBStateBackend(tempFolder.newFolder().toURI());
 		assertEquals(defaultIncremental, backend.isIncrementalCheckpointsEnabled());
+		assertTrue(backend.getCheckpointBackend() instanceof FsStateBackend);
 	}
 
 	// ------------------------------------------------------------------------
@@ -174,6 +177,26 @@ public class RocksDBStateBackendConfigTest {
 			keyedBackend.getPriorityQueueFactory().getClass());
 		keyedBackend.dispose();
 		env.close();
+	}
+
+	@Test
+	public void testConfigureContactCheckpointStream() throws IOException {
+		RocksDBStateBackend rocksDbBackend = new RocksDBStateBackend(tempFolder.newFolder().toURI().toString());
+
+		Configuration conf = new Configuration();
+		conf.setBoolean(CheckpointingOptions.CHECKPOINT_CONCAT_STREAM_ENABLED, true);
+		RocksDBStateBackend configured = rocksDbBackend.configure(conf, Thread.currentThread().getContextClassLoader());
+		assertTrue(configured.getCheckpointBackend() instanceof FsSegmentStateBackend);
+	}
+
+	@Test
+	public void testNumberOfTransferThreadsWithContactedCheckpointStream() throws IOException {
+		RocksDBStateBackend rocksDbBackend = new RocksDBStateBackend(tempFolder.newFolder().toURI().toString());
+		Configuration conf = new Configuration();
+		conf.setBoolean(CheckpointingOptions.CHECKPOINT_CONCAT_STREAM_ENABLED, true);
+		conf.setInteger(RocksDBOptions.CHECKPOINT_TRANSFER_THREAD_NUM, 5);
+		RocksDBStateBackend configured = rocksDbBackend.configure(conf, Thread.currentThread().getContextClassLoader());
+		assertEquals(1, configured.getNumberOfTransferThreads());
 	}
 
 	/**

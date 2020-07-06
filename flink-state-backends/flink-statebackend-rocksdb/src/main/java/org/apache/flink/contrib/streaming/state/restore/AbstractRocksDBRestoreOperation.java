@@ -19,10 +19,12 @@
 package org.apache.flink.contrib.streaming.state.restore;
 
 import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
+import org.apache.flink.contrib.streaming.state.RocksDBAccessMetric;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend.RocksDbKvStateInfo;
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricMonitor;
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricOptions;
 import org.apache.flink.contrib.streaming.state.RocksDBOperationUtils;
+import org.apache.flink.contrib.streaming.state.RocksDBWrapper;
 import org.apache.flink.contrib.streaming.state.ttl.RocksDbTtlCompactFiltersManager;
 import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.memory.DataInputView;
@@ -40,7 +42,6 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
-import org.rocksdb.RocksDB;
 
 import javax.annotation.Nonnull;
 
@@ -74,6 +75,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 	protected List<ColumnFamilyDescriptor> columnFamilyDescriptors;
 	protected final StateSerializerProvider<K> keySerializerProvider;
 	protected final RocksDBNativeMetricOptions nativeMetricOptions;
+	protected final RocksDBAccessMetric.Builder accessMetricBuilder;
 	protected final MetricGroup metricGroup;
 	protected final Collection<KeyedStateHandle> restoreStateHandles;
 	// Current places to set compact filter into column family options:
@@ -86,7 +88,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 	//   - data ingestion after db open: #getOrRegisterStateColumnFamilyHandle before creating column family
 	protected final RocksDbTtlCompactFiltersManager ttlCompactFiltersManager;
 
-	protected RocksDB db;
+	protected RocksDBWrapper db;
 	protected ColumnFamilyHandle defaultColumnFamilyHandle;
 	protected RocksDBNativeMetricMonitor nativeMetricMonitor;
 	protected boolean isKeySerializerCompatibilityChecked;
@@ -104,6 +106,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 		DBOptions dbOptions,
 		Function<String, ColumnFamilyOptions> columnFamilyOptionsFactory,
 		RocksDBNativeMetricOptions nativeMetricOptions,
+		RocksDBAccessMetric.Builder accessMetricBuilder,
 		MetricGroup metricGroup,
 		@Nonnull Collection<KeyedStateHandle> stateHandles,
 		@Nonnull RocksDbTtlCompactFiltersManager ttlCompactFiltersManager) {
@@ -120,6 +123,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 		this.dbOptions = dbOptions;
 		this.columnFamilyOptionsFactory = columnFamilyOptionsFactory;
 		this.nativeMetricOptions = nativeMetricOptions;
+		this.accessMetricBuilder = accessMetricBuilder;
 		this.metricGroup = metricGroup;
 		this.restoreStateHandles = stateHandles;
 		this.ttlCompactFiltersManager = ttlCompactFiltersManager;
@@ -128,21 +132,19 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 	}
 
 	void openDB() throws IOException {
-		db = RocksDBOperationUtils.openDB(
-			dbPath,
-			columnFamilyDescriptors,
-			columnFamilyHandles,
-			RocksDBOperationUtils.createColumnFamilyOptions(columnFamilyOptionsFactory, "default"),
-			dbOptions);
+		db = new RocksDBWrapper(
+			RocksDBOperationUtils.openDB(
+				dbPath,
+				columnFamilyDescriptors,
+				columnFamilyHandles,
+				RocksDBOperationUtils.createColumnFamilyOptions(columnFamilyOptionsFactory, "default"),
+				dbOptions),
+			accessMetricBuilder.setMetricGroup(metricGroup));
 		// remove the default column family which is located at the first index
 		defaultColumnFamilyHandle = columnFamilyHandles.remove(0);
 		// init native metrics monitor if configured
 		nativeMetricMonitor = nativeMetricOptions.isEnabled() ?
-			new RocksDBNativeMetricMonitor(nativeMetricOptions, metricGroup, db) : null;
-	}
-
-	public RocksDB getDb() {
-		return this.db;
+			new RocksDBNativeMetricMonitor(nativeMetricOptions, metricGroup, db.getDb()) : null;
 	}
 
 	RocksDbKvStateInfo getOrRegisterStateColumnFamilyHandle(
@@ -159,7 +161,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 				RegisteredStateMetaInfoBase.fromMetaInfoSnapshot(stateMetaInfoSnapshot);
 			if (columnFamilyHandle == null) {
 				registeredStateMetaInfoEntry = RocksDBOperationUtils.createStateInfo(
-					stateMetaInfo, db, columnFamilyOptionsFactory, ttlCompactFiltersManager);
+					stateMetaInfo, db.getDb(), columnFamilyOptionsFactory, ttlCompactFiltersManager);
 			} else {
 				registeredStateMetaInfoEntry = new RocksDbKvStateInfo(columnFamilyHandle, stateMetaInfo);
 			}
@@ -167,6 +169,7 @@ public abstract class AbstractRocksDBRestoreOperation<K> implements RocksDBResto
 			RocksDBOperationUtils.registerKvStateInformation(
 				kvStateInformation,
 				nativeMetricMonitor,
+				db.getAccessMetric(),
 				stateMetaInfoSnapshot.getName(),
 				registeredStateMetaInfoEntry);
 		} else {
