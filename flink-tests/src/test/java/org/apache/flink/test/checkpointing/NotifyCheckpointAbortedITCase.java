@@ -80,6 +80,8 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
@@ -98,6 +100,8 @@ import static org.junit.Assert.assertEquals;
  */
 @RunWith(Parameterized.class)
 public class NotifyCheckpointAbortedITCase extends TestLogger {
+	private static final Logger LOG = LoggerFactory.getLogger(NotifyCheckpointAbortedITCase.class);
+
 	private static final long DECLINE_CHECKPOINT_ID = 2L;
 	private static final long TEST_TIMEOUT = 60000;
 	private static final String DECLINE_SINK_NAME = "DeclineSink";
@@ -155,6 +159,7 @@ public class NotifyCheckpointAbortedITCase extends TestLogger {
 	 */
 	@Test(timeout = TEST_TIMEOUT)
 	public void testNotifyCheckpointAborted() throws Exception {
+		final long start = System.currentTimeMillis();
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.enableCheckpointing(200, CheckpointingMode.EXACTLY_ONCE);
 		env.getCheckpointConfig().enableUnalignedCheckpoints(unalignedCheckpointEnabled);
@@ -176,18 +181,29 @@ public class NotifyCheckpointAbortedITCase extends TestLogger {
 
 		ClientUtils.submitJob(clusterClient, jobGraph);
 
+		LOG.info("Waiting for add checkpoint latch trigger, {} seconds.", spentTimeSeconds(start));
 		TestingCompletedCheckpointStore.addCheckpointLatch.await();
 		TestingCompletedCheckpointStore.abortCheckpointLatch.trigger();
 
+		LOG.info("Verify all operators notify aborted 1st time, {} seconds.", spentTimeSeconds(start));
 		verifyAllOperatorsNotifyAborted();
+		LOG.info("Reset all operators notify aborted, {} seconds.", spentTimeSeconds(start));
 		resetAllOperatorsNotifyAbortedLatches();
 		verifyAllOperatorsNotifyAbortedTimes(1);
 
+		LOG.info("Trigger wait latch, {} seconds.", spentTimeSeconds(start));
 		DeclineSink.waitLatch.trigger();
+
+		LOG.info("Verify all operators notify aborted 2nd time, {} seconds.", spentTimeSeconds(start));
 		verifyAllOperatorsNotifyAborted();
 		verifyAllOperatorsNotifyAbortedTimes(2);
 
+		LOG.info("Finish all tests and cancel the job, {} seconds.", spentTimeSeconds(start));
 		clusterClient.cancel(jobID).get();
+	}
+
+	private double spentTimeSeconds(long start) {
+		return (System.currentTimeMillis() - start) / 1000.0;
 	}
 
 	private void verifyAllOperatorsNotifyAborted() throws InterruptedException {
