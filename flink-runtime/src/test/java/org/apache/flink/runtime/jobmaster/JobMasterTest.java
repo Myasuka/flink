@@ -382,7 +382,7 @@ public class JobMasterTest extends TestLogger {
 				System.currentTimeMillis()) {
 				@Override
 				public void declineCheckpoint(DeclineCheckpoint declineCheckpoint) {
-					declineCheckpointMessageFuture.complete(declineCheckpoint.getReason());
+					declineCheckpointMessageFuture.complete(declineCheckpoint.getSerializedCheckpointException().unwrap());
 				}
 			};
 

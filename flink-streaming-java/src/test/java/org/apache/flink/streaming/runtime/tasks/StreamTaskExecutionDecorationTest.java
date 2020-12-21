@@ -17,6 +17,8 @@
 
 package org.apache.flink.streaming.runtime.tasks;
 
+import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.CheckpointType;
@@ -47,7 +49,7 @@ public class StreamTaskExecutionDecorationTest {
 
 	@Test
 	public void testAbortCheckpointOnBarrierIsDecorated() throws Exception {
-		task.abortCheckpointOnBarrier(1, null);
+		task.abortCheckpointOnBarrier(1, new CheckpointException(CheckpointFailureReason.CHECKPOINT_DECLINED_ON_CANCELLATION_BARRIER));
 		Assert.assertTrue("execution decorator was not called", decorator.wasCalled());
 	}
 

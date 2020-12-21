@@ -913,7 +913,8 @@ public class CheckpointCoordinator {
 		}
 
 		final long checkpointId = message.getCheckpointId();
-		final String reason = (message.getReason() != null ? message.getReason().getMessage() : "");
+		CheckpointException checkpointException = message.getSerializedCheckpointException().unwrap();
+		final String reason = checkpointException.getMessage();
 
 		PendingCheckpoint checkpoint;
 
@@ -935,15 +936,7 @@ public class CheckpointCoordinator {
 					message.getTaskExecutionId(),
 					job,
 					taskManagerLocationInfo,
-					message.getReason());
-				final CheckpointException checkpointException;
-				if (message.getReason() == null) {
-					checkpointException =
-						new CheckpointException(CheckpointFailureReason.CHECKPOINT_DECLINED);
-				} else {
-					checkpointException = getCheckpointException(
-						CheckpointFailureReason.JOB_FAILURE, message.getReason());
-				}
+					checkpointException);
 				abortPendingCheckpoint(
 					checkpoint,
 					checkpointException,
