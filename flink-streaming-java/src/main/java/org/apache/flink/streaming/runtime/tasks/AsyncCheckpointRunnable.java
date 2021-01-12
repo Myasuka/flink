@@ -107,6 +107,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 
 			long bytesPersistedDuringAlignment = 0;
 			for (Map.Entry<OperatorID, OperatorSnapshotFutures> entry : operatorSnapshotsInProgress.entrySet()) {
+				LOG.info("running operatorSnapshotsInProgress entry: {}", entry);
 
 				OperatorID operatorID = entry.getKey();
 				OperatorSnapshotFutures snapshotInProgress = entry.getValue();
@@ -114,6 +115,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 				// finalize the async part of all by executing all snapshot runnables
 				OperatorSnapshotFinalizer finalizedSnapshots =
 					new OperatorSnapshotFinalizer(snapshotInProgress);
+				LOG.info("finalize operatorSnapshotsInProgress entry: {}", entry);
 
 				jobManagerTaskOperatorSubtaskStates.putSubtaskStateByOperatorID(
 					operatorID,
@@ -193,7 +195,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 		while (AsyncCheckpointState.DISCARDED != currentState) {
 
 			if (asyncCheckpointState.compareAndSet(currentState, AsyncCheckpointState.DISCARDED)) {
-
+				LOG.info("Discarded async checkpoint runnable during handle execution exception, it will decline this checkpoint {}.", e.getMessage());
 				didCleanup = true;
 
 				try {
@@ -207,15 +209,17 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 						taskName + '.',
 					e);
 
-				// We only report the exception for the original cause of fail and cleanup.
-				// Otherwise this followup exception could race the original exception in failing the task.
-				try {
-					taskEnvironment.declineCheckpoint(
+				if (isRunning()) {
+					// We only report the exception for the original cause of fail and cleanup.
+					// Otherwise this followup exception could race the original exception in failing the task.
+					try {
+						taskEnvironment.declineCheckpoint(
 							checkpointMetaData.getCheckpointId(),
 							new CheckpointException(CheckpointFailureReason.CHECKPOINT_ASYNC_EXCEPTION, checkpointException));
-				} catch (Exception unhandled) {
-					AsynchronousException asyncException = new AsynchronousException(unhandled);
-					asyncExceptionHandler.handleAsyncException("Failure in asynchronous checkpoint materialization", asyncException);
+					} catch (Exception unhandled) {
+						AsynchronousException asyncException = new AsynchronousException(unhandled);
+						asyncExceptionHandler.handleAsyncException("Failure in asynchronous checkpoint materialization", asyncException);
+					}
 				}
 
 				currentState = AsyncCheckpointState.DISCARDED;
@@ -238,6 +242,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 			} catch (Exception cleanupException) {
 				LOG.warn("Could not properly clean up the async checkpoint runnable.", cleanupException);
 			}
+			LOG.info("Close async checkpoint runnable.");
 		} else {
 			logFailedCleanupAttempt();
 		}
@@ -248,7 +253,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 	}
 
 	private void cleanup() throws Exception {
-		LOG.debug(
+		LOG.info(
 			"Cleanup AsyncCheckpointRunnable for checkpoint {} of {}.",
 			checkpointMetaData.getCheckpointId(),
 			taskName);
@@ -259,6 +264,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 		for (OperatorSnapshotFutures operatorSnapshotResult : operatorSnapshotsInProgress.values()) {
 			if (operatorSnapshotResult != null) {
 				try {
+					LOG.info("Cancel operatorSnapshotResult: {}", operatorSnapshotResult);
 					operatorSnapshotResult.cancel();
 				} catch (Exception cancelException) {
 					exception = ExceptionUtils.firstOrSuppressed(cancelException, exception);
@@ -272,7 +278,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 	}
 
 	private void logFailedCleanupAttempt() {
-		LOG.debug("{} - asynchronous checkpointing operation for checkpoint {} has " +
+		LOG.info("{} - asynchronous checkpointing operation for checkpoint {} has " +
 				"already been completed. Thus, the state handles are not cleaned up.",
 			taskName,
 			checkpointMetaData.getCheckpointId());

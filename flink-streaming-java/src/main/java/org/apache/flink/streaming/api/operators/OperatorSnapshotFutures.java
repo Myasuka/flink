@@ -157,7 +157,7 @@ public class OperatorSnapshotFutures {
 			for (Tuple2<Future<? extends StateObject>, String> pair : pairs) {
 				closer.register(() -> {
 					try {
-						discardStateFuture(pair.f0);
+						discardStateFuture(pair.f0, pair.f1);
 					} catch (Exception e) {
 						throw new RuntimeException(String.format("Could not properly cancel %s state future", pair.f1), e);
 					}

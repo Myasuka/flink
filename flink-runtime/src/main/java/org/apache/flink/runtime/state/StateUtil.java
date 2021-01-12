@@ -69,8 +69,9 @@ public class StateUtil {
 	 * @param stateFuture to be discarded
 	 * @throws Exception if the discard operation failed
 	 */
-	public static void discardStateFuture(Future<? extends StateObject> stateFuture) throws Exception {
+	public static void discardStateFuture(Future<? extends StateObject> stateFuture, String stateType) throws Exception {
 		if (null != stateFuture) {
+			LOG.info("discardStateFuture {} with stateType {}.", stateFuture, stateType);
 			if (!stateFuture.cancel(true)) {
 
 				try {

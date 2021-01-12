@@ -126,6 +126,8 @@ public abstract class AsyncSnapshotCallable<T> implements Callable<T> {
 		public boolean cancel(boolean mayInterruptIfRunning) {
 			boolean result = super.cancel(mayInterruptIfRunning);
 			if (mayInterruptIfRunning) {
+				Exception exception = new Exception();
+				LOG.info("Canceling future {}.", this, exception);
 				AsyncSnapshotCallable.this.cancel();
 			}
 			return result;

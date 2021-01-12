@@ -935,9 +935,10 @@ public class ExecutionGraph implements AccessExecutionGraph {
 	void failGlobalIfExecutionIsStillRunning(Throwable cause, ExecutionAttemptID failingAttempt) {
 		final Execution failedExecution = currentExecutions.get(failingAttempt);
 		if (failedExecution != null && failedExecution.getState() == ExecutionState.RUNNING) {
+			LOG.info("Failing attempt {} with execution state {}.", failingAttempt, failedExecution.getState());
 			failGlobal(cause);
 		} else {
-			LOG.debug("The failing attempt {} belongs to an already not" +
+			LOG.warn("The failing attempt {} belongs to an already not" +
 				" running task thus won't fail the job", failingAttempt);
 		}
 	}

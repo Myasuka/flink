@@ -38,6 +38,8 @@ import org.apache.flink.core.io.InputSplitSource;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.queryablestate.KvStateID;
 import org.apache.flink.runtime.akka.AkkaUtils;
+import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointProperties;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
@@ -133,7 +135,6 @@ import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.InstantiationUtil;
-import org.apache.flink.util.SerializedThrowable;
 import org.apache.flink.util.TestLogger;
 
 import akka.actor.ActorSystem;
@@ -397,6 +398,9 @@ public class JobMasterTest extends TestLogger {
 					className));
 
 			Throwable userException = (Throwable) Class.forName(className, false, userClassLoader).newInstance();
+			CheckpointException checkpointException = new CheckpointException(
+				CheckpointFailureReason.CHECKPOINT_DECLINED,
+				userException);
 
 			JobMasterGateway jobMasterGateway =
 				rpcService2.connect(jobMaster.getAddress(), jobMaster.getFencingToken(), JobMasterGateway.class).get();
@@ -406,13 +410,17 @@ public class JobMasterTest extends TestLogger {
 				jobGraph.getJobID(),
 				new ExecutionAttemptID(),
 				1,
-				userException
+				checkpointException
 			);
 
 			Throwable throwable = declineCheckpointMessageFuture.get(testingTimeout.toMilliseconds(),
 				TimeUnit.MILLISECONDS);
-			assertThat(throwable, instanceOf(SerializedThrowable.class));
-			assertThat(throwable.getMessage(), equalTo(userException.getMessage()));
+			assertThat(throwable, instanceOf(CheckpointException.class));
+			Optional<Throwable> throwableWithMessage = ExceptionUtils.findThrowableWithMessage(
+				throwable,
+				userException.getMessage());
+			assertTrue(throwableWithMessage.isPresent());
+			assertThat(throwableWithMessage.get().getMessage(), equalTo(userException.getMessage()));
 		} finally {
 			RpcUtils.terminateRpcServices(testingTimeout, rpcService1, rpcService2);
 		}

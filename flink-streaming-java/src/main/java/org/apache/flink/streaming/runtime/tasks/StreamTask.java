@@ -294,7 +294,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		this.mainMailboxExecutor = mailboxProcessor.getMainMailboxExecutor();
 		this.asyncExceptionHandler = new StreamTaskAsyncExceptionHandler(environment);
 		this.asyncOperationsThreadPool = Executors.newCachedThreadPool(
-			new ExecutorThreadFactory("AsyncOperations", uncaughtExceptionHandler));
+			new ExecutorThreadFactory("AsyncOperations-" + getName(), uncaughtExceptionHandler));
 
 		this.stateBackend = createStateBackend();
 
@@ -700,6 +700,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	private void shutdownAsyncThreads() throws Exception {
 		if (!asyncOperationsThreadPool.isShutdown()) {
+			LOG.info("Shutting down async threads");
 			asyncOperationsThreadPool.shutdownNow();
 		}
 	}
