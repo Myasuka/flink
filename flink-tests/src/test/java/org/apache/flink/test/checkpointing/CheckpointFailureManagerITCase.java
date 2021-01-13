@@ -18,12 +18,15 @@
 
 package org.apache.flink.test.checkpointing;
 
+import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.core.fs.CloseableRegistry;
+import org.apache.flink.runtime.checkpoint.CheckpointFailureManager;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.state.AbstractSnapshotStrategy;
@@ -89,13 +92,22 @@ public class CheckpointFailureManagerITCase extends TestLogger {
 	public void testAsyncCheckpointFailureTriggerJobFailed() throws Exception {
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.enableCheckpointing(100);
+		env.setRestartStrategy(RestartStrategies.noRestart());
 		env.setStateBackend(new AsyncFailureStateBackend());
 		env.addSource(new StringGeneratingSourceFunction()).addSink(new DiscardingSink<>());
 		JobGraph jobGraph = StreamingJobGraphGenerator.createJobGraph(env.getStreamGraph());
-		TestUtils.submitJobAndWaitForResult(cluster.getClusterClient(), jobGraph, getClass().getClassLoader());
-		// assert that the job only execute checkpoint once and only failed once.
+		try {
+			TestUtils.submitJobAndWaitForResult(
+				cluster.getClusterClient(),
+				jobGraph,
+				getClass().getClassLoader());
+		} catch (JobExecutionException jobException) {
+			if (!jobException.getCause().getCause().equals(CheckpointFailureManager.EXCEEDED_CHECKPOINT_TOLERABLE_FAILURE_EXCEPTION)) {
+				throw jobException;
+			}
+		}
+		// assert that the job only failed once.
 		Assert.assertEquals(1, StringGeneratingSourceFunction.INITIALIZE_TIMES.get());
-		Assert.assertEquals(1, StringGeneratingSourceFunction.SNAPSHOT_TIMES.get());
 	}
 
 	private static class StringGeneratingSourceFunction extends RichParallelSourceFunction<String> implements CheckpointedFunction {
@@ -109,14 +121,12 @@ public class CheckpointFailureManagerITCase extends TestLogger {
 
 		private volatile boolean isRunning = true;
 
-		public static final AtomicInteger SNAPSHOT_TIMES = new AtomicInteger(0);
 		public static final AtomicInteger INITIALIZE_TIMES = new AtomicInteger(0);
 
 		@Override
 		public void snapshotState(FunctionSnapshotContext context) throws Exception {
 			listState.clear();
 			listState.add(emitted);
-			SNAPSHOT_TIMES.addAndGet(1);
 		}
 
 		@Override

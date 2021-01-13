@@ -209,7 +209,7 @@ final class AsyncCheckpointRunnable implements Runnable, Closeable {
 						taskName + '.',
 					e);
 
-				if (isRunning()) {
+				if (asyncExceptionHandler.isStillRunning()) {
 					// We only report the exception for the original cause of fail and cleanup.
 					// Otherwise this followup exception could race the original exception in failing the task.
 					try {

@@ -29,4 +29,8 @@ public interface AsyncExceptionHandler {
 	 * other than the one executing the main task.
 	 */
 	void handleAsyncException(String message, Throwable exception);
+
+	default boolean isStillRunning() {
+		return true;
+	}
 }
