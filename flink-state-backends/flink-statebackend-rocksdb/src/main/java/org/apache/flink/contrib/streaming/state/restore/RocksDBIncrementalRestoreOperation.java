@@ -20,6 +20,7 @@ package org.apache.flink.contrib.streaming.state.restore;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
+import org.apache.flink.contrib.streaming.state.RocksDBAccessMetric;
 import org.apache.flink.contrib.streaming.state.RocksDBIncrementalCheckpointUtils;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend.RocksDbKvStateInfo;
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricOptions;
@@ -118,6 +119,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
             Function<String, ColumnFamilyOptions> columnFamilyOptionsFactory,
             RocksDBNativeMetricOptions nativeMetricOptions,
             MetricGroup metricGroup,
+            RocksDBAccessMetric.Builder accessMetricBuilder,
             @Nonnull Collection<KeyedStateHandle> restoreStateHandles,
             @Nonnull RocksDbTtlCompactFiltersManager ttlCompactFiltersManager,
             @Nonnegative long writeBatchSize,
@@ -130,6 +132,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
                         columnFamilyOptionsFactory,
                         nativeMetricOptions,
                         metricGroup,
+                        accessMetricBuilder,
                         ttlCompactFiltersManager,
                         writeBufferManagerCapacity);
         this.operatorIdentifier = operatorIdentifier;
@@ -167,7 +170,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
             restoreWithoutRescaling(theFirstStateHandle);
         }
         return new RocksDBRestoreResult(
-                this.rocksHandle.getDb(),
+                this.rocksHandle.getDBWrapper(),
                 this.rocksHandle.getDefaultColumnFamilyHandle(),
                 this.rocksHandle.getNativeMetricMonitor(),
                 lastCompletedCheckpointId,
@@ -324,7 +327,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
                                     temporaryRestoreInstancePath);
                     RocksDBWriteBatchWrapper writeBatchWrapper =
                             new RocksDBWriteBatchWrapper(
-                                    this.rocksHandle.getDb(), writeBatchSize)) {
+                                    this.rocksHandle.getDBWrapper().getDb(), writeBatchSize)) {
 
                 List<ColumnFamilyDescriptor> tmpColumnFamilyDescriptors =
                         tmpRestoreDBInfo.columnFamilyDescriptors;
@@ -337,12 +340,14 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
                     ColumnFamilyHandle tmpColumnFamilyHandle = tmpColumnFamilyHandles.get(i);
 
                     ColumnFamilyHandle targetColumnFamilyHandle =
-                            this.rocksHandle.getOrRegisterStateColumnFamilyHandle(
+                            this.rocksHandle
+                                    .getOrRegisterStateColumnFamilyHandle(
                                             null, tmpRestoreDBInfo.stateMetaInfoSnapshots.get(i))
-                                    .columnFamilyHandle;
+                                    .columnFamilyHandleWrapper
+                                    .getColumnFamilyHandle();
 
                     try (RocksIteratorWrapper iterator =
-                            RocksDBOperationUtils.getRocksIterator(
+                            RocksDBOperationUtils.getRocksIteratorWithoutAccessMetric(
                                     tmpRestoreDBInfo.db,
                                     tmpColumnFamilyHandle,
                                     tmpRestoreDBInfo.readOptions)) {
@@ -384,7 +389,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
         // 2. Clip the base DB instance
         try {
             RocksDBIncrementalCheckpointUtils.clipDBWithKeyGroupRange(
-                    this.rocksHandle.getDb(),
+                    this.rocksHandle.getDBWrapper().getDb(),
                     this.rocksHandle.getColumnFamilyHandles(),
                     keyGroupRange,
                     initialHandle.getKeyGroupRange(),

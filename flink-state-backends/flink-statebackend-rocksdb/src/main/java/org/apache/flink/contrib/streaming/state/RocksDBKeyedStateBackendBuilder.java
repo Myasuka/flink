@@ -113,6 +113,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
     private boolean enableIncrementalCheckpointing;
 
     private RocksDBNativeMetricOptions nativeMetricOptions;
+    private RocksDBAccessMetric.Builder accessMetricBuilder;
     private int numberOfTransferingThreads;
     private long writeBatchSize =
             RocksDBConfigurableOptions.WRITE_BATCH_SIZE.defaultValue().getBytes();
@@ -162,6 +163,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         this.metricGroup = metricGroup;
         this.enableIncrementalCheckpointing = false;
         this.nativeMetricOptions = new RocksDBNativeMetricOptions();
+        this.accessMetricBuilder = new RocksDBAccessMetric.Builder();
         this.numberOfTransferingThreads =
                 RocksDBOptions.CHECKPOINT_TRANSFER_THREAD_NUM.defaultValue();
     }
@@ -221,6 +223,12 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         return this;
     }
 
+    RocksDBKeyedStateBackendBuilder<K> setAccessMetricBuilder(
+            RocksDBAccessMetric.Builder accessMetricBuilder) {
+        this.accessMetricBuilder = accessMetricBuilder;
+        return this;
+    }
+
     RocksDBKeyedStateBackendBuilder<K> setNumberOfTransferingThreads(
             int numberOfTransferingThreads) {
         this.numberOfTransferingThreads = numberOfTransferingThreads;
@@ -254,7 +262,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                 new LinkedHashMap<>();
         LinkedHashMap<String, HeapPriorityQueueSnapshotRestoreWrapper<?>> registeredPQStates =
                 new LinkedHashMap<>();
-        RocksDB db = null;
+        RocksDBWrapper db = null;
         RocksDBRestoreOperation restoreOperation = null;
         RocksDbTtlCompactFiltersManager ttlCompactFiltersManager =
                 new RocksDbTtlCompactFiltersManager(ttlTimeProvider);
@@ -274,12 +282,13 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             SortedMap<Long, Set<StateHandleID>> materializedSstFiles = new TreeMap<>();
             long lastCompletedCheckpointId = -1L;
             if (injectedTestDB != null) {
-                db = injectedTestDB;
+                accessMetricBuilder.setMetricGroup(metricGroup);
+                db = new RocksDBWrapper(injectedTestDB, accessMetricBuilder);
                 defaultColumnFamilyHandle = injectedDefaultColumnFamilyHandle;
                 nativeMetricMonitor =
                         nativeMetricOptions.isEnabled()
                                 ? new RocksDBNativeMetricMonitor(
-                                        nativeMetricOptions, metricGroup, db)
+                                        nativeMetricOptions, metricGroup, db.getDb())
                                 : null;
             } else {
                 prepareDirectories();
@@ -291,7 +300,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                                 registeredPQStates,
                                 ttlCompactFiltersManager);
                 RocksDBRestoreResult restoreResult = restoreOperation.restore();
-                db = restoreResult.getDb();
+                db = restoreResult.getDBWrapper();
                 defaultColumnFamilyHandle = restoreResult.getDefaultColumnFamilyHandle();
                 nativeMetricMonitor = restoreResult.getNativeMetricMonitor();
                 if (restoreOperation instanceof RocksDBIncrementalRestoreOperation) {
@@ -303,7 +312,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 
             writeBatchWrapper =
                     new RocksDBWriteBatchWrapper(
-                            db, optionsContainer.getWriteOptions(), writeBatchSize);
+                            db.getDb(), optionsContainer.getWriteOptions(), writeBatchSize);
 
             // it is important that we only create the key builder after the restore, and not
             // before;
@@ -332,9 +341,10 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     initPriorityQueueFactory(
                             keyGroupPrefixBytes,
                             kvStateInformation,
-                            db,
+                            db.getDb(),
                             writeBatchWrapper,
-                            nativeMetricMonitor);
+                            nativeMetricMonitor,
+                            db.getAccessMetric());
         } catch (Throwable e) {
             // Do clean up
             List<ColumnFamilyOptions> columnFamilyOptions =
@@ -348,8 +358,9 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             for (RocksDBKeyedStateBackend.RocksDbKvStateInfo kvStateInfo :
                     kvStateInformation.values()) {
                 RocksDBOperationUtils.addColumnFamilyOptionsToCloseLater(
-                        columnFamilyOptions, kvStateInfo.columnFamilyHandle);
-                IOUtils.closeQuietly(kvStateInfo.columnFamilyHandle);
+                        columnFamilyOptions,
+                        kvStateInfo.columnFamilyHandleWrapper.getColumnFamilyHandle());
+                IOUtils.closeQuietly(kvStateInfo.columnFamilyHandleWrapper);
             }
             IOUtils.closeQuietly(db);
             // it's possible that db has been initialized but later restore steps failed
@@ -417,6 +428,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     columnFamilyOptionsFactory,
                     nativeMetricOptions,
                     metricGroup,
+                    accessMetricBuilder,
                     ttlCompactFiltersManager,
                     optionsContainer.getWriteBufferManagerCapacity());
         }
@@ -437,6 +449,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     columnFamilyOptionsFactory,
                     nativeMetricOptions,
                     metricGroup,
+                    accessMetricBuilder,
                     restoreStateHandles,
                     ttlCompactFiltersManager,
                     writeBatchSize,
@@ -456,6 +469,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     columnFamilyOptionsFactory,
                     nativeMetricOptions,
                     metricGroup,
+                    accessMetricBuilder,
                     restoreStateHandles,
                     ttlCompactFiltersManager,
                     writeBatchSize,
@@ -471,6 +485,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     columnFamilyOptionsFactory,
                     nativeMetricOptions,
                     metricGroup,
+                    accessMetricBuilder,
                     restoreStateHandles,
                     ttlCompactFiltersManager,
                     writeBatchSize,
@@ -484,7 +499,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             LinkedHashMap<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation,
             LinkedHashMap<String, HeapPriorityQueueSnapshotRestoreWrapper<?>> registeredPQStates,
             int keyGroupPrefixBytes,
-            RocksDB db,
+            RocksDBWrapper db,
             UUID backendUID,
             SortedMap<Long, Set<StateHandleID>> materializedSstFiles,
             long lastCompletedCheckpointId) {
@@ -526,7 +541,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             Map<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation,
             RocksDB db,
             RocksDBWriteBatchWrapper writeBatchWrapper,
-            RocksDBNativeMetricMonitor nativeMetricMonitor) {
+            RocksDBNativeMetricMonitor nativeMetricMonitor,
+            RocksDBAccessMetric accessMetric) {
         PriorityQueueSetFactory priorityQueueFactory;
         switch (priorityQueueStateType) {
             case HEAP:
@@ -543,6 +559,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                                 optionsContainer.getReadOptions(),
                                 writeBatchWrapper,
                                 nativeMetricMonitor,
+                                accessMetric,
                                 columnFamilyOptionsFactory,
                                 optionsContainer.getWriteBufferManagerCapacity());
                 break;

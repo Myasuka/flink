@@ -29,7 +29,6 @@ import org.apache.flink.util.FlinkRuntimeException;
 
 import org.apache.flink.shaded.guava18.com.google.common.primitives.UnsignedBytes;
 
-import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -66,8 +65,10 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 
     @Nonnull private final ReadOptions readOptions;
 
+    @Nullable private final RocksDBAccessMetric accessMetric;
+
     /** Handle to the column family of the RocksDB instance in which the elements are stored. */
-    @Nonnull private final ColumnFamilyHandle columnFamilyHandle;
+    @Nonnull private final ColumnFamilyHandleWrapper columnFamilyHandle;
 
     /**
      * Serializer for the contained elements. The lexicographical order of the bytes of serialized
@@ -110,7 +111,8 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
             @Nonnegative int keyGroupPrefixBytes,
             @Nonnull RocksDB db,
             @Nonnull ReadOptions readOptions,
-            @Nonnull ColumnFamilyHandle columnFamilyHandle,
+            @Nullable RocksDBAccessMetric accessMetric,
+            @Nonnull ColumnFamilyHandleWrapper columnFamilyHandle,
             @Nonnull TypeSerializer<E> byteOrderProducingSerializer,
             @Nonnull DataOutputSerializer outputStream,
             @Nonnull DataInputDeserializer inputStream,
@@ -118,6 +120,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
             @Nonnull OrderedByteArraySetCache orderedByteArraySetCache) {
         this.db = db;
         this.readOptions = readOptions;
+        this.accessMetric = accessMetric;
         this.columnFamilyHandle = columnFamilyHandle;
         this.byteOrderProducingSerializer = byteOrderProducingSerializer;
         this.batchWrapper = batchWrapper;
@@ -303,7 +306,10 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
     private RocksBytesIterator orderedBytesIterator() {
         flushWriteBatch();
         return new RocksBytesIterator(
-                new RocksIteratorWrapper(db.newIterator(columnFamilyHandle, readOptions)));
+                new RocksIteratorWrapper(
+                        db.newIterator(columnFamilyHandle.getColumnFamilyHandle(), readOptions),
+                        accessMetric,
+                        columnFamilyHandle));
     }
 
     /** Ensures that recent writes are flushed and reflect in the RocksDB instance. */
@@ -317,7 +323,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 
     private void addToRocksDB(@Nonnull byte[] toAddBytes) {
         try {
-            batchWrapper.put(columnFamilyHandle, toAddBytes, DUMMY_BYTES);
+            batchWrapper.put(columnFamilyHandle.getColumnFamilyHandle(), toAddBytes, DUMMY_BYTES);
         } catch (RocksDBException e) {
             throw new FlinkRuntimeException(e);
         }
@@ -325,7 +331,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
 
     private void removeFromRocksDB(@Nonnull byte[] toRemoveBytes) {
         try {
-            batchWrapper.remove(columnFamilyHandle, toRemoveBytes);
+            batchWrapper.remove(columnFamilyHandle.getColumnFamilyHandle(), toRemoveBytes);
         } catch (RocksDBException e) {
             throw new FlinkRuntimeException(e);
         }
