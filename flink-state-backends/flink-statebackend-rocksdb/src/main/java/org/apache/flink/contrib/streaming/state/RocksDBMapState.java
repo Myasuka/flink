@@ -176,14 +176,7 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
 
     @Override
     public Iterable<Map.Entry<UK, UV>> entries() {
-        final Iterator<Map.Entry<UK, UV>> iterator = iterator();
-
-        // Return null to make the behavior consistent with other states.
-        if (!iterator.hasNext()) {
-            return null;
-        } else {
-            return () -> iterator;
-        }
+        return this::iterator;
     }
 
     @Override
