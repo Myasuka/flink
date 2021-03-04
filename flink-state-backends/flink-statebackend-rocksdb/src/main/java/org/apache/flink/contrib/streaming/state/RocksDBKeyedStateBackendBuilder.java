@@ -254,7 +254,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 
     @Override
     public RocksDBKeyedStateBackend<K> build() throws BackendBuildingException {
-        RocksDBWriteBatchWrapper writeBatchWrapper = null;
+        RocksDBWriteBatchWrapper timerWriteBatchWrapper = null;
         ColumnFamilyHandle defaultColumnFamilyHandle = null;
         RocksDBNativeMetricMonitor nativeMetricMonitor = null;
         CloseableRegistry cancelStreamRegistryForBackend = new CloseableRegistry();
@@ -310,9 +310,13 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                 }
             }
 
-            writeBatchWrapper =
+            timerWriteBatchWrapper =
                     new RocksDBWriteBatchWrapper(
-                            db.getDb(), optionsContainer.getWriteOptions(), writeBatchSize);
+                            db,
+                            null,
+                            optionsContainer.getWriteOptions(),
+                            RocksDBWriteBatchWrapper.DEFAULT_CAPACITY,
+                            writeBatchSize);
 
             // it is important that we only create the key builder after the restore, and not
             // before;
@@ -341,8 +345,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     initPriorityQueueFactory(
                             keyGroupPrefixBytes,
                             kvStateInformation,
-                            db.getDb(),
-                            writeBatchWrapper,
+                            db,
+                            timerWriteBatchWrapper,
                             nativeMetricMonitor,
                             db.getAccessMetric());
         } catch (Throwable e) {
@@ -350,7 +354,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             List<ColumnFamilyOptions> columnFamilyOptions =
                     new ArrayList<>(kvStateInformation.values().size());
             IOUtils.closeQuietly(cancelStreamRegistryForBackend);
-            IOUtils.closeQuietly(writeBatchWrapper);
+            IOUtils.closeQuietly(timerWriteBatchWrapper);
             RocksDBOperationUtils.addColumnFamilyOptionsToCloseLater(
                     columnFamilyOptions, defaultColumnFamilyHandle);
             IOUtils.closeQuietly(defaultColumnFamilyHandle);
@@ -403,7 +407,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                 this.keyGroupCompressionDecorator,
                 rocksDBResourceGuard,
                 checkpointStrategy,
-                writeBatchWrapper,
+                timerWriteBatchWrapper,
                 defaultColumnFamilyHandle,
                 nativeMetricMonitor,
                 sharedRocksKeyBuilder,
@@ -539,7 +543,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
     private PriorityQueueSetFactory initPriorityQueueFactory(
             int keyGroupPrefixBytes,
             Map<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation,
-            RocksDB db,
+            RocksDBWrapper db,
             RocksDBWriteBatchWrapper writeBatchWrapper,
             RocksDBNativeMetricMonitor nativeMetricMonitor,
             RocksDBAccessMetric accessMetric) {

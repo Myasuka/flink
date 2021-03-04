@@ -20,12 +20,14 @@ package org.apache.flink.contrib.streaming.state.restore;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
+import org.apache.flink.contrib.streaming.state.ColumnFamilyHandleWrapper;
 import org.apache.flink.contrib.streaming.state.RocksDBAccessMetric;
 import org.apache.flink.contrib.streaming.state.RocksDBIncrementalCheckpointUtils;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend.RocksDbKvStateInfo;
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricOptions;
 import org.apache.flink.contrib.streaming.state.RocksDBOperationUtils;
 import org.apache.flink.contrib.streaming.state.RocksDBStateDownloader;
+import org.apache.flink.contrib.streaming.state.RocksDBWrapper;
 import org.apache.flink.contrib.streaming.state.RocksDBWriteBatchWrapper;
 import org.apache.flink.contrib.streaming.state.RocksIteratorWrapper;
 import org.apache.flink.contrib.streaming.state.ttl.RocksDbTtlCompactFiltersManager;
@@ -56,7 +58,6 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -327,7 +328,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
                                     temporaryRestoreInstancePath);
                     RocksDBWriteBatchWrapper writeBatchWrapper =
                             new RocksDBWriteBatchWrapper(
-                                    this.rocksHandle.getDBWrapper().getDb(), writeBatchSize)) {
+                                    this.rocksHandle.getDBWrapper(), writeBatchSize)) {
 
                 List<ColumnFamilyDescriptor> tmpColumnFamilyDescriptors =
                         tmpRestoreDBInfo.columnFamilyDescriptors;
@@ -347,9 +348,9 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
                                     .getColumnFamilyHandle();
 
                     try (RocksIteratorWrapper iterator =
-                            RocksDBOperationUtils.getRocksIteratorWithoutAccessMetric(
+                            RocksDBOperationUtils.getRocksIterator(
                                     tmpRestoreDBInfo.db,
-                                    tmpColumnFamilyHandle,
+                                    new ColumnFamilyHandleWrapper(tmpColumnFamilyHandle),
                                     tmpRestoreDBInfo.readOptions)) {
 
                         iterator.seek(startKeyGroupPrefixBytes);
@@ -405,7 +406,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
     /** Entity to hold the temporary RocksDB instance created for restore. */
     private static class RestoredDBInstance implements AutoCloseable {
 
-        @Nonnull private final RocksDB db;
+        @Nonnull private final RocksDBWrapper db;
 
         @Nonnull private final ColumnFamilyHandle defaultColumnFamilyHandle;
 
@@ -418,7 +419,7 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
         private final ReadOptions readOptions;
 
         private RestoredDBInstance(
-                @Nonnull RocksDB db,
+                @Nonnull RocksDBWrapper db,
                 @Nonnull List<ColumnFamilyHandle> columnFamilyHandles,
                 @Nonnull List<ColumnFamilyDescriptor> columnFamilyDescriptors,
                 @Nonnull List<StateMetaInfoSnapshot> stateMetaInfoSnapshots) {
@@ -467,14 +468,17 @@ public class RocksDBIncrementalRestoreOperation<K> implements RocksDBRestoreOper
         List<ColumnFamilyHandle> columnFamilyHandles =
                 new ArrayList<>(stateMetaInfoSnapshots.size() + 1);
 
-        RocksDB restoreDb =
-                RocksDBOperationUtils.openDB(
-                        temporaryRestoreInstancePath.toString(),
-                        columnFamilyDescriptors,
-                        columnFamilyHandles,
-                        RocksDBOperationUtils.createColumnFamilyOptions(
-                                this.rocksHandle.getColumnFamilyOptionsFactory(), "default"),
-                        this.rocksHandle.getDbOptions());
+        RocksDBWrapper restoreDb =
+                new RocksDBWrapper(
+                        RocksDBOperationUtils.openDB(
+                                temporaryRestoreInstancePath.toString(),
+                                columnFamilyDescriptors,
+                                columnFamilyHandles,
+                                RocksDBOperationUtils.createColumnFamilyOptions(
+                                        this.rocksHandle.getColumnFamilyOptionsFactory(),
+                                        "default"),
+                                this.rocksHandle.getDbOptions()),
+                        this.rocksHandle.getAccessMetricBuilder());
 
         return new RestoredDBInstance(
                 restoreDb, columnFamilyHandles, columnFamilyDescriptors, stateMetaInfoSnapshots);

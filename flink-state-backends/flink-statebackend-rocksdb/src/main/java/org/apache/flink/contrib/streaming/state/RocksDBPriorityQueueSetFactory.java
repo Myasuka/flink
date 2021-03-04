@@ -37,7 +37,6 @@ import org.apache.flink.util.StateMigrationException;
 
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
 
 import javax.annotation.Nonnull;
 
@@ -63,7 +62,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
     private final int keyGroupPrefixBytes;
     private final int numberOfKeyGroups;
     private final Map<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation;
-    private final RocksDB db;
+    private final RocksDBWrapper db;
     private final ReadOptions readOptions;
     private final RocksDBWriteBatchWrapper writeBatchWrapper;
     private final RocksDBNativeMetricMonitor nativeMetricMonitor;
@@ -76,7 +75,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
             int keyGroupPrefixBytes,
             int numberOfKeyGroups,
             Map<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation,
-            RocksDB db,
+            RocksDBWrapper db,
             ReadOptions readOptions,
             RocksDBWriteBatchWrapper writeBatchWrapper,
             RocksDBNativeMetricMonitor nativeMetricMonitor,
@@ -158,7 +157,7 @@ public class RocksDBPriorityQueueSetFactory implements PriorityQueueSetFactory {
             stateInfo =
                     RocksDBOperationUtils.createStateInfo(
                             metaInfo,
-                            db,
+                            db.getDb(),
                             columnFamilyOptionsFactory,
                             null,
                             writeBufferManagerCapacity);

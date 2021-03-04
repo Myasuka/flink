@@ -144,15 +144,18 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
 
         try (RocksDBWriteBatchWrapper writeBatchWrapper =
                 new RocksDBWriteBatchWrapper(
-                        backend.db.getDb(), writeOptions, backend.getWriteBatchSize())) {
+                        backend.db,
+                        columnFamily,
+                        writeOptions,
+                        RocksDBWriteBatchWrapper.DEFAULT_CAPACITY,
+                        backend.getWriteBatchSize())) {
             for (Map.Entry<UK, UV> entry : map.entrySet()) {
                 byte[] rawKeyBytes =
                         serializeCurrentKeyWithGroupAndNamespacePlusUserKey(
                                 entry.getKey(), userKeySerializer);
                 byte[] rawValueBytes =
                         serializeValueNullSensitive(entry.getValue(), userValueSerializer);
-                writeBatchWrapper.put(
-                        columnFamily.getColumnFamilyHandle(), rawKeyBytes, rawValueBytes);
+                writeBatchWrapper.put(rawKeyBytes, rawValueBytes);
             }
         }
     }
@@ -283,8 +286,10 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
                                     backend.db, columnFamily, backend.getReadOptions());
                     RocksDBWriteBatchWrapper rocksDBWriteBatchWrapper =
                             new RocksDBWriteBatchWrapper(
-                                    backend.db.getDb(),
+                                    backend.db,
+                                    columnFamily,
                                     backend.getWriteOptions(),
+                                    RocksDBWriteBatchWrapper.DEFAULT_CAPACITY,
                                     backend.getWriteBatchSize())) {
 
                 final byte[] keyPrefixBytes = serializeCurrentKeyWithGroupAndNamespace();
@@ -293,8 +298,7 @@ class RocksDBMapState<K, N, UK, UV> extends AbstractRocksDBState<K, N, Map<UK, U
                 while (iterator.isValid()) {
                     byte[] keyBytes = iterator.key();
                     if (startWithKeyPrefix(keyPrefixBytes, keyBytes)) {
-                        rocksDBWriteBatchWrapper.remove(
-                                columnFamily.getColumnFamilyHandle(), keyBytes);
+                        rocksDBWriteBatchWrapper.remove(keyBytes);
                     } else {
                         break;
                     }

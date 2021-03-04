@@ -30,7 +30,6 @@ import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.shaded.guava18.com.google.common.primitives.UnsignedBytes;
 
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 
 import javax.annotation.Nonnegative;
@@ -61,7 +60,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
     private static final byte[] DUMMY_BYTES = new byte[] {};
 
     /** The RocksDB instance that serves as store. */
-    @Nonnull private final RocksDB db;
+    @Nonnull private final RocksDBWrapper db;
 
     @Nonnull private final ReadOptions readOptions;
 
@@ -109,7 +108,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
     RocksDBCachingPriorityQueueSet(
             @Nonnegative int keyGroupId,
             @Nonnegative int keyGroupPrefixBytes,
-            @Nonnull RocksDB db,
+            @Nonnull RocksDBWrapper db,
             @Nonnull ReadOptions readOptions,
             @Nullable RocksDBAccessMetric accessMetric,
             @Nonnull ColumnFamilyHandleWrapper columnFamilyHandle,
@@ -306,10 +305,7 @@ public class RocksDBCachingPriorityQueueSet<E extends HeapPriorityQueueElement>
     private RocksBytesIterator orderedBytesIterator() {
         flushWriteBatch();
         return new RocksBytesIterator(
-                new RocksIteratorWrapper(
-                        db.newIterator(columnFamilyHandle.getColumnFamilyHandle(), readOptions),
-                        accessMetric,
-                        columnFamilyHandle));
+                RocksDBOperationUtils.getRocksIterator(db, columnFamilyHandle, readOptions));
     }
 
     /** Ensures that recent writes are flushed and reflect in the RocksDB instance. */

@@ -18,6 +18,7 @@
 
 package org.apache.flink.contrib.streaming.state;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.HistogramStatistics;
@@ -56,6 +57,7 @@ public class RocksDBAccessMetric implements AutoCloseable {
 
     static final String GET_LATENCY = "getLatency";
     static final String PUT_LATENCY = "putLatency";
+    static final String WRITE_BATCH_LATENCY = "writeBatchLatency";
     static final String DELETE_LATENCY = "deleteLatency";
     static final String MERGE_LATENCY = "mergeLatency";
     static final String SEEK_LATENCY = "seekLatency";
@@ -87,6 +89,13 @@ public class RocksDBAccessMetric implements AutoCloseable {
     boolean checkAndUpdatePutCounter(final int columnFamilyHandleId) {
         return metricsSampleEnabled
                 && countersPerColumnFamily.get(columnFamilyHandleId).checkAndUpdatePutCounter();
+    }
+
+    boolean checkAndUpdateWriteBatchCounter(final int columnFamilyHandleId) {
+        return metricsSampleEnabled
+                && countersPerColumnFamily
+                        .get(columnFamilyHandleId)
+                        .checkAndUpdateWriteBatchCounter();
     }
 
     boolean checkAndUpdateDeleteCounter(final int columnFamilyHandleId) {
@@ -138,6 +147,11 @@ public class RocksDBAccessMetric implements AutoCloseable {
         return histogramWindowSize;
     }
 
+    @VisibleForTesting
+    Map<Integer, Map<String, Histogram>> getHistogramMetrics() {
+        return histogramMetrics;
+    }
+
     /**
      * Register histogram to track latency metrics for the column family.
      *
@@ -155,14 +169,14 @@ public class RocksDBAccessMetric implements AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         this.histogramMetrics.clear();
         this.countersPerColumnFamily.clear();
         this.columnFamilyMetricGroups.clear();
     }
 
     static class HistogramWrapper implements Histogram {
-        private com.codahale.metrics.Histogram histogram;
+        private final com.codahale.metrics.Histogram histogram;
 
         public HistogramWrapper(com.codahale.metrics.Histogram histogram) {
             this.histogram = histogram;
@@ -230,10 +244,9 @@ public class RocksDBAccessMetric implements AutoCloseable {
 
     public static Builder builderFromConfig(ReadableConfig config) {
         Builder builder = new Builder();
-        builder.setEnabled(config.get(RocksDBOptions.LATENCY_TRACK_ENABLED));
-        builder.setSampleInterval(config.get(RocksDBOptions.LATENCY_TRACK_SAMPLE_INTERVAL));
-        builder.setHistogramSlidingWindow(config.get(RocksDBOptions.LATENCY_TRACK_SLIDING_WINDOW));
-        return builder;
+        return builder.setEnabled(config.get(RocksDBOptions.LATENCY_TRACK_ENABLED))
+                .setSampleInterval(config.get(RocksDBOptions.LATENCY_TRACK_SAMPLE_INTERVAL))
+                .setHistogramSlidingWindow(config.get(RocksDBOptions.LATENCY_TRACK_SLIDING_WINDOW));
     }
 
     /** Builder for {@link RocksDBAccessMetric}. */
@@ -282,6 +295,7 @@ public class RocksDBAccessMetric implements AutoCloseable {
         private final int metricSampledInterval;
         private int getCounter;
         private int putCounter;
+        private int writeBatchCounter;
         private int deleteCounter;
         private int mergeCounter;
         private int seekCounter;
@@ -291,6 +305,7 @@ public class RocksDBAccessMetric implements AutoCloseable {
             this.metricSampledInterval = metricSampledInterval;
             this.getCounter = 0;
             this.putCounter = 0;
+            this.writeBatchCounter = 0;
             this.deleteCounter = 0;
             this.mergeCounter = 0;
             this.seekCounter = 0;
@@ -310,6 +325,12 @@ public class RocksDBAccessMetric implements AutoCloseable {
         boolean checkAndUpdatePutCounter() {
             boolean result = putCounter == 0;
             this.putCounter = updateMetricsSampledCounter(putCounter);
+            return result;
+        }
+
+        boolean checkAndUpdateWriteBatchCounter() {
+            boolean result = writeBatchCounter == 0;
+            this.writeBatchCounter = updateMetricsSampledCounter(writeBatchCounter);
             return result;
         }
 

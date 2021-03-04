@@ -200,8 +200,8 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
      */
     private final ColumnFamilyHandle defaultColumnFamily;
 
-    /** Shared wrapper for batch writes to the RocksDB instance. */
-    private final RocksDBWriteBatchWrapper writeBatchWrapper;
+    /** Shared wrapper for batch writes to the RocksDB instance for timers. */
+    private final RocksDBWriteBatchWrapper timerWriteBatchWrapper;
 
     /**
      * The checkpoint snapshot strategy, e.g., if we use full or incremental checkpoints, local
@@ -250,7 +250,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             StreamCompressionDecorator keyGroupCompressionDecorator,
             ResourceGuard rocksDBResourceGuard,
             RocksDBSnapshotStrategyBase<K, ?> checkpointSnapshotStrategy,
-            RocksDBWriteBatchWrapper writeBatchWrapper,
+            RocksDBWriteBatchWrapper timerWriteBatchWrapper,
             ColumnFamilyHandle defaultColumnFamilyHandle,
             RocksDBNativeMetricMonitor nativeMetricMonitor,
             SerializedCompositeKeyBuilder<K> sharedRocksKeyBuilder,
@@ -287,7 +287,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         this.db = db;
         this.rocksDBResourceGuard = rocksDBResourceGuard;
         this.checkpointSnapshotStrategy = checkpointSnapshotStrategy;
-        this.writeBatchWrapper = writeBatchWrapper;
+        this.timerWriteBatchWrapper = timerWriteBatchWrapper;
         this.defaultColumnFamily = defaultColumnFamilyHandle;
         this.nativeMetricMonitor = nativeMetricMonitor;
         this.sharedRocksKeyBuilder = sharedRocksKeyBuilder;
@@ -423,7 +423,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
         // working on the disposed object results in SEGFAULTS.
         if (db != null) {
 
-            IOUtils.closeQuietly(writeBatchWrapper);
+            IOUtils.closeQuietly(timerWriteBatchWrapper);
 
             // Metric collection occurs on a background thread. When this method returns
             // it is guaranteed that thr RocksDB reference has been invalidated
@@ -546,7 +546,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
             throws Exception {
 
         // flush everything into db before taking a snapshot
-        writeBatchWrapper.flush();
+        timerWriteBatchWrapper.flush();
 
         return new SnapshotStrategyRunner<>(
                         checkpointSnapshotStrategy.getDescription(),
@@ -561,7 +561,7 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
     public SavepointResources<K> savepoint() throws Exception {
 
         // flush everything into db before taking a snapshot
-        writeBatchWrapper.flush();
+        timerWriteBatchWrapper.flush();
 
         Map<String, HeapPriorityQueueSnapshotRestoreWrapper<?>> registeredPQStates;
         if (heapPriorityQueuesManager != null) {
@@ -784,7 +784,11 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
                         RocksDBOperationUtils.getRocksIterator(db, stateMetaInfo.f0, readOptions);
                 RocksDBWriteBatchWrapper batchWriter =
                         new RocksDBWriteBatchWrapper(
-                                db.getDb(), getWriteOptions(), getWriteBatchSize())) {
+                                db,
+                                stateMetaInfo.f0,
+                                getWriteOptions(),
+                                500,
+                                getWriteBatchSize())) {
             iterator.seekToFirst();
 
             DataInputDeserializer serializedValueInput = new DataInputDeserializer();

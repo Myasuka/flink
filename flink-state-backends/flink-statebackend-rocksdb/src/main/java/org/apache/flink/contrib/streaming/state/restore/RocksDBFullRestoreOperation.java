@@ -141,8 +141,7 @@ public class RocksDBFullRestoreOperation<K> implements RocksDBRestoreOperation {
             throws IOException, RocksDBException, StateMigrationException {
         // for all key-groups in the current state handle...
         try (RocksDBWriteBatchWrapper writeBatchWrapper =
-                new RocksDBWriteBatchWrapper(
-                        this.rocksHandle.getDBWrapper().getDb(), writeBatchSize)) {
+                new RocksDBWriteBatchWrapper(this.rocksHandle.getDBWrapper(), writeBatchSize)) {
             ColumnFamilyHandle handle = null;
             while (keyGroups.hasNext()) {
                 KeyGroup keyGroup = keyGroups.next();

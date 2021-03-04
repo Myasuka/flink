@@ -229,6 +229,10 @@ class RocksDBHandle implements AutoCloseable {
         return nativeMetricMonitor;
     }
 
+    public RocksDBAccessMetric.Builder getAccessMetricBuilder() {
+        return accessMetricBuilder;
+    }
+
     public ColumnFamilyHandle getDefaultColumnFamilyHandle() {
         return defaultColumnFamilyHandle;
     }

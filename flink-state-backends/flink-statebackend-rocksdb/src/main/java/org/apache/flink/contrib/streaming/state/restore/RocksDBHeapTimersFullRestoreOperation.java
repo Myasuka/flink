@@ -188,8 +188,7 @@ public class RocksDBHeapTimersFullRestoreOperation<K> implements RocksDBRestoreO
             throws IOException, RocksDBException, StateMigrationException {
         // for all key-groups in the current state handle...
         try (RocksDBWriteBatchWrapper writeBatchWrapper =
-                new RocksDBWriteBatchWrapper(
-                        this.rocksHandle.getDBWrapper().getDb(), writeBatchSize)) {
+                new RocksDBWriteBatchWrapper(this.rocksHandle.getDBWrapper(), writeBatchSize)) {
             HeapPriorityQueueSnapshotRestoreWrapper<HeapPriorityQueueElement> restoredPQ = null;
             ColumnFamilyHandle handle = null;
             while (keyGroups.hasNext()) {

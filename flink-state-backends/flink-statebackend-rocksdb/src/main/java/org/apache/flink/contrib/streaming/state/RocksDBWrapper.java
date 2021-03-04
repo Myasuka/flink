@@ -18,10 +18,14 @@
 
 package org.apache.flink.contrib.streaming.state;
 
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
+
+import javax.annotation.Nullable;
 
 /** Wrapper of {@link RocksDB} and {@link RocksDBAccessMetric}. */
 public class RocksDBWrapper implements AutoCloseable {
@@ -31,13 +35,17 @@ public class RocksDBWrapper implements AutoCloseable {
      */
     private final RocksDB db;
 
-    private final RocksDBAccessMetric accessMetric;
+    @Nullable private final RocksDBAccessMetric accessMetric;
 
     private final boolean trackLatencyEnabled;
 
-    public RocksDBWrapper(RocksDB db, RocksDBAccessMetric.Builder accessMetricBuilder) {
+    public RocksDBWrapper(RocksDB db) {
+        this(db, null);
+    }
+
+    public RocksDBWrapper(RocksDB db, @Nullable RocksDBAccessMetric.Builder accessMetricBuilder) {
         this.db = db;
-        this.accessMetric = accessMetricBuilder.build();
+        this.accessMetric = accessMetricBuilder != null ? accessMetricBuilder.build() : null;
         this.trackLatencyEnabled = accessMetric != null;
     }
 
@@ -47,6 +55,11 @@ public class RocksDBWrapper implements AutoCloseable {
 
     public RocksDBAccessMetric getAccessMetric() {
         return accessMetric;
+    }
+
+    public ColumnFamilyHandle createColumnFamily(ColumnFamilyDescriptor columnFamilyDescriptor)
+            throws RocksDBException {
+        return db.createColumnFamily(columnFamilyDescriptor);
     }
 
     public void put(
@@ -59,6 +72,25 @@ public class RocksDBWrapper implements AutoCloseable {
             putAndUpdateMetric(columnFamilyHandle, writeOpt, key, value);
         } else {
             originalPut(columnFamilyHandle.getColumnFamilyHandle(), writeOpt, key, value);
+        }
+    }
+
+    /**
+     * Since {@code WriteBatch} might contain several column families only during restore. We
+     * currently does not track latency metrics for that part operations if no column family handle
+     * provided.
+     */
+    public void write(
+            @Nullable final ColumnFamilyHandleWrapper columnFamilyHandle,
+            final WriteOptions writeOpt,
+            final WriteBatch writeBatch)
+            throws RocksDBException {
+        if (columnFamilyHandle == null) {
+            originalWrite(writeOpt, writeBatch);
+        } else if (trackLatencyEnabled) {
+            writeAndUpdateMetric(columnFamilyHandle, writeOpt, writeBatch);
+        } else {
+            originalWrite(writeOpt, writeBatch);
         }
     }
 
@@ -150,6 +182,24 @@ public class RocksDBWrapper implements AutoCloseable {
         }
     }
 
+    private void writeAndUpdateMetric(
+            final ColumnFamilyHandleWrapper columnFamilyHandle,
+            final WriteOptions writeOpt,
+            final WriteBatch writeBatch)
+            throws RocksDBException {
+        if (accessMetric.checkAndUpdateWriteBatchCounter(columnFamilyHandle.getColumnFamilyId())) {
+            long start = System.nanoTime();
+            originalWrite(writeOpt, writeBatch);
+            long end = System.nanoTime();
+            accessMetric.updateHistogram(
+                    columnFamilyHandle.getColumnFamilyId(),
+                    RocksDBAccessMetric.WRITE_BATCH_LATENCY,
+                    end - start);
+        } else {
+            originalWrite(writeOpt, writeBatch);
+        }
+    }
+
     private void mergeAndUpdateMetric(
             final ColumnFamilyHandleWrapper columnFamilyHandle,
             final WriteOptions writeOpt,
@@ -191,6 +241,11 @@ public class RocksDBWrapper implements AutoCloseable {
         db.put(columnFamilyHandle, writeOpts, key, value);
     }
 
+    private void originalWrite(final WriteOptions writeOpts, final WriteBatch writeBatch)
+            throws RocksDBException {
+        db.write(writeOpts, writeBatch);
+    }
+
     private void originalMerge(
             final ColumnFamilyHandle columnFamilyHandle,
             final WriteOptions writeOpts,
@@ -201,7 +256,7 @@ public class RocksDBWrapper implements AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (accessMetric != null) {
             accessMetric.close();
         }
