@@ -23,7 +23,6 @@ import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
@@ -31,9 +30,8 @@ import org.apache.flink.runtime.checkpoint.CheckpointType;
 import org.apache.flink.runtime.query.TaskKvStateRegistry;
 import org.apache.flink.runtime.state.heap.InternalKeyContext;
 import org.apache.flink.runtime.state.internal.InternalKvState;
-import org.apache.flink.runtime.state.internal.InternalValueState;
-import org.apache.flink.runtime.state.metrics.LatencyTrackValueState;
 import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
+import org.apache.flink.runtime.state.metrics.LatencyTrackingStateFactory;
 import org.apache.flink.runtime.state.ttl.TtlStateFactory;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 import org.apache.flink.util.IOUtils;
@@ -64,8 +62,6 @@ public abstract class AbstractKeyedStateBackend<K>
     /** So that we can give out state when the user uses the same key. */
     private final HashMap<String, InternalKvState<K, ?, ?>> keyValueStatesByName;
 
-    private final LatencyTrackingStateConfig latencyTrackingStateConfig;
-
     /** For caching the last accessed partitioned state. */
     private String lastName;
 
@@ -93,6 +89,8 @@ public abstract class AbstractKeyedStateBackend<K>
 
     protected final TtlTimeProvider ttlTimeProvider;
 
+    protected final LatencyTrackingStateConfig latencyTrackingStateConfig;
+
     /** Decorates the input and output streams to write key-groups compressed. */
     protected final StreamCompressionDecorator keyGroupCompressionDecorator;
 
@@ -105,6 +103,7 @@ public abstract class AbstractKeyedStateBackend<K>
             ClassLoader userCodeClassLoader,
             ExecutionConfig executionConfig,
             TtlTimeProvider ttlTimeProvider,
+            LatencyTrackingStateConfig latencyTrackingStateConfig,
             CloseableRegistry cancelStreamRegistry,
             InternalKeyContext<K> keyContext) {
         this(
@@ -113,6 +112,7 @@ public abstract class AbstractKeyedStateBackend<K>
                 userCodeClassLoader,
                 executionConfig,
                 ttlTimeProvider,
+                latencyTrackingStateConfig,
                 cancelStreamRegistry,
                 determineStreamCompression(executionConfig),
                 keyContext);
@@ -124,6 +124,7 @@ public abstract class AbstractKeyedStateBackend<K>
             ClassLoader userCodeClassLoader,
             ExecutionConfig executionConfig,
             TtlTimeProvider ttlTimeProvider,
+            LatencyTrackingStateConfig latencyTrackingStateConfig,
             CloseableRegistry cancelStreamRegistry,
             StreamCompressionDecorator keyGroupCompressionDecorator,
             InternalKeyContext<K> keyContext) {
@@ -147,6 +148,7 @@ public abstract class AbstractKeyedStateBackend<K>
         this.executionConfig = executionConfig;
         this.keyGroupCompressionDecorator = keyGroupCompressionDecorator;
         this.ttlTimeProvider = Preconditions.checkNotNull(ttlTimeProvider);
+        this.latencyTrackingStateConfig = Preconditions.checkNotNull(latencyTrackingStateConfig);
         this.keySelectionListeners = new ArrayList<>(1);
     }
 
@@ -276,22 +278,15 @@ public abstract class AbstractKeyedStateBackend<K>
                 stateDescriptor.initializeSerializerUnlessSet(executionConfig);
             }
             kvState =
-                    TtlStateFactory.createStateAndWrapWithTtlIfEnabled(
-                            namespaceSerializer, stateDescriptor, this, ttlTimeProvider);
-            kvState = wrapState(kvState, stateDescriptor);
+                    LatencyTrackingStateFactory.trackLatencyIfEnabled(
+                            TtlStateFactory.createStateAndWrapWithTtlIfEnabled(
+                                    namespaceSerializer, stateDescriptor, this, ttlTimeProvider),
+                            stateDescriptor,
+                            latencyTrackingStateConfig);
             keyValueStatesByName.put(stateDescriptor.getName(), kvState);
             publishQueryableStateIfEnabled(stateDescriptor, kvState);
         }
         return (S) kvState;
-    }
-
-    @SuppressWarnings("unchecked")
-    private <N, S extends State, V> InternalKvState<K, ?, ?> wrapState(InternalKvState<K, ?, ?> kvState, StateDescriptor<S, V> stateDescriptor) {
-        if (stateDescriptor instanceof ValueStateDescriptor) {
-            return new LatencyTrackValueState<>((InternalValueState<K, N, V>) kvState);
-        } else {
-            return null;
-        }
     }
 
     private void publishQueryableStateIfEnabled(

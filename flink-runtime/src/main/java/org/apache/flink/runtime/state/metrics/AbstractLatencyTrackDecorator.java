@@ -22,6 +22,7 @@ import org.apache.flink.util.function.SupplierWithException;
 import org.apache.flink.util.function.ThrowingRunnable;
 
 import java.io.IOException;
+import java.util.function.Consumer;
 
 public class AbstractLatencyTrackDecorator<S> {
     protected S original;
@@ -30,22 +31,46 @@ public class AbstractLatencyTrackDecorator<S> {
         this.original = original;
     }
 
-    protected <T> T trackLatencyWithIOException(SupplierWithException<T, IOException> supplier) throws IOException {
+    protected <T> T trackLatencyWithIOException(
+            SupplierWithException<T, IOException> supplier, Consumer<Long> consumer)
+            throws IOException {
         long startTime = System.nanoTime();
         T result = supplier.get();
         long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
         return result;
     }
 
-    protected void trackLatencyWithIOException(ThrowingRunnable<IOException> runnable) throws IOException {
+    protected <T> T trackLatencyWithException(
+            SupplierWithException<T, Exception> supplier, Consumer<Long> consumer)
+            throws Exception {
         long startTime = System.nanoTime();
-        runnable.run();
+        T result = supplier.get();
         long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
+        return result;
     }
 
-    protected void trackLatency(Runnable runnable) {
+    protected void trackLatencyWithIOException(
+            ThrowingRunnable<IOException> runnable, Consumer<Long> consumer) throws IOException {
         long startTime = System.nanoTime();
         runnable.run();
         long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
+    }
+
+    protected void trackLatencyWithException(
+            ThrowingRunnable<Exception> runnable, Consumer<Long> consumer) throws Exception {
+        long startTime = System.nanoTime();
+        runnable.run();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
+    }
+
+    protected void trackLatency(Runnable runnable, Consumer<Long> consumer) {
+        long startTime = System.nanoTime();
+        runnable.run();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
     }
 }

@@ -21,16 +21,19 @@ package org.apache.flink.runtime.state.metrics;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.runtime.state.internal.InternalKvState;
 
-public class AbstractLatencyTrackState<K, N, V, S extends InternalKvState<K, N , V>>
-        extends AbstractLatencyTrackDecorator<S> implements InternalKvState<K, N, V>{
+class AbstractLatencyTrackState<
+                K,
+                N,
+                V,
+                S extends InternalKvState<K, N, V>,
+                LSM extends AbstractLatencyTrackingStateMetric>
+        extends AbstractLatencyTrackDecorator<S> implements InternalKvState<K, N, V> {
 
-    AbstractLatencyTrackState(S original) {
+    protected LSM latencyTrackingStateMetric;
+
+    AbstractLatencyTrackState(S original, LSM latencyTrackingStateMetric) {
         super(original);
-    }
-
-    @Override
-    public void clear() {
-        trackLatency(original::clear);
+        this.latencyTrackingStateMetric = latencyTrackingStateMetric;
     }
 
     @Override
@@ -58,12 +61,27 @@ public class AbstractLatencyTrackState<K, N, V, S extends InternalKvState<K, N ,
             byte[] serializedKeyAndNamespace,
             TypeSerializer<K> safeKeySerializer,
             TypeSerializer<N> safeNamespaceSerializer,
-            TypeSerializer<V> safeValueSerializer) throws Exception {
-        return original.getSerializedValue(serializedKeyAndNamespace, safeKeySerializer, safeNamespaceSerializer, safeValueSerializer);
+            TypeSerializer<V> safeValueSerializer)
+            throws Exception {
+        return original.getSerializedValue(
+                serializedKeyAndNamespace,
+                safeKeySerializer,
+                safeNamespaceSerializer,
+                safeValueSerializer);
     }
 
     @Override
-    public StateIncrementalVisitor<K, N, V> getStateIncrementalVisitor(int recommendedMaxNumberOfReturnedRecords) {
+    public StateIncrementalVisitor<K, N, V> getStateIncrementalVisitor(
+            int recommendedMaxNumberOfReturnedRecords) {
         return original.getStateIncrementalVisitor(recommendedMaxNumberOfReturnedRecords);
+    }
+
+    @Override
+    public void clear() {
+        if (latencyTrackingStateMetric.checkClearCounter()) {
+            trackLatency(() -> original.clear(), latencyTrackingStateMetric::updateClearLatency);
+        } else {
+            original.clear();
+        }
     }
 }
