@@ -83,14 +83,15 @@ public class StateBackendBenchmarkUtils {
     }
 
     private static CheckpointableKeyedStateBackend<Long> createBatchExecutionStateBackend() {
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
         return new BatchExecutionStateBackend()
                 .createKeyedStateBackend(
                         null,
                         new JobID(),
                         "Test",
                         new LongSerializer(),
-                        2,
-                        new KeyGroupRange(0, 1),
+                        keyGroupRange.getNumberOfKeyGroups(),
+                        keyGroupRange,
                         null,
                         TtlTimeProvider.DEFAULT,
                         new UnregisteredMetricsGroup(),
@@ -104,6 +105,7 @@ public class StateBackendBenchmarkUtils {
         File dbPathFile = prepareDirectory(dbDirName, rootDir);
         ExecutionConfig executionConfig = new ExecutionConfig();
         RocksDBResourceContainer resourceContainer = new RocksDBResourceContainer();
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
         RocksDBKeyedStateBackendBuilder<Long> builder =
                 new RocksDBKeyedStateBackendBuilder<>(
                         "Test",
@@ -113,8 +115,8 @@ public class StateBackendBenchmarkUtils {
                         stateName -> resourceContainer.getColumnOptions(),
                         null,
                         LongSerializer.INSTANCE,
-                        2,
-                        new KeyGroupRange(0, 1),
+                        keyGroupRange.getNumberOfKeyGroups(),
+                        keyGroupRange,
                         executionConfig,
                         new LocalRecoveryConfig(
                                 false,
@@ -137,7 +139,7 @@ public class StateBackendBenchmarkUtils {
     private static HeapKeyedStateBackend<Long> createHeapKeyedStateBackend(File rootDir)
             throws IOException {
         File recoveryBaseDir = prepareDirectory(recoveryDirName, rootDir);
-        KeyGroupRange keyGroupRange = new KeyGroupRange(0, 1);
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
         int numberOfKeyGroups = keyGroupRange.getNumberOfKeyGroups();
         ExecutionConfig executionConfig = new ExecutionConfig();
         HeapPriorityQueueSetFactory priorityQueueSetFactory =
