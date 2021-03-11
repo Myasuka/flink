@@ -83,7 +83,7 @@ public class StateBackendBenchmarkUtils {
     }
 
     private static CheckpointableKeyedStateBackend<Long> createBatchExecutionStateBackend() {
-        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, 127);
         return new BatchExecutionStateBackend()
                 .createKeyedStateBackend(
                         null,
@@ -105,7 +105,7 @@ public class StateBackendBenchmarkUtils {
         File dbPathFile = prepareDirectory(dbDirName, rootDir);
         ExecutionConfig executionConfig = new ExecutionConfig();
         RocksDBResourceContainer resourceContainer = new RocksDBResourceContainer();
-        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, 127);
         RocksDBKeyedStateBackendBuilder<Long> builder =
                 new RocksDBKeyedStateBackendBuilder<>(
                         "Test",
@@ -139,7 +139,7 @@ public class StateBackendBenchmarkUtils {
     private static HeapKeyedStateBackend<Long> createHeapKeyedStateBackend(File rootDir)
             throws IOException {
         File recoveryBaseDir = prepareDirectory(recoveryDirName, rootDir);
-        KeyGroupRange keyGroupRange = new KeyGroupRange(0, Short.MAX_VALUE);
+        KeyGroupRange keyGroupRange = new KeyGroupRange(0, 127);
         int numberOfKeyGroups = keyGroupRange.getNumberOfKeyGroups();
         ExecutionConfig executionConfig = new ExecutionConfig();
         HeapPriorityQueueSetFactory priorityQueueSetFactory =
