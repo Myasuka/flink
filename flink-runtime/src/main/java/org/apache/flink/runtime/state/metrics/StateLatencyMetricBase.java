@@ -31,8 +31,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-/** Abstract class of latency tracking state metric which counts and histogram the state metric. */
-class AbstractLatencyTrackingStateMetric implements AutoCloseable {
+/** Base class of state latency metric which counts and histogram the state metric. */
+class StateLatencyMetricBase implements AutoCloseable {
     protected static final String STATE_CLEAR_LATENCY = "stateClearLatency";
     private final MetricGroup metricGroup;
     private final int sampleInterval;
@@ -40,7 +40,7 @@ class AbstractLatencyTrackingStateMetric implements AutoCloseable {
     private final Map<String, Counter> countersPerMetric;
     private final Supplier<com.codahale.metrics.Histogram> histogramSupplier;
 
-    AbstractLatencyTrackingStateMetric(
+    StateLatencyMetricBase(
             String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
         this.metricGroup = metricGroup.addGroup(stateName);
         this.sampleInterval = sampleInterval;
@@ -179,6 +179,11 @@ class AbstractLatencyTrackingStateMetric implements AutoCloseable {
         @VisibleForTesting
         int getCounter() {
             return counter;
+        }
+
+        @VisibleForTesting
+        void resetCounter() {
+            this.counter = 0;
         }
     }
 }

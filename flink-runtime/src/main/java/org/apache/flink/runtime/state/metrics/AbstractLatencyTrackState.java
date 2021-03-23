@@ -26,6 +26,7 @@ import org.apache.flink.util.function.ThrowingRunnable;
 
 import java.io.IOException;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Abstract implementation of latency tracking state.
@@ -37,11 +38,7 @@ import java.util.function.Consumer;
  * @param <LSM> Type of the latency tracking state metrics
  */
 class AbstractLatencyTrackState<
-                K,
-                N,
-                V,
-                S extends InternalKvState<K, N, V>,
-                LSM extends AbstractLatencyTrackingStateMetric>
+                K, N, V, S extends InternalKvState<K, N, V>, LSM extends StateLatencyMetricBase>
         implements InternalKvState<K, N, V> {
 
     protected S original;
@@ -94,54 +91,97 @@ class AbstractLatencyTrackState<
 
     @Override
     public void clear() {
-        if (latencyTrackingStateMetric.checkClearCounter()) {
-            trackLatency(() -> original.clear(), latencyTrackingStateMetric::updateClearLatency);
+        trackLatency(
+                latencyTrackingStateMetric::checkClearCounter,
+                () -> original.clear(),
+                latencyTrackingStateMetric::updateClearLatency);
+    }
+
+    protected <T> T trackLatency(
+            Supplier<Boolean> checkCondition, Supplier<T> supplier, Consumer<Long> consumer) {
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            T result = supplier.get();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+            return result;
         } else {
-            original.clear();
+            return supplier.get();
         }
     }
 
     protected <T> T trackLatencyWithIOException(
-            SupplierWithException<T, IOException> supplier, Consumer<Long> consumer)
+            Supplier<Boolean> checkCondition,
+            SupplierWithException<T, IOException> supplier,
+            Consumer<Long> consumer)
             throws IOException {
-        long startTime = System.nanoTime();
-        T result = supplier.get();
-        long latency = System.nanoTime() - startTime;
-        consumer.accept(latency);
-        return result;
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            T result = supplier.get();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+            return result;
+        } else {
+            return supplier.get();
+        }
     }
 
     protected <T> T trackLatencyWithException(
-            SupplierWithException<T, Exception> supplier, Consumer<Long> consumer)
+            Supplier<Boolean> checkCondition,
+            SupplierWithException<T, Exception> supplier,
+            Consumer<Long> consumer)
             throws Exception {
-        long startTime = System.nanoTime();
-        T result = supplier.get();
-        long latency = System.nanoTime() - startTime;
-        consumer.accept(latency);
-        return result;
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            T result = supplier.get();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+            return result;
+        } else {
+            return supplier.get();
+        }
     }
 
     protected void trackLatencyWithIOException(
-            ThrowingRunnable<IOException> runnable, Consumer<Long> consumer) throws IOException {
-        long startTime = System.nanoTime();
-        runnable.run();
-        long latency = System.nanoTime() - startTime;
-        consumer.accept(latency);
+            Supplier<Boolean> checkCondition,
+            ThrowingRunnable<IOException> runnable,
+            Consumer<Long> consumer)
+            throws IOException {
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            runnable.run();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+        } else {
+            runnable.run();
+        }
     }
 
     protected void trackLatencyWithException(
-            ThrowingRunnable<Exception> runnable, Consumer<Long> consumer) throws Exception {
-        long startTime = System.nanoTime();
-        runnable.run();
-        long latency = System.nanoTime() - startTime;
-        consumer.accept(latency);
+            Supplier<Boolean> checkCondition,
+            ThrowingRunnable<Exception> runnable,
+            Consumer<Long> consumer)
+            throws Exception {
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            runnable.run();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+        } else {
+            runnable.run();
+        }
     }
 
-    protected void trackLatency(Runnable runnable, Consumer<Long> consumer) {
-        long startTime = System.nanoTime();
-        runnable.run();
-        long latency = System.nanoTime() - startTime;
-        consumer.accept(latency);
+    protected void trackLatency(
+            Supplier<Boolean> checkCondition, Runnable runnable, Consumer<Long> consumer) {
+        if (checkCondition.get()) {
+            long startTime = System.nanoTime();
+            runnable.run();
+            long latency = System.nanoTime() - startTime;
+            consumer.accept(latency);
+        } else {
+            runnable.run();
+        }
     }
 
     @VisibleForTesting

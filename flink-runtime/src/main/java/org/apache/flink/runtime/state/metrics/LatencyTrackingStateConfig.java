@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.state.metrics;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.metrics.MetricGroup;
@@ -26,6 +27,7 @@ import org.apache.flink.util.Preconditions;
 import java.io.Serializable;
 
 /** Config to create latency tracking state metric. */
+@Internal
 public class LatencyTrackingStateConfig {
 
     private final MetricGroup metricGroup;
@@ -36,6 +38,11 @@ public class LatencyTrackingStateConfig {
 
     LatencyTrackingStateConfig(
             MetricGroup metricGroup, boolean enabled, int sampleInterval, long slidingWindow) {
+        if (enabled) {
+            Preconditions.checkNotNull(
+                    metricGroup, "Metric group cannot be null if latency tracking is enabled.");
+            Preconditions.checkArgument(sampleInterval >= 1);
+        }
         this.metricGroup = metricGroup;
         this.enabled = enabled;
         this.sampleInterval = sampleInterval;
@@ -105,11 +112,6 @@ public class LatencyTrackingStateConfig {
         }
 
         public LatencyTrackingStateConfig build() {
-            if (enabled) {
-                Preconditions.checkNotNull(
-                        metricGroup, "Metric group cannot be null if latency tracking is enabled.");
-                Preconditions.checkArgument(sampleInterval >= 1);
-            }
             return new LatencyTrackingStateConfig(
                     metricGroup, enabled, sampleInterval, slidingWindow);
         }
