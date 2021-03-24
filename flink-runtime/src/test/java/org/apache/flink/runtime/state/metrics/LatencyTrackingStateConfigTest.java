@@ -48,8 +48,8 @@ public class LatencyTrackingStateConfigTest {
                 (int) StateBackendOptions.LATENCY_TRACK_SAMPLE_INTERVAL.defaultValue(),
                 latencyTrackingStateConfig.getSampleInterval());
         Assert.assertEquals(
-                (long) StateBackendOptions.LATENCY_TRACK_SLIDING_WINDOW.defaultValue(),
-                latencyTrackingStateConfig.getSlidingWindow());
+                (long) StateBackendOptions.LATENCY_TRACK_HISTORY_SIZE.defaultValue(),
+                latencyTrackingStateConfig.getHistorySize());
     }
 
     @Test
@@ -60,11 +60,11 @@ public class LatencyTrackingStateConfigTest {
                         .setMetricGroup(metricsGroup)
                         .setEnabled(true)
                         .setSampleInterval(10)
-                        .setSlidingWindow(500L)
+                        .setHistorySize(500)
                         .build();
         Assert.assertTrue(latencyTrackingStateConfig.isEnabled());
         Assert.assertEquals(10, latencyTrackingStateConfig.getSampleInterval());
-        Assert.assertEquals(500L, latencyTrackingStateConfig.getSlidingWindow());
+        Assert.assertEquals(500L, latencyTrackingStateConfig.getHistorySize());
     }
 
     @Test
@@ -73,13 +73,13 @@ public class LatencyTrackingStateConfigTest {
         Configuration configuration = new Configuration();
         configuration.setBoolean(StateBackendOptions.LATENCY_TRACK_ENABLED, true);
         configuration.setInteger(StateBackendOptions.LATENCY_TRACK_SAMPLE_INTERVAL, 10);
-        configuration.setLong(StateBackendOptions.LATENCY_TRACK_SLIDING_WINDOW, 500L);
+        configuration.setInteger(StateBackendOptions.LATENCY_TRACK_HISTORY_SIZE, 500);
         LatencyTrackingStateConfig latencyTrackingStateConfig =
                 builder.configure(configuration)
                         .setMetricGroup(new UnregisteredMetricsGroup())
                         .build();
         Assert.assertTrue(latencyTrackingStateConfig.isEnabled());
         Assert.assertEquals(10, latencyTrackingStateConfig.getSampleInterval());
-        Assert.assertEquals(500L, latencyTrackingStateConfig.getSlidingWindow());
+        Assert.assertEquals(500, latencyTrackingStateConfig.getHistorySize());
     }
 }

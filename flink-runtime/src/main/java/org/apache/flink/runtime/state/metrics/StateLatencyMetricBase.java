@@ -20,15 +20,11 @@ package org.apache.flink.runtime.state.metrics;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.metrics.Histogram;
-import org.apache.flink.metrics.HistogramStatistics;
 import org.apache.flink.metrics.MetricGroup;
-
-import com.codahale.metrics.SlidingTimeWindowReservoir;
-import com.codahale.metrics.Snapshot;
+import org.apache.flink.runtime.metrics.DescriptiveStatisticsHistogram;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /** Base class of state latency metric which counts and histogram the state metric. */
@@ -38,18 +34,15 @@ class StateLatencyMetricBase implements AutoCloseable {
     private final int sampleInterval;
     private final Map<String, Histogram> histogramMetrics;
     private final Map<String, Counter> countersPerMetric;
-    private final Supplier<com.codahale.metrics.Histogram> histogramSupplier;
+    private final Supplier<Histogram> histogramSupplier;
 
     StateLatencyMetricBase(
-            String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
+            String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
         this.metricGroup = metricGroup.addGroup(stateName);
         this.sampleInterval = sampleInterval;
         this.histogramMetrics = new HashMap<>();
         this.countersPerMetric = new HashMap<>();
-        this.histogramSupplier =
-                () ->
-                        new com.codahale.metrics.Histogram(
-                                new SlidingTimeWindowReservoir(slidingWindow, TimeUnit.SECONDS));
+        this.histogramSupplier = () -> new DescriptiveStatisticsHistogram(historySize);
     }
 
     protected boolean checkCounter(final String metricName) {
@@ -67,8 +60,7 @@ class StateLatencyMetricBase implements AutoCloseable {
                 .computeIfAbsent(
                         metricName,
                         (k) -> {
-                            HistogramWrapper histogram =
-                                    new HistogramWrapper(histogramSupplier.get());
+                            Histogram histogram = histogramSupplier.get();
                             metricGroup.histogram(metricName, histogram);
                             return histogram;
                         })
@@ -88,73 +80,6 @@ class StateLatencyMetricBase implements AutoCloseable {
     public void close() throws Exception {
         histogramMetrics.clear();
         countersPerMetric.clear();
-    }
-
-    static class HistogramWrapper implements Histogram {
-        private final com.codahale.metrics.Histogram histogram;
-
-        public HistogramWrapper(com.codahale.metrics.Histogram histogram) {
-            this.histogram = histogram;
-        }
-
-        @Override
-        public void update(long value) {
-            histogram.update(value);
-        }
-
-        @Override
-        public long getCount() {
-            return histogram.getCount();
-        }
-
-        @Override
-        public HistogramStatistics getStatistics() {
-            return new SnapshotHistogramStatistics(this.histogram.getSnapshot());
-        }
-    }
-
-    private static class SnapshotHistogramStatistics extends HistogramStatistics {
-
-        private final Snapshot snapshot;
-
-        SnapshotHistogramStatistics(com.codahale.metrics.Snapshot snapshot) {
-            this.snapshot = snapshot;
-        }
-
-        @Override
-        public double getQuantile(double quantile) {
-            return snapshot.getValue(quantile);
-        }
-
-        @Override
-        public long[] getValues() {
-            return snapshot.getValues();
-        }
-
-        @Override
-        public int size() {
-            return snapshot.size();
-        }
-
-        @Override
-        public double getMean() {
-            return snapshot.getMean();
-        }
-
-        @Override
-        public double getStdDev() {
-            return snapshot.getStdDev();
-        }
-
-        @Override
-        public long getMax() {
-            return snapshot.getMax();
-        }
-
-        @Override
-        public long getMin() {
-            return snapshot.getMin();
-        }
     }
 
     protected static class Counter {

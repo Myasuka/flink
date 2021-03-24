@@ -34,10 +34,10 @@ public class LatencyTrackingStateConfig {
 
     private final boolean enabled;
     private final int sampleInterval;
-    private final long slidingWindow;
+    private final int historySize;
 
     LatencyTrackingStateConfig(
-            MetricGroup metricGroup, boolean enabled, int sampleInterval, long slidingWindow) {
+            MetricGroup metricGroup, boolean enabled, int sampleInterval, int historySize) {
         if (enabled) {
             Preconditions.checkNotNull(
                     metricGroup, "Metric group cannot be null if latency tracking is enabled.");
@@ -46,7 +46,7 @@ public class LatencyTrackingStateConfig {
         this.metricGroup = metricGroup;
         this.enabled = enabled;
         this.sampleInterval = sampleInterval;
-        this.slidingWindow = slidingWindow;
+        this.historySize = historySize;
     }
 
     public boolean isEnabled() {
@@ -57,8 +57,8 @@ public class LatencyTrackingStateConfig {
         return metricGroup;
     }
 
-    public long getSlidingWindow() {
-        return slidingWindow;
+    public int getHistorySize() {
+        return historySize;
     }
 
     public int getSampleInterval() {
@@ -79,8 +79,7 @@ public class LatencyTrackingStateConfig {
         private boolean enabled = StateBackendOptions.LATENCY_TRACK_ENABLED.defaultValue();
         private int sampleInterval =
                 StateBackendOptions.LATENCY_TRACK_SAMPLE_INTERVAL.defaultValue();
-        private long slidingWindow =
-                StateBackendOptions.LATENCY_TRACK_SLIDING_WINDOW.defaultValue();
+        private int historySize = StateBackendOptions.LATENCY_TRACK_HISTORY_SIZE.defaultValue();
         private MetricGroup metricGroup;
 
         public Builder setEnabled(boolean enabled) {
@@ -93,8 +92,8 @@ public class LatencyTrackingStateConfig {
             return this;
         }
 
-        public Builder setSlidingWindow(long slidingWindow) {
-            this.slidingWindow = slidingWindow;
+        public Builder setHistorySize(int historySize) {
+            this.historySize = historySize;
             return this;
         }
 
@@ -107,13 +106,13 @@ public class LatencyTrackingStateConfig {
             this.setEnabled(config.get(StateBackendOptions.LATENCY_TRACK_ENABLED))
                     .setSampleInterval(
                             config.get(StateBackendOptions.LATENCY_TRACK_SAMPLE_INTERVAL))
-                    .setSlidingWindow(config.get(StateBackendOptions.LATENCY_TRACK_SLIDING_WINDOW));
+                    .setHistorySize(config.get(StateBackendOptions.LATENCY_TRACK_HISTORY_SIZE));
             return this;
         }
 
         public LatencyTrackingStateConfig build() {
             return new LatencyTrackingStateConfig(
-                    metricGroup, enabled, sampleInterval, slidingWindow);
+                    metricGroup, enabled, sampleInterval, historySize);
         }
     }
 }

@@ -19,7 +19,6 @@
 package org.apache.flink.configuration;
 
 import org.apache.flink.annotation.docs.Documentation;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.description.Description;
 import org.apache.flink.configuration.description.TextElement;
 
@@ -83,13 +82,10 @@ public class StateBackendOptions {
                                     LATENCY_TRACK_ENABLED.key()));
 
     @Documentation.Section(Documentation.Sections.STATE_BACKEND_LATENCY_TRACKING)
-    public static final ConfigOption<Long> LATENCY_TRACK_SLIDING_WINDOW =
-            ConfigOptions.key("state.backend.latency-track.sliding-window")
-                    .longType()
-                    .defaultValue(Time.seconds(10).toMilliseconds())
+    public static final ConfigOption<Integer> LATENCY_TRACK_HISTORY_SIZE =
+            ConfigOptions.key("state.backend.latency-track.history-size")
+                    .intType()
+                    .defaultValue(128)
                     .withDescription(
-                            String.format(
-                                    "The sliding window of histogram to record the latency once '%s' is enabled. "
-                                            + "The default value is 10 seconds, which means we stores only the measurements made in the last 10 seconds.",
-                                    LATENCY_TRACK_ENABLED.key()));
+                            "Defines the number of measured latencies to maintain at each state access operation.");
 }
