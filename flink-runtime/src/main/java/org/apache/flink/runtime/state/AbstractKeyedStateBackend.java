@@ -297,7 +297,7 @@ public abstract class AbstractKeyedStateBackend<K>
                 stateDescriptor.initializeSerializerUnlessSet(executionConfig);
             }
             kvState =
-                    LatencyTrackingStateFactory.trackLatencyIfEnabled(
+                    LatencyTrackingStateFactory.createStateAndWrapWithLatencyTrackingIfEnabled(
                             TtlStateFactory.createStateAndWrapWithTtlIfEnabled(
                                     namespaceSerializer, stateDescriptor, this, ttlTimeProvider),
                             stateDescriptor,
@@ -362,6 +362,10 @@ public abstract class AbstractKeyedStateBackend<K>
     @Override
     public void close() throws IOException {
         cancelStreamRegistry.close();
+    }
+
+    public LatencyTrackingStateConfig getLatencyTrackingStateConfig() {
+        return latencyTrackingStateConfig;
     }
 
     @VisibleForTesting
