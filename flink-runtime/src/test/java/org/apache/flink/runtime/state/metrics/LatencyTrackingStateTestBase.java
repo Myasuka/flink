@@ -46,7 +46,7 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.Map;
 
-import static org.apache.flink.runtime.state.metrics.AbstractLatencyTrackingStateMetric.STATE_CLEAR_LATENCY;
+import static org.apache.flink.runtime.state.metrics.StateLatencyMetricBase.STATE_CLEAR_LATENCY;
 import static org.hamcrest.core.Is.is;
 
 /** Test base for latency tracking state. */
@@ -89,7 +89,7 @@ public abstract class LatencyTrackingStateTestBase<K> {
                     V,
                     S extends InternalKvState<K, N, V>,
                     S2 extends State,
-                    LSM extends AbstractLatencyTrackingStateMetric>
+                    LSM extends StateLatencyMetricBase>
             AbstractLatencyTrackState<K, N, V, S, LSM> createLatencyTrackingState(
                     AbstractKeyedStateBackend<K> keyedBackend,
                     StateDescriptor<S2, V> stateDescriptor)
@@ -116,9 +116,9 @@ public abstract class LatencyTrackingStateTestBase<K> {
             AbstractLatencyTrackState latencyTrackingState =
                     createLatencyTrackingState(keyedBackend, getStateDescriptor());
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
-            AbstractLatencyTrackingStateMetric latencyTrackingStateMetric =
+            StateLatencyMetricBase latencyTrackingStateMetric =
                     latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, AbstractLatencyTrackingStateMetric.Counter> countersPerMetric =
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
                     latencyTrackingStateMetric.getCountersPerMetric();
             Assert.assertThat(countersPerMetric.isEmpty(), is(true));
             setCurrentKey(keyedBackend);

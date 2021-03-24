@@ -30,19 +30,23 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_CONTAINS_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_ENTRIES_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_GET_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_IS_EMPTY_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_ITERATOR_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_KEYS_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_PUT_ALL_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_PUT_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_REMOVE_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.LatencyTrackingMapStateMetrics.MAP_STATE_VALUES_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_CONTAINS_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_ENTRIES_INIT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_GET_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_IS_EMPTY_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_ITERATOR_HAS_NEXT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_ITERATOR_INIT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_ITERATOR_NEXT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_ITERATOR_REMOVE_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_KEYS_INIT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_PUT_ALL_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_PUT_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_REMOVE_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingMapState.MapStateLatencyMetrics.MAP_STATE_VALUES_INIT_LATENCY;
 import static org.hamcrest.core.Is.is;
 
 /** Tests for {@link LatencyTrackingMapState}. */
@@ -72,9 +76,9 @@ public class LatencyTrackingMapStateTest extends LatencyTrackingStateTestBase<In
                     (LatencyTrackingMapState)
                             createLatencyTrackingState(keyedBackend, getStateDescriptor());
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
-            AbstractLatencyTrackingStateMetric latencyTrackingStateMetric =
+            StateLatencyMetricBase latencyTrackingStateMetric =
                     latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, AbstractLatencyTrackingStateMetric.Counter> countersPerMetric =
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
                     latencyTrackingStateMetric.getCountersPerMetric();
             Assert.assertThat(countersPerMetric.isEmpty(), is(true));
             setCurrentKey(keyedBackend);
@@ -107,18 +111,19 @@ public class LatencyTrackingMapStateTest extends LatencyTrackingStateTestBase<In
                 latencyTrackingState.entries();
                 Assert.assertEquals(
                         expectedResult,
-                        countersPerMetric.get(MAP_STATE_ENTRIES_LATENCY).getCounter());
+                        countersPerMetric.get(MAP_STATE_ENTRIES_INIT_LATENCY).getCounter());
                 latencyTrackingState.keys();
                 Assert.assertEquals(
-                        expectedResult, countersPerMetric.get(MAP_STATE_KEYS_LATENCY).getCounter());
+                        expectedResult,
+                        countersPerMetric.get(MAP_STATE_KEYS_INIT_LATENCY).getCounter());
                 latencyTrackingState.values();
                 Assert.assertEquals(
                         expectedResult,
-                        countersPerMetric.get(MAP_STATE_VALUES_LATENCY).getCounter());
+                        countersPerMetric.get(MAP_STATE_VALUES_INIT_LATENCY).getCounter());
                 latencyTrackingState.iterator();
                 Assert.assertEquals(
                         expectedResult,
-                        countersPerMetric.get(MAP_STATE_ITERATOR_LATENCY).getCounter());
+                        countersPerMetric.get(MAP_STATE_ITERATOR_INIT_LATENCY).getCounter());
             }
         } finally {
             if (keyedBackend != null) {
@@ -126,5 +131,79 @@ public class LatencyTrackingMapStateTest extends LatencyTrackingStateTestBase<In
                 keyedBackend.dispose();
             }
         }
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void testLatencyTrackingMapStateIterator() throws Exception {
+        AbstractKeyedStateBackend<Integer> keyedBackend = createKeyedBackend(getKeySerializer());
+        try {
+            LatencyTrackingMapState<Integer, VoidNamespace, Long, Double> latencyTrackingState =
+                    (LatencyTrackingMapState)
+                            createLatencyTrackingState(keyedBackend, getStateDescriptor());
+            latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
+            StateLatencyMetricBase latencyTrackingStateMetric =
+                    latencyTrackingState.getLatencyTrackingStateMetric();
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
+                    latencyTrackingStateMetric.getCountersPerMetric();
+            setCurrentKey(keyedBackend);
+
+            verifyIterator(
+                    latencyTrackingState, countersPerMetric, latencyTrackingState.iterator(), true);
+            verifyIterator(
+                    latencyTrackingState,
+                    countersPerMetric,
+                    latencyTrackingState.entries().iterator(),
+                    true);
+            verifyIterator(
+                    latencyTrackingState,
+                    countersPerMetric,
+                    latencyTrackingState.keys().iterator(),
+                    false);
+            verifyIterator(
+                    latencyTrackingState,
+                    countersPerMetric,
+                    latencyTrackingState.values().iterator(),
+                    false);
+        } finally {
+            if (keyedBackend != null) {
+                keyedBackend.close();
+                keyedBackend.dispose();
+            }
+        }
+    }
+
+    private <E> void verifyIterator(
+            LatencyTrackingMapState<Integer, VoidNamespace, Long, Double> latencyTrackingState,
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric,
+            Iterator<E> iterator,
+            boolean removeIterator)
+            throws Exception {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int index = 1; index <= SAMPLE_INTERVAL; index++) {
+            latencyTrackingState.put((long) index, random.nextDouble());
+        }
+        int count = 1;
+        while (iterator.hasNext()) {
+            int expectedResult = count == SAMPLE_INTERVAL ? 0 : count;
+            Assert.assertEquals(
+                    expectedResult,
+                    countersPerMetric.get(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY).getCounter());
+            iterator.next();
+            Assert.assertEquals(
+                    expectedResult,
+                    countersPerMetric.get(MAP_STATE_ITERATOR_NEXT_LATENCY).getCounter());
+            if (removeIterator) {
+                iterator.remove();
+                Assert.assertEquals(
+                        expectedResult,
+                        countersPerMetric.get(MAP_STATE_ITERATOR_REMOVE_LATENCY).getCounter());
+            }
+            count += 1;
+        }
+        // as we call #hasNext on more time than #next, to avoid complex check, just reset hasNext
+        // counter in the end.
+        countersPerMetric.get(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY).resetCounter();
+        latencyTrackingState.clear();
     }
 }

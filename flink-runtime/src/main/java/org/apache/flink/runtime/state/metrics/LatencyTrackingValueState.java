@@ -36,7 +36,7 @@ class LatencyTrackingValueState<K, N, T>
                 N,
                 T,
                 InternalValueState<K, N, T>,
-                LatencyTrackingValueState.LatencyTrackingValueStateMetrics>
+                LatencyTrackingValueState.ValueStateLatencyMetrics>
         implements InternalValueState<K, N, T> {
 
     public LatencyTrackingValueState(
@@ -45,7 +45,7 @@ class LatencyTrackingValueState<K, N, T>
             LatencyTrackingStateConfig latencyTrackingStateConfig) {
         super(
                 original,
-                new LatencyTrackingValueStateMetrics(
+                new ValueStateLatencyMetrics(
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
@@ -54,30 +54,25 @@ class LatencyTrackingValueState<K, N, T>
 
     @Override
     public T value() throws IOException {
-        if (latencyTrackingStateMetric.checkValueCounter()) {
-            return trackLatencyWithIOException(
-                    () -> original.value(), latencyTrackingStateMetric::updateGetLatency);
-        } else {
-            return original.value();
-        }
+        return trackLatencyWithIOException(
+                latencyTrackingStateMetric::checkValueCounter,
+                () -> original.value(),
+                latencyTrackingStateMetric::updateGetLatency);
     }
 
     @Override
     public void update(T value) throws IOException {
-        if (latencyTrackingStateMetric.checkUpdateCounter()) {
-            trackLatencyWithIOException(
-                    () -> original.update(value), latencyTrackingStateMetric::updatePutLatency);
-        } else {
-            original.update(value);
-        }
+        trackLatencyWithIOException(
+                latencyTrackingStateMetric::checkUpdateCounter,
+                () -> original.update(value),
+                latencyTrackingStateMetric::updatePutLatency);
     }
 
-    protected static class LatencyTrackingValueStateMetrics
-            extends AbstractLatencyTrackingStateMetric {
+    protected static class ValueStateLatencyMetrics extends StateLatencyMetricBase {
         static final String VALUE_STATE_GET_LATENCY = "valueStateGetLatency";
         static final String VALUE_STATE_UPDATE_LATENCY = "valueStateUpdateLatency";
 
-        LatencyTrackingValueStateMetrics(
+        ValueStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
             super(stateName, metricGroup, sampleInterval, slidingWindow);
         }

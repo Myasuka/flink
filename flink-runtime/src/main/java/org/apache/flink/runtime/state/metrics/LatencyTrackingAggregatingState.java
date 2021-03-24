@@ -32,13 +32,13 @@ import java.util.Collection;
  * @param <ACC> The type of the accumulator (intermediate aggregate state).
  * @param <OUT> Type of the value extracted from the state
  */
-public class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
+class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
         extends AbstractLatencyTrackState<
                 K,
                 N,
                 ACC,
                 InternalAggregatingState<K, N, IN, ACC, OUT>,
-                LatencyTrackingAggregatingState.LatencyTrackingAggregatingStateMetrics>
+                LatencyTrackingAggregatingState.AggregatingStateLatencyMetrics>
         implements InternalAggregatingState<K, N, IN, ACC, OUT> {
 
     LatencyTrackingAggregatingState(
@@ -47,7 +47,7 @@ public class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
             LatencyTrackingStateConfig latencyTrackingStateConfig) {
         super(
                 original,
-                new LatencyTrackingAggregatingStateMetrics(
+                new AggregatingStateLatencyMetrics(
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
@@ -56,22 +56,18 @@ public class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
 
     @Override
     public OUT get() throws Exception {
-        if (latencyTrackingStateMetric.checkGetCounter()) {
-            return trackLatencyWithException(
-                    () -> original.get(), latencyTrackingStateMetric::updateGetLatency);
-        } else {
-            return original.get();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkGetCounter,
+                () -> original.get(),
+                latencyTrackingStateMetric::updateGetLatency);
     }
 
     @Override
     public void add(IN value) throws Exception {
-        if (latencyTrackingStateMetric.checkAddCounter()) {
-            trackLatencyWithException(
-                    () -> original.add(value), latencyTrackingStateMetric::updateAddLatency);
-        } else {
-            original.add(value);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkAddCounter,
+                () -> original.add(value),
+                latencyTrackingStateMetric::updateAddLatency);
     }
 
     @Override
@@ -86,23 +82,19 @@ public class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
 
     @Override
     public void mergeNamespaces(N target, Collection<N> sources) throws Exception {
-        if (latencyTrackingStateMetric.checkMergeNamespacesCounter()) {
-            trackLatencyWithException(
-                    () -> original.mergeNamespaces(target, sources),
-                    latencyTrackingStateMetric::updateMergeNamespacesLatency);
-        } else {
-            original.mergeNamespaces(target, sources);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkMergeNamespacesCounter,
+                () -> original.mergeNamespaces(target, sources),
+                latencyTrackingStateMetric::updateMergeNamespacesLatency);
     }
 
-    protected static class LatencyTrackingAggregatingStateMetrics
-            extends AbstractLatencyTrackingStateMetric {
+    protected static class AggregatingStateLatencyMetrics extends StateLatencyMetricBase {
         static final String AGGREGATING_STATE_GET_LATENCY = "aggregatingStateGetLatency";
         static final String AGGREGATING_STATE_ADD_LATENCY = "aggregatingStateAddLatency";
         static final String AGGREGATING_STATE_MERGE_NAMESPACES_LATENCY =
                 "aggregatingStateMergeNamespacesLatency";
 
-        LatencyTrackingAggregatingStateMetrics(
+        AggregatingStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
             super(stateName, metricGroup, sampleInterval, slidingWindow);
         }

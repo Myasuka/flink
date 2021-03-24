@@ -37,7 +37,7 @@ class LatencyTrackingListState<K, N, T>
                 N,
                 List<T>,
                 InternalListState<K, N, T>,
-                LatencyTrackingListState.LatencyTrackingListStateMetrics>
+                LatencyTrackingListState.ListStateLatencyMetrics>
         implements InternalListState<K, N, T> {
 
     LatencyTrackingListState(
@@ -46,7 +46,7 @@ class LatencyTrackingListState<K, N, T>
             LatencyTrackingStateConfig latencyTrackingStateConfig) {
         super(
                 original,
-                new LatencyTrackingListStateMetrics(
+                new ListStateLatencyMetrics(
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
@@ -55,22 +55,18 @@ class LatencyTrackingListState<K, N, T>
 
     @Override
     public Iterable<T> get() throws Exception {
-        if (latencyTrackingStateMetric.checkGetCounter()) {
-            return trackLatencyWithException(
-                    () -> original.get(), latencyTrackingStateMetric::updateGetLatency);
-        } else {
-            return original.get();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkGetCounter,
+                () -> original.get(),
+                latencyTrackingStateMetric::updateGetLatency);
     }
 
     @Override
     public void add(T value) throws Exception {
-        if (latencyTrackingStateMetric.checkAddCounter()) {
-            trackLatencyWithException(
-                    () -> original.add(value), latencyTrackingStateMetric::updateAddLatency);
-        } else {
-            original.add(value);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkAddCounter,
+                () -> original.add(value),
+                latencyTrackingStateMetric::updateAddLatency);
     }
 
     @Override
@@ -85,44 +81,36 @@ class LatencyTrackingListState<K, N, T>
 
     @Override
     public void update(List<T> values) throws Exception {
-        if (latencyTrackingStateMetric.checkUpdateCounter()) {
-            trackLatencyWithException(
-                    () -> original.update(values), latencyTrackingStateMetric::updateUpdateLatency);
-        } else {
-            original.update(values);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkUpdateCounter,
+                () -> original.update(values),
+                latencyTrackingStateMetric::updateUpdateLatency);
     }
 
     @Override
     public void addAll(List<T> values) throws Exception {
-        if (latencyTrackingStateMetric.checkAddAllCounter()) {
-            trackLatencyWithException(
-                    () -> original.addAll(values), latencyTrackingStateMetric::updateAddAllLatency);
-        } else {
-            original.addAll(values);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkAddAllCounter,
+                () -> original.addAll(values),
+                latencyTrackingStateMetric::updateAddAllLatency);
     }
 
     @Override
     public void mergeNamespaces(N target, Collection<N> sources) throws Exception {
-        if (latencyTrackingStateMetric.checkMergeNamespacesCounter()) {
-            trackLatencyWithException(
-                    () -> original.mergeNamespaces(target, sources),
-                    latencyTrackingStateMetric::updateMergeNamespacesLatency);
-        } else {
-            original.mergeNamespaces(target, sources);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkMergeNamespacesCounter,
+                () -> original.mergeNamespaces(target, sources),
+                latencyTrackingStateMetric::updateMergeNamespacesLatency);
     }
 
-    protected static class LatencyTrackingListStateMetrics
-            extends AbstractLatencyTrackingStateMetric {
+    protected static class ListStateLatencyMetrics extends StateLatencyMetricBase {
         static final String LIST_STATE_GET_LATENCY = "listStateGetLatency";
         static final String LIST_STATE_ADD_LATENCY = "listStateAddLatency";
         static final String LIST_STATE_ADD_ALL_LATENCY = "listStateAddAllLatency";
         static final String LIST_STATE_UPDATE_LATENCY = "listStateUpdateLatency";
         static final String LIST_STATE_MERGE_NAMESPACES_LATENCY = "listStateMergeNamespacesLatency";
 
-        LatencyTrackingListStateMetrics(
+        ListStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
             super(stateName, metricGroup, sampleInterval, slidingWindow);
         }

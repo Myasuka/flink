@@ -33,9 +33,9 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.LatencyTrackingReducingStateMetrics.REDUCING_STATE_ADD_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.LatencyTrackingReducingStateMetrics.REDUCING_STATE_GET_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.LatencyTrackingReducingStateMetrics.REDUCING_STATE_MERGE_NAMESPACES_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.ReducingStateLatencyMetrics.REDUCING_STATE_ADD_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.ReducingStateLatencyMetrics.REDUCING_STATE_GET_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingReducingState.ReducingStateLatencyMetrics.REDUCING_STATE_MERGE_NAMESPACES_LATENCY;
 import static org.hamcrest.core.Is.is;
 
 /** Tests for {@link LatencyTrackingReducingState}. */
@@ -65,9 +65,9 @@ public class LatencyTrackingReducingStateTest extends LatencyTrackingStateTestBa
                     (LatencyTrackingReducingState)
                             createLatencyTrackingState(keyedBackend, getStateDescriptor());
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
-            AbstractLatencyTrackingStateMetric latencyTrackingStateMetric =
+            StateLatencyMetricBase latencyTrackingStateMetric =
                     latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, AbstractLatencyTrackingStateMetric.Counter> countersPerMetric =
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
                     latencyTrackingStateMetric.getCountersPerMetric();
             Assert.assertThat(countersPerMetric.isEmpty(), is(true));
             setCurrentKey(keyedBackend);

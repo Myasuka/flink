@@ -32,13 +32,13 @@ import java.util.Map;
  * @param <UK> Type of the user entry key of state
  * @param <UV> Type of the user entry value of state
  */
-public class LatencyTrackingMapState<K, N, UK, UV>
+class LatencyTrackingMapState<K, N, UK, UV>
         extends AbstractLatencyTrackState<
                 K,
                 N,
                 Map<UK, UV>,
                 InternalMapState<K, N, UK, UV>,
-                LatencyTrackingMapState.LatencyTrackingMapStateMetrics>
+                LatencyTrackingMapState.MapStateLatencyMetrics>
         implements InternalMapState<K, N, UK, UV> {
     LatencyTrackingMapState(
             String stateName,
@@ -46,7 +46,7 @@ public class LatencyTrackingMapState<K, N, UK, UV>
             LatencyTrackingStateConfig latencyTrackingStateConfig) {
         super(
                 original,
-                new LatencyTrackingMapStateMetrics(
+                new MapStateLatencyMetrics(
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
@@ -55,119 +55,145 @@ public class LatencyTrackingMapState<K, N, UK, UV>
 
     @Override
     public UV get(UK key) throws Exception {
-        if (latencyTrackingStateMetric.checkGetCounter()) {
-            return trackLatencyWithException(
-                    () -> original.get(key), latencyTrackingStateMetric::updateGetLatency);
-        } else {
-            return original.get(key);
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkGetCounter,
+                () -> original.get(key),
+                latencyTrackingStateMetric::updateGetLatency);
     }
 
     @Override
     public void put(UK key, UV value) throws Exception {
-        if (latencyTrackingStateMetric.checkPutCounter()) {
-            trackLatencyWithException(
-                    () -> original.put(key, value), latencyTrackingStateMetric::updatePutLatency);
-        } else {
-            original.put(key, value);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkPutCounter,
+                () -> original.put(key, value),
+                latencyTrackingStateMetric::updatePutLatency);
     }
 
     @Override
     public void putAll(Map<UK, UV> map) throws Exception {
-        if (latencyTrackingStateMetric.checkPuAllCounter()) {
-            trackLatencyWithException(
-                    () -> original.putAll(map), latencyTrackingStateMetric::updatePutAllLatency);
-        } else {
-            original.putAll(map);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkPuAllCounter,
+                () -> original.putAll(map),
+                latencyTrackingStateMetric::updatePutAllLatency);
     }
 
     @Override
     public void remove(UK key) throws Exception {
-        if (latencyTrackingStateMetric.checkRemoveCounter()) {
-            trackLatencyWithException(
-                    () -> original.remove(key), latencyTrackingStateMetric::updateRemoveLatency);
-        } else {
-            original.remove(key);
-        }
+        trackLatencyWithException(
+                latencyTrackingStateMetric::checkRemoveCounter,
+                () -> original.remove(key),
+                latencyTrackingStateMetric::updateRemoveLatency);
     }
 
     @Override
     public boolean contains(UK key) throws Exception {
-        if (latencyTrackingStateMetric.checkContainsCounter()) {
-            return trackLatencyWithException(
-                    () -> original.contains(key),
-                    latencyTrackingStateMetric::updateContainsLatency);
-        } else {
-            return original.contains(key);
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkContainsCounter,
+                () -> original.contains(key),
+                latencyTrackingStateMetric::updateContainsLatency);
     }
 
     @Override
     public Iterable<Map.Entry<UK, UV>> entries() throws Exception {
-        if (latencyTrackingStateMetric.checkEntriesCounter()) {
-            return trackLatencyWithException(
-                    () -> original.entries(), latencyTrackingStateMetric::updateEntriesLatency);
-        } else {
-            return original.entries();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkEntriesCounter,
+                () -> new IterableWrapper<>(original.entries()),
+                latencyTrackingStateMetric::updateEntriesLatency);
     }
 
     @Override
     public Iterable<UK> keys() throws Exception {
-        if (latencyTrackingStateMetric.checkKeysCounter()) {
-            return trackLatencyWithException(
-                    () -> original.keys(), latencyTrackingStateMetric::updateKeysLatency);
-        } else {
-            return original.keys();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkKeysCounter,
+                () -> new IterableWrapper<>(original.keys()),
+                latencyTrackingStateMetric::updateKeysLatency);
     }
 
     @Override
     public Iterable<UV> values() throws Exception {
-        if (latencyTrackingStateMetric.checkValuesCounter()) {
-            return trackLatencyWithException(
-                    () -> original.values(), latencyTrackingStateMetric::updateValuesLatency);
-        } else {
-            return original.values();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkValuesCounter,
+                () -> new IterableWrapper<>(original.values()),
+                latencyTrackingStateMetric::updateValuesLatency);
     }
 
     @Override
     public Iterator<Map.Entry<UK, UV>> iterator() throws Exception {
-        if (latencyTrackingStateMetric.checkIteratorCounter()) {
-            return trackLatencyWithException(
-                    () -> original.iterator(), latencyTrackingStateMetric::updateIteratorLatency);
-        } else {
-            return original.iterator();
-        }
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkIteratorCounter,
+                () -> new IteratorWrapper<>(original.iterator()),
+                latencyTrackingStateMetric::updateIteratorLatency);
     }
 
     @Override
     public boolean isEmpty() throws Exception {
-        if (latencyTrackingStateMetric.checkIsEmptyCounter()) {
-            return trackLatencyWithException(
-                    () -> original.isEmpty(), latencyTrackingStateMetric::updateIsEmptyLatency);
-        } else {
-            return original.isEmpty();
+        return trackLatencyWithException(
+                latencyTrackingStateMetric::checkIsEmptyCounter,
+                () -> original.isEmpty(),
+                latencyTrackingStateMetric::updateIsEmptyLatency);
+    }
+
+    private class IterableWrapper<E> implements Iterable<E> {
+        private final Iterable<E> iterable;
+
+        IterableWrapper(Iterable<E> iterable) {
+            this.iterable = iterable;
+        }
+
+        @Override
+        public Iterator<E> iterator() {
+            return new IteratorWrapper<>(iterable.iterator());
         }
     }
 
-    protected static class LatencyTrackingMapStateMetrics
-            extends AbstractLatencyTrackingStateMetric {
+    private class IteratorWrapper<E> implements Iterator<E> {
+        private final Iterator<E> iterator;
+
+        IteratorWrapper(Iterator<E> iterator) {
+            this.iterator = iterator;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return trackLatency(
+                    latencyTrackingStateMetric::checkIteratorHasNextCounter,
+                    iterator::hasNext,
+                    latencyTrackingStateMetric::updateIteratorHasNextLatency);
+        }
+
+        @Override
+        public E next() {
+            return trackLatency(
+                    latencyTrackingStateMetric::checkIteratorNextCounter,
+                    iterator::next,
+                    latencyTrackingStateMetric::updateIteratorNextLatency);
+        }
+
+        @Override
+        public void remove() {
+            trackLatency(
+                    latencyTrackingStateMetric::checkIteratorRemoveCounter,
+                    iterator::remove,
+                    latencyTrackingStateMetric::updateIteratorRemoveLatency);
+        }
+    }
+
+    protected static class MapStateLatencyMetrics extends StateLatencyMetricBase {
         static final String MAP_STATE_GET_LATENCY = "mapStateGetLatency";
         static final String MAP_STATE_PUT_LATENCY = "mapStatePutLatency";
         static final String MAP_STATE_PUT_ALL_LATENCY = "mapStatePutAllLatency";
         static final String MAP_STATE_REMOVE_LATENCY = "mapStateRemoveLatency";
         static final String MAP_STATE_CONTAINS_LATENCY = "mapStateContainsAllLatency";
-        static final String MAP_STATE_ENTRIES_LATENCY = "mapStateEntriesLatency";
-        static final String MAP_STATE_KEYS_LATENCY = "mapStateKeysLatency";
-        static final String MAP_STATE_VALUES_LATENCY = "mapStateValuesLatency";
-        static final String MAP_STATE_ITERATOR_LATENCY = "mapStateIteratorLatency";
+        static final String MAP_STATE_ENTRIES_INIT_LATENCY = "mapStateEntriesInitLatency";
+        static final String MAP_STATE_KEYS_INIT_LATENCY = "mapStateKeysInitLatency";
+        static final String MAP_STATE_VALUES_INIT_LATENCY = "mapStateValuesInitLatency";
+        static final String MAP_STATE_ITERATOR_INIT_LATENCY = "mapStateIteratorInitLatency";
         static final String MAP_STATE_IS_EMPTY_LATENCY = "mapStateIsEmptyLatency";
+        static final String MAP_STATE_ITERATOR_HAS_NEXT_LATENCY = "mapStateIteratorHasNextLatency";
+        static final String MAP_STATE_ITERATOR_NEXT_LATENCY = "mapStateIteratorNextLatency";
+        static final String MAP_STATE_ITERATOR_REMOVE_LATENCY = "mapStateIteratorRemoveLatency";
 
-        LatencyTrackingMapStateMetrics(
+        MapStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
             super(stateName, metricGroup, sampleInterval, slidingWindow);
         }
@@ -193,23 +219,35 @@ public class LatencyTrackingMapState<K, N, UK, UV>
         }
 
         boolean checkEntriesCounter() {
-            return checkCounter(MAP_STATE_ENTRIES_LATENCY);
+            return checkCounter(MAP_STATE_ENTRIES_INIT_LATENCY);
         }
 
         boolean checkKeysCounter() {
-            return checkCounter(MAP_STATE_KEYS_LATENCY);
+            return checkCounter(MAP_STATE_KEYS_INIT_LATENCY);
         }
 
         boolean checkValuesCounter() {
-            return checkCounter(MAP_STATE_VALUES_LATENCY);
+            return checkCounter(MAP_STATE_VALUES_INIT_LATENCY);
         }
 
         boolean checkIteratorCounter() {
-            return checkCounter(MAP_STATE_ITERATOR_LATENCY);
+            return checkCounter(MAP_STATE_ITERATOR_INIT_LATENCY);
         }
 
         boolean checkIsEmptyCounter() {
             return checkCounter(MAP_STATE_IS_EMPTY_LATENCY);
+        }
+
+        boolean checkIteratorHasNextCounter() {
+            return checkCounter(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY);
+        }
+
+        boolean checkIteratorNextCounter() {
+            return checkCounter(MAP_STATE_ITERATOR_NEXT_LATENCY);
+        }
+
+        boolean checkIteratorRemoveCounter() {
+            return checkCounter(MAP_STATE_ITERATOR_REMOVE_LATENCY);
         }
 
         void updateGetLatency(long duration) {
@@ -233,23 +271,35 @@ public class LatencyTrackingMapState<K, N, UK, UV>
         }
 
         void updateEntriesLatency(long duration) {
-            updateHistogram(MAP_STATE_ENTRIES_LATENCY, duration);
+            updateHistogram(MAP_STATE_ENTRIES_INIT_LATENCY, duration);
         }
 
         void updateKeysLatency(long duration) {
-            updateHistogram(MAP_STATE_KEYS_LATENCY, duration);
+            updateHistogram(MAP_STATE_KEYS_INIT_LATENCY, duration);
         }
 
         void updateValuesLatency(long duration) {
-            updateHistogram(MAP_STATE_VALUES_LATENCY, duration);
+            updateHistogram(MAP_STATE_VALUES_INIT_LATENCY, duration);
         }
 
         void updateIteratorLatency(long duration) {
-            updateHistogram(MAP_STATE_ITERATOR_LATENCY, duration);
+            updateHistogram(MAP_STATE_ITERATOR_INIT_LATENCY, duration);
         }
 
         void updateIsEmptyLatency(long duration) {
             updateHistogram(MAP_STATE_IS_EMPTY_LATENCY, duration);
+        }
+
+        void updateIteratorHasNextLatency(long duration) {
+            updateHistogram(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY, duration);
+        }
+
+        void updateIteratorNextLatency(long duration) {
+            updateHistogram(MAP_STATE_ITERATOR_NEXT_LATENCY, duration);
+        }
+
+        void updateIteratorRemoveLatency(long duration) {
+            updateHistogram(MAP_STATE_ITERATOR_REMOVE_LATENCY, duration);
         }
     }
 }

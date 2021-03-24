@@ -31,8 +31,8 @@ import org.junit.Test;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingValueState.LatencyTrackingValueStateMetrics.VALUE_STATE_GET_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingValueState.LatencyTrackingValueStateMetrics.VALUE_STATE_UPDATE_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingValueState.ValueStateLatencyMetrics.VALUE_STATE_GET_LATENCY;
+import static org.apache.flink.runtime.state.metrics.LatencyTrackingValueState.ValueStateLatencyMetrics.VALUE_STATE_UPDATE_LATENCY;
 import static org.hamcrest.core.Is.is;
 
 /** Tests for {@link LatencyTrackingValueState}. */
@@ -62,9 +62,9 @@ public class LatencyTrackingValueStateTest extends LatencyTrackingStateTestBase<
                     (LatencyTrackingValueState)
                             createLatencyTrackingState(keyedBackend, getStateDescriptor());
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
-            AbstractLatencyTrackingStateMetric latencyTrackingStateMetric =
+            StateLatencyMetricBase latencyTrackingStateMetric =
                     latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, AbstractLatencyTrackingStateMetric.Counter> countersPerMetric =
+            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
                     latencyTrackingStateMetric.getCountersPerMetric();
             Assert.assertThat(countersPerMetric.isEmpty(), is(true));
             setCurrentKey(keyedBackend);
