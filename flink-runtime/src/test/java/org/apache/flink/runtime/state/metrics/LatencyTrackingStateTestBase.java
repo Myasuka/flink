@@ -23,7 +23,6 @@ package org.apache.flink.runtime.state.metrics;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.StateBackendOptions;
@@ -63,9 +62,9 @@ public abstract class LatencyTrackingStateTestBase<K> {
         configuration.setBoolean(StateBackendOptions.LATENCY_TRACK_ENABLED, true);
         configuration.setInteger(
                 StateBackendOptions.LATENCY_TRACK_SAMPLE_INTERVAL, SAMPLE_INTERVAL);
-        // use a very large value to not let metrics data expire.
-        long slidingWindow = Time.days(1).toMilliseconds();
-        configuration.setLong(StateBackendOptions.LATENCY_TRACK_SLIDING_WINDOW, slidingWindow);
+        // use a very large value to not let metrics data overridden.
+        int historySize = 1000_000;
+        configuration.setInteger(StateBackendOptions.LATENCY_TRACK_HISTORY_SIZE, historySize);
         HashMapStateBackend stateBackend =
                 new HashMapStateBackend()
                         .configure(configuration, Thread.currentThread().getContextClassLoader());

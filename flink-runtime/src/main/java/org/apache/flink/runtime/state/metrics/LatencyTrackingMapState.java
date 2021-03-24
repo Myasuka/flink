@@ -50,7 +50,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
-                        latencyTrackingStateConfig.getSlidingWindow()));
+                        latencyTrackingStateConfig.getHistorySize()));
     }
 
     @Override
@@ -194,8 +194,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
         static final String MAP_STATE_ITERATOR_REMOVE_LATENCY = "mapStateIteratorRemoveLatency";
 
         MapStateLatencyMetrics(
-                String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
-            super(stateName, metricGroup, sampleInterval, slidingWindow);
+                String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
+            super(stateName, metricGroup, sampleInterval, historySize);
         }
 
         boolean checkGetCounter() {

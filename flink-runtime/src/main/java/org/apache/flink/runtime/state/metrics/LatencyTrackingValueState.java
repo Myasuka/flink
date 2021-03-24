@@ -49,7 +49,7 @@ class LatencyTrackingValueState<K, N, T>
                         stateName,
                         latencyTrackingStateConfig.getMetricGroup(),
                         latencyTrackingStateConfig.getSampleInterval(),
-                        latencyTrackingStateConfig.getSlidingWindow()));
+                        latencyTrackingStateConfig.getHistorySize()));
     }
 
     @Override
@@ -73,8 +73,8 @@ class LatencyTrackingValueState<K, N, T>
         static final String VALUE_STATE_UPDATE_LATENCY = "valueStateUpdateLatency";
 
         ValueStateLatencyMetrics(
-                String stateName, MetricGroup metricGroup, int sampleInterval, long slidingWindow) {
-            super(stateName, metricGroup, sampleInterval, slidingWindow);
+                String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
+            super(stateName, metricGroup, sampleInterval, historySize);
         }
 
         boolean checkValueCounter() {
