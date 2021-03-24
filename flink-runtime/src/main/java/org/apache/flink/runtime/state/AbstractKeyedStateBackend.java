@@ -364,6 +364,10 @@ public abstract class AbstractKeyedStateBackend<K>
         cancelStreamRegistry.close();
     }
 
+    public LatencyTrackingStateConfig getLatencyTrackingStateConfig() {
+        return latencyTrackingStateConfig;
+    }
+
     @VisibleForTesting
     public StreamCompressionDecorator getKeyGroupCompressionDecorator() {
         return keyGroupCompressionDecorator;
