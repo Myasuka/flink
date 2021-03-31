@@ -78,11 +78,11 @@ class LatencyTrackingValueState<K, N, T>
         }
 
         boolean checkValueCounter() {
-            return checkCounter(VALUE_STATE_GET_LATENCY);
+            return false;
         }
 
         boolean checkUpdateCounter() {
-            return checkCounter(VALUE_STATE_UPDATE_LATENCY);
+            return false;
         }
 
         void updateGetLatency(long duration) {

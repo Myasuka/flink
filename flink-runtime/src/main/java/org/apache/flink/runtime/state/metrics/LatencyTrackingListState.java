@@ -116,23 +116,23 @@ class LatencyTrackingListState<K, N, T>
         }
 
         boolean checkGetCounter() {
-            return checkCounter(LIST_STATE_GET_LATENCY);
+            return false;
         }
 
         boolean checkAddCounter() {
-            return checkCounter(LIST_STATE_ADD_LATENCY);
+            return false;
         }
 
         boolean checkAddAllCounter() {
-            return checkCounter(LIST_STATE_ADD_ALL_LATENCY);
+            return false;
         }
 
         boolean checkUpdateCounter() {
-            return checkCounter(LIST_STATE_UPDATE_LATENCY);
+            return false;
         }
 
         boolean checkMergeNamespacesCounter() {
-            return checkCounter(LIST_STATE_MERGE_NAMESPACES_LATENCY);
+            return false;
         }
 
         void updateGetLatency(long duration) {

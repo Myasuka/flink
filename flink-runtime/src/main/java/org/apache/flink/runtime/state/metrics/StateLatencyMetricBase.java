@@ -31,9 +31,9 @@ import java.util.function.Supplier;
 class StateLatencyMetricBase implements AutoCloseable {
     protected static final String STATE_CLEAR_LATENCY = "stateClearLatency";
     private final MetricGroup metricGroup;
-    private final int sampleInterval;
+    protected final int sampleInterval;
+    protected int clearCount;
     private final Map<String, Histogram> histogramMetrics;
-    private final Map<String, Counter> countersPerMetric;
     private final Supplier<Histogram> histogramSupplier;
 
     StateLatencyMetricBase(
@@ -41,18 +41,17 @@ class StateLatencyMetricBase implements AutoCloseable {
         this.metricGroup = metricGroup.addGroup(stateName);
         this.sampleInterval = sampleInterval;
         this.histogramMetrics = new HashMap<>();
-        this.countersPerMetric = new HashMap<>();
         this.histogramSupplier = () -> new DescriptiveStatisticsHistogram(historySize);
+        this.clearCount = 0;
     }
 
-    protected boolean checkCounter(final String metricName) {
-        return countersPerMetric
-                .computeIfAbsent(metricName, (k) -> new Counter(sampleInterval))
-                .checkAndUpdateCounter();
+    protected boolean trackLatencyOnClear() {
+        clearCount = loopUpdateCounter(clearCount);
+        return clearCount == 1;
     }
 
-    protected boolean checkClearCounter() {
-        return checkCounter(STATE_CLEAR_LATENCY);
+    protected int loopUpdateCounter(int counter) {
+        return (counter + 1 < sampleInterval) ? counter + 1 : 0;
     }
 
     protected void updateHistogram(final String metricName, final long durationNanoTime) {
@@ -67,19 +66,13 @@ class StateLatencyMetricBase implements AutoCloseable {
                 .update(durationNanoTime);
     }
 
-    protected void updateClearLatency(long duration) {
-        updateHistogram(STATE_CLEAR_LATENCY, duration);
-    }
-
-    @VisibleForTesting
-    Map<String, Counter> getCountersPerMetric() {
-        return countersPerMetric;
+    protected void updateLatency(String latencyLabel, long duration) {
+        updateHistogram(latencyLabel, duration);
     }
 
     @Override
     public void close() throws Exception {
         histogramMetrics.clear();
-        countersPerMetric.clear();
     }
 
     protected static class Counter {
@@ -93,12 +86,6 @@ class StateLatencyMetricBase implements AutoCloseable {
 
         private int updateMetricsSampledCounter(int counter) {
             return (counter + 1 < metricSampledInterval) ? counter + 1 : 0;
-        }
-
-        boolean checkAndUpdateCounter() {
-            boolean result = counter == 0;
-            this.counter = updateMetricsSampledCounter(counter);
-            return result;
         }
 
         @VisibleForTesting

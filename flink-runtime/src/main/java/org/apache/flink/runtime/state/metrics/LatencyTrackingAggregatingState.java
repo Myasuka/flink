@@ -100,15 +100,15 @@ class LatencyTrackingAggregatingState<K, N, IN, ACC, OUT>
         }
 
         boolean checkGetCounter() {
-            return checkCounter(AGGREGATING_STATE_GET_LATENCY);
+            return false;
         }
 
         boolean checkAddCounter() {
-            return checkCounter(AGGREGATING_STATE_ADD_LATENCY);
+            return false;
         }
 
         boolean checkMergeNamespacesCounter() {
-            return checkCounter(AGGREGATING_STATE_MERGE_NAMESPACES_LATENCY);
+            return false;
         }
 
         void updateGetLatency(long duration) {

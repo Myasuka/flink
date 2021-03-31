@@ -55,82 +55,107 @@ class LatencyTrackingMapState<K, N, UK, UV>
 
     @Override
     public UV get(UK key) throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkGetCounter,
-                () -> original.get(key),
-                latencyTrackingStateMetric::updateGetLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnGet()) {
+            return trackLatencyWithException(
+                    () -> original.get(key), MapStateLatencyMetrics.MAP_STATE_GET_LATENCY);
+        } else {
+            return original.get(key);
+        }
     }
 
     @Override
     public void put(UK key, UV value) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkPutCounter,
-                () -> original.put(key, value),
-                latencyTrackingStateMetric::updatePutLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnPut()) {
+            trackLatencyWithException(
+                    () -> original.put(key, value), MapStateLatencyMetrics.MAP_STATE_PUT_LATENCY);
+        } else {
+            original.put(key, value);
+        }
     }
 
     @Override
     public void putAll(Map<UK, UV> map) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkPuAllCounter,
-                () -> original.putAll(map),
-                latencyTrackingStateMetric::updatePutAllLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnPutAll()) {
+            trackLatencyWithException(
+                    () -> original.putAll(map), MapStateLatencyMetrics.MAP_STATE_PUT_ALL_LATENCY);
+        } else {
+            original.putAll(map);
+        }
     }
 
     @Override
     public void remove(UK key) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkRemoveCounter,
-                () -> original.remove(key),
-                latencyTrackingStateMetric::updateRemoveLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnRemove()) {
+            trackLatencyWithException(
+                    () -> original.remove(key), MapStateLatencyMetrics.MAP_STATE_REMOVE_LATENCY);
+        } else {
+            original.remove(key);
+        }
     }
 
     @Override
     public boolean contains(UK key) throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkContainsCounter,
-                () -> original.contains(key),
-                latencyTrackingStateMetric::updateContainsLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnContains()) {
+            return trackLatencyWithException(
+                    () -> original.contains(key),
+                    MapStateLatencyMetrics.MAP_STATE_CONTAINS_LATENCY);
+        } else {
+            return original.contains(key);
+        }
     }
 
     @Override
     public Iterable<Map.Entry<UK, UV>> entries() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkEntriesCounter,
-                () -> new IterableWrapper<>(original.entries()),
-                latencyTrackingStateMetric::updateEntriesLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnEntriesInit()) {
+            return trackLatencyWithException(
+                    () -> new IterableWrapper<>(original.entries()),
+                    MapStateLatencyMetrics.MAP_STATE_ENTRIES_INIT_LATENCY);
+        } else {
+            return new IterableWrapper<>(original.entries());
+        }
     }
 
     @Override
     public Iterable<UK> keys() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkKeysCounter,
-                () -> new IterableWrapper<>(original.keys()),
-                latencyTrackingStateMetric::updateKeysLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnKeysInit()) {
+            return trackLatencyWithException(
+                    () -> new IterableWrapper<>(original.keys()),
+                    MapStateLatencyMetrics.MAP_STATE_KEYS_INIT_LATENCY);
+        } else {
+            return new IterableWrapper<>(original.keys());
+        }
     }
 
     @Override
     public Iterable<UV> values() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkValuesCounter,
-                () -> new IterableWrapper<>(original.values()),
-                latencyTrackingStateMetric::updateValuesLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnValuesInit()) {
+            return trackLatencyWithException(
+                    () -> new IterableWrapper<>(original.values()),
+                    MapStateLatencyMetrics.MAP_STATE_VALUES_INIT_LATENCY);
+        } else {
+            return new IterableWrapper<>(original.values());
+        }
     }
 
     @Override
     public Iterator<Map.Entry<UK, UV>> iterator() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkIteratorCounter,
-                () -> new IteratorWrapper<>(original.iterator()),
-                latencyTrackingStateMetric::updateIteratorLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnIteratorInit()) {
+            return trackLatencyWithException(
+                    () -> new IteratorWrapper<>(original.iterator()),
+                    MapStateLatencyMetrics.MAP_STATE_ITERATOR_INIT_LATENCY);
+        } else {
+            return new IteratorWrapper<>(original.iterator());
+        }
     }
 
     @Override
     public boolean isEmpty() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkIsEmptyCounter,
-                () -> original.isEmpty(),
-                latencyTrackingStateMetric::updateIsEmptyLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnIsEmpty()) {
+            return trackLatencyWithException(
+                    () -> original.isEmpty(), MapStateLatencyMetrics.MAP_STATE_IS_EMPTY_LATENCY);
+        } else {
+            return original.isEmpty();
+        }
     }
 
     private class IterableWrapper<E> implements Iterable<E> {
@@ -155,26 +180,33 @@ class LatencyTrackingMapState<K, N, UK, UV>
 
         @Override
         public boolean hasNext() {
-            return trackLatency(
-                    latencyTrackingStateMetric::checkIteratorHasNextCounter,
-                    iterator::hasNext,
-                    latencyTrackingStateMetric::updateIteratorHasNextLatency);
+            if (latencyTrackingStateMetric.trackLatencyOnIteratorHasNext()) {
+                return trackLatency(
+                        iterator::hasNext,
+                        MapStateLatencyMetrics.MAP_STATE_ITERATOR_HAS_NEXT_LATENCY);
+            } else {
+                return iterator.hasNext();
+            }
         }
 
         @Override
         public E next() {
-            return trackLatency(
-                    latencyTrackingStateMetric::checkIteratorNextCounter,
-                    iterator::next,
-                    latencyTrackingStateMetric::updateIteratorNextLatency);
+            if (latencyTrackingStateMetric.trackLatencyOnIteratorNext()) {
+                return trackLatency(
+                        iterator::next, MapStateLatencyMetrics.MAP_STATE_ITERATOR_NEXT_LATENCY);
+            } else {
+                return iterator.next();
+            }
         }
 
         @Override
         public void remove() {
-            trackLatency(
-                    latencyTrackingStateMetric::checkIteratorRemoveCounter,
-                    iterator::remove,
-                    latencyTrackingStateMetric::updateIteratorRemoveLatency);
+            if (latencyTrackingStateMetric.trackLatencyOnIteratorRemove()) {
+                trackLatency(
+                        iterator::remove, MapStateLatencyMetrics.MAP_STATE_ITERATOR_REMOVE_LATENCY);
+            } else {
+                iterator.remove();
+            }
         }
     }
 
@@ -193,113 +225,88 @@ class LatencyTrackingMapState<K, N, UK, UV>
         static final String MAP_STATE_ITERATOR_NEXT_LATENCY = "mapStateIteratorNextLatency";
         static final String MAP_STATE_ITERATOR_REMOVE_LATENCY = "mapStateIteratorRemoveLatency";
 
+        private int getCount = 0;
+        private int iteratorRemoveCount = 0;
+        private int putCount = 0;
+        private int putAllCount = 0;
+        private int removeCount = 0;
+        private int containsCount = 0;
+        private int entriesInitCount = 0;
+        private int keysInitCount = 0;
+        private int valuesInitCount = 0;
+        private int isEmptyCount = 0;
+        private int iteratorInitCount = 0;
+        private int iteratorHasNextCount = 0;
+        private int iteratorNextCount = 0;
+
         MapStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
             super(stateName, metricGroup, sampleInterval, historySize);
         }
 
-        boolean checkGetCounter() {
-            return checkCounter(MAP_STATE_GET_LATENCY);
+        boolean trackLatencyOnGet() {
+            getCount = loopUpdateCounter(getCount);
+            return getCount == 1;
         }
 
-        boolean checkPutCounter() {
-            return checkCounter(MAP_STATE_PUT_LATENCY);
+        boolean trackLatencyOnPut() {
+            putCount = loopUpdateCounter(putCount);
+            return putCount == 1;
         }
 
-        boolean checkPuAllCounter() {
-            return checkCounter(MAP_STATE_PUT_ALL_LATENCY);
+        boolean trackLatencyOnPutAll() {
+            putAllCount = loopUpdateCounter(putAllCount);
+            return putAllCount == 1;
         }
 
-        boolean checkRemoveCounter() {
-            return checkCounter(MAP_STATE_REMOVE_LATENCY);
+        boolean trackLatencyOnRemove() {
+            removeCount = loopUpdateCounter(removeCount);
+            return removeCount == 1;
         }
 
-        boolean checkContainsCounter() {
-            return checkCounter(MAP_STATE_CONTAINS_LATENCY);
+        boolean trackLatencyOnContains() {
+            containsCount = loopUpdateCounter(containsCount);
+            return containsCount == 1;
         }
 
-        boolean checkEntriesCounter() {
-            return checkCounter(MAP_STATE_ENTRIES_INIT_LATENCY);
+        boolean trackLatencyOnEntriesInit() {
+            entriesInitCount = loopUpdateCounter(entriesInitCount);
+            return entriesInitCount == 1;
         }
 
-        boolean checkKeysCounter() {
-            return checkCounter(MAP_STATE_KEYS_INIT_LATENCY);
+        boolean trackLatencyOnKeysInit() {
+            keysInitCount = loopUpdateCounter(keysInitCount);
+            return keysInitCount == 1;
         }
 
-        boolean checkValuesCounter() {
-            return checkCounter(MAP_STATE_VALUES_INIT_LATENCY);
+        boolean trackLatencyOnValuesInit() {
+            valuesInitCount = loopUpdateCounter(valuesInitCount);
+            return valuesInitCount == 1;
         }
 
-        boolean checkIteratorCounter() {
-            return checkCounter(MAP_STATE_ITERATOR_INIT_LATENCY);
+        boolean trackLatencyOnIteratorInit() {
+            iteratorInitCount = loopUpdateCounter(iteratorInitCount);
+            return iteratorInitCount == 1;
         }
 
-        boolean checkIsEmptyCounter() {
-            return checkCounter(MAP_STATE_IS_EMPTY_LATENCY);
+        boolean trackLatencyOnIsEmpty() {
+            isEmptyCount = loopUpdateCounter(isEmptyCount);
+            return isEmptyCount == 1;
         }
 
-        boolean checkIteratorHasNextCounter() {
-            return checkCounter(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY);
+        boolean trackLatencyOnIteratorHasNext() {
+            iteratorHasNextCount = loopUpdateCounter(iteratorHasNextCount);
+            return iteratorHasNextCount == 1;
         }
 
-        boolean checkIteratorNextCounter() {
-            return checkCounter(MAP_STATE_ITERATOR_NEXT_LATENCY);
+        boolean trackLatencyOnIteratorNext() {
+            iteratorNextCount = loopUpdateCounter(iteratorNextCount);
+            return iteratorNextCount == 1;
         }
 
-        boolean checkIteratorRemoveCounter() {
-            return checkCounter(MAP_STATE_ITERATOR_REMOVE_LATENCY);
-        }
-
-        void updateGetLatency(long duration) {
-            updateHistogram(MAP_STATE_GET_LATENCY, duration);
-        }
-
-        void updatePutLatency(long duration) {
-            updateHistogram(MAP_STATE_PUT_LATENCY, duration);
-        }
-
-        void updatePutAllLatency(long duration) {
-            updateHistogram(MAP_STATE_PUT_ALL_LATENCY, duration);
-        }
-
-        void updateRemoveLatency(long duration) {
-            updateHistogram(MAP_STATE_REMOVE_LATENCY, duration);
-        }
-
-        void updateContainsLatency(long duration) {
-            updateHistogram(MAP_STATE_CONTAINS_LATENCY, duration);
-        }
-
-        void updateEntriesLatency(long duration) {
-            updateHistogram(MAP_STATE_ENTRIES_INIT_LATENCY, duration);
-        }
-
-        void updateKeysLatency(long duration) {
-            updateHistogram(MAP_STATE_KEYS_INIT_LATENCY, duration);
-        }
-
-        void updateValuesLatency(long duration) {
-            updateHistogram(MAP_STATE_VALUES_INIT_LATENCY, duration);
-        }
-
-        void updateIteratorLatency(long duration) {
-            updateHistogram(MAP_STATE_ITERATOR_INIT_LATENCY, duration);
-        }
-
-        void updateIsEmptyLatency(long duration) {
-            updateHistogram(MAP_STATE_IS_EMPTY_LATENCY, duration);
-        }
-
-        void updateIteratorHasNextLatency(long duration) {
-            updateHistogram(MAP_STATE_ITERATOR_HAS_NEXT_LATENCY, duration);
-        }
-
-        void updateIteratorNextLatency(long duration) {
-            updateHistogram(MAP_STATE_ITERATOR_NEXT_LATENCY, duration);
-        }
-
-        void updateIteratorRemoveLatency(long duration) {
-            updateHistogram(MAP_STATE_ITERATOR_REMOVE_LATENCY, duration);
+        boolean trackLatencyOnIteratorRemove() {
+            iteratorRemoveCount = loopUpdateCounter(iteratorRemoveCount);
+            return iteratorRemoveCount == 1;
         }
     }
 }

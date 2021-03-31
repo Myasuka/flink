@@ -98,15 +98,15 @@ class LatencyTrackingReducingState<K, N, T>
         }
 
         boolean checkGetCounter() {
-            return checkCounter(REDUCING_STATE_GET_LATENCY);
+            return false;
         }
 
         boolean checkAddCounter() {
-            return checkCounter(REDUCING_STATE_ADD_LATENCY);
+            return false;
         }
 
         boolean checkMergeNamespacesCounter() {
-            return checkCounter(REDUCING_STATE_MERGE_NAMESPACES_LATENCY);
+            return false;
         }
 
         void updateGetLatency(long duration) {
