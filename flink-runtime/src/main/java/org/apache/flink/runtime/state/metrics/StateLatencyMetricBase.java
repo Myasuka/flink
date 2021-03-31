@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.state.metrics;
 
-import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.metrics.DescriptiveStatisticsHistogram;
@@ -33,29 +32,35 @@ class StateLatencyMetricBase implements AutoCloseable {
     private final MetricGroup metricGroup;
     private final int sampleInterval;
     private final Map<String, Histogram> histogramMetrics;
-    private final Map<String, Counter> countersPerMetric;
     private final Supplier<Histogram> histogramSupplier;
+    private int clearCount = 0;
 
     StateLatencyMetricBase(
             String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
         this.metricGroup = metricGroup.addGroup(stateName);
         this.sampleInterval = sampleInterval;
         this.histogramMetrics = new HashMap<>();
-        this.countersPerMetric = new HashMap<>();
         this.histogramSupplier = () -> new DescriptiveStatisticsHistogram(historySize);
     }
 
-    protected boolean checkCounter(final String metricName) {
-        return countersPerMetric
-                .computeIfAbsent(metricName, (k) -> new Counter(sampleInterval))
-                .checkAndUpdateCounter();
+    int getClearCount() {
+        return clearCount;
     }
 
-    protected boolean checkClearCounter() {
-        return checkCounter(STATE_CLEAR_LATENCY);
+    protected boolean trackLatencyOnClear() {
+        clearCount = loopUpdateCounter(clearCount);
+        return clearCount == 1;
     }
 
-    protected void updateHistogram(final String metricName, final long durationNanoTime) {
+    protected int loopUpdateCounter(int counter) {
+        return (counter + 1 < sampleInterval) ? counter + 1 : 0;
+    }
+
+    protected void updateLatency(String latencyLabel, long duration) {
+        updateHistogram(latencyLabel, duration);
+    }
+
+    private void updateHistogram(final String metricName, final long durationNanoTime) {
         this.histogramMetrics
                 .computeIfAbsent(
                         metricName,
@@ -67,48 +72,8 @@ class StateLatencyMetricBase implements AutoCloseable {
                 .update(durationNanoTime);
     }
 
-    protected void updateClearLatency(long duration) {
-        updateHistogram(STATE_CLEAR_LATENCY, duration);
-    }
-
-    @VisibleForTesting
-    Map<String, Counter> getCountersPerMetric() {
-        return countersPerMetric;
-    }
-
     @Override
     public void close() throws Exception {
         histogramMetrics.clear();
-        countersPerMetric.clear();
-    }
-
-    protected static class Counter {
-        private final int metricSampledInterval;
-        private int counter;
-
-        Counter(int metricSampledInterval) {
-            this.metricSampledInterval = metricSampledInterval;
-            this.counter = 0;
-        }
-
-        private int updateMetricsSampledCounter(int counter) {
-            return (counter + 1 < metricSampledInterval) ? counter + 1 : 0;
-        }
-
-        boolean checkAndUpdateCounter() {
-            boolean result = counter == 0;
-            this.counter = updateMetricsSampledCounter(counter);
-            return result;
-        }
-
-        @VisibleForTesting
-        int getCounter() {
-            return counter;
-        }
-
-        @VisibleForTesting
-        void resetCounter() {
-            this.counter = 0;
-        }
     }
 }
