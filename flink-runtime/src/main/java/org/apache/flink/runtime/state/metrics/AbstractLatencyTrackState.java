@@ -92,7 +92,9 @@ class AbstractLatencyTrackState<
     @Override
     public void clear() {
         if (latencyTrackingStateMetric.trackLatencyOnClear()) {
-            trackLatency(original::clear, StateLatencyMetricBase.STATE_CLEAR_LATENCY);
+            trackLatency(
+                    original::clear,
+                    (latency) -> latencyTrackingStateMetric.updateClearLatency(latency));
         } else {
             original.clear();
         }
@@ -116,6 +118,14 @@ class AbstractLatencyTrackState<
         T result = supplier.get();
         long latency = System.nanoTime() - startTime;
         latencyTrackingStateMetric.updateLatency(latencyLabel, latency);
+        return result;
+    }
+
+    protected <T> T trackLatency(Supplier<T> supplier, Consumer<Long> consumer) {
+        long startTime = System.nanoTime();
+        T result = supplier.get();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
         return result;
     }
 
@@ -160,6 +170,16 @@ class AbstractLatencyTrackState<
         return result;
     }
 
+    protected <T> T trackLatencyWithException(
+            SupplierWithException<T, Exception> supplier, Consumer<Long> consumer)
+            throws Exception {
+        long startTime = System.nanoTime();
+        T result = supplier.get();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
+        return result;
+    }
+
     protected void trackLatencyWithIOException(
             Supplier<Boolean> checkCondition,
             ThrowingRunnable<IOException> runnable,
@@ -198,11 +218,26 @@ class AbstractLatencyTrackState<
         latencyTrackingStateMetric.updateLatency(latencyLabel, latency);
     }
 
+    protected void trackLatencyWithException(
+            ThrowingRunnable<Exception> runnable, Consumer<Long> consumer) throws Exception {
+        long startTime = System.nanoTime();
+        runnable.run();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
+    }
+
     protected void trackLatency(Runnable runnable, String latencyLabel) {
         long startTime = System.nanoTime();
         runnable.run();
         long latency = System.nanoTime() - startTime;
         latencyTrackingStateMetric.updateLatency(latencyLabel, latency);
+    }
+
+    protected void trackLatency(Runnable runnable, Consumer<Long> consumer) {
+        long startTime = System.nanoTime();
+        runnable.run();
+        long latency = System.nanoTime() - startTime;
+        consumer.accept(latency);
     }
 
     @VisibleForTesting

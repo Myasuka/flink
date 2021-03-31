@@ -30,11 +30,12 @@ import java.util.function.Supplier;
 /** Base class of state latency metric which counts and histogram the state metric. */
 class StateLatencyMetricBase implements AutoCloseable {
     protected static final String STATE_CLEAR_LATENCY = "stateClearLatency";
-    private final MetricGroup metricGroup;
+    protected final MetricGroup metricGroup;
     protected final int sampleInterval;
     protected int clearCount;
     private final Map<String, Histogram> histogramMetrics;
-    private final Supplier<Histogram> histogramSupplier;
+    private Histogram clearOperationHistogram;
+    protected final Supplier<Histogram> histogramSupplier;
 
     StateLatencyMetricBase(
             String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
@@ -64,6 +65,14 @@ class StateLatencyMetricBase implements AutoCloseable {
                             return histogram;
                         })
                 .update(durationNanoTime);
+    }
+
+    protected void updateClearLatency(final long durationNanoTime) {
+        if (clearOperationHistogram == null) {
+            clearOperationHistogram = histogramSupplier.get();
+            metricGroup.histogram(STATE_CLEAR_LATENCY, clearOperationHistogram);
+        }
+        clearOperationHistogram.update(durationNanoTime);
     }
 
     protected void updateLatency(String latencyLabel, long duration) {

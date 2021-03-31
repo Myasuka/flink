@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.state.metrics;
 
+import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.state.internal.InternalMapState;
 
@@ -57,7 +58,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
     public UV get(UK key) throws Exception {
         if (latencyTrackingStateMetric.trackLatencyOnGet()) {
             return trackLatencyWithException(
-                    () -> original.get(key), MapStateLatencyMetrics.MAP_STATE_GET_LATENCY);
+                    () -> original.get(key),
+                    (latency) -> latencyTrackingStateMetric.updateGetLatency(latency));
         } else {
             return original.get(key);
         }
@@ -67,7 +69,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
     public void put(UK key, UV value) throws Exception {
         if (latencyTrackingStateMetric.trackLatencyOnPut()) {
             trackLatencyWithException(
-                    () -> original.put(key, value), MapStateLatencyMetrics.MAP_STATE_PUT_LATENCY);
+                    () -> original.put(key, value),
+                    (latency) -> latencyTrackingStateMetric.updatePutLatency(latency));
         } else {
             original.put(key, value);
         }
@@ -77,7 +80,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
     public void putAll(Map<UK, UV> map) throws Exception {
         if (latencyTrackingStateMetric.trackLatencyOnPutAll()) {
             trackLatencyWithException(
-                    () -> original.putAll(map), MapStateLatencyMetrics.MAP_STATE_PUT_ALL_LATENCY);
+                    () -> original.putAll(map),
+                    (latency) -> latencyTrackingStateMetric.updatePutAllLatency(latency));
         } else {
             original.putAll(map);
         }
@@ -87,7 +91,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
     public void remove(UK key) throws Exception {
         if (latencyTrackingStateMetric.trackLatencyOnRemove()) {
             trackLatencyWithException(
-                    () -> original.remove(key), MapStateLatencyMetrics.MAP_STATE_REMOVE_LATENCY);
+                    () -> original.remove(key),
+                    (latency) -> latencyTrackingStateMetric.updateRemoveLatency(latency));
         } else {
             original.remove(key);
         }
@@ -98,7 +103,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
         if (latencyTrackingStateMetric.trackLatencyOnContains()) {
             return trackLatencyWithException(
                     () -> original.contains(key),
-                    MapStateLatencyMetrics.MAP_STATE_CONTAINS_LATENCY);
+                    (latency) -> latencyTrackingStateMetric.updateContainsLatency(latency));
         } else {
             return original.contains(key);
         }
@@ -109,7 +114,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
         if (latencyTrackingStateMetric.trackLatencyOnEntriesInit()) {
             return trackLatencyWithException(
                     () -> new IterableWrapper<>(original.entries()),
-                    MapStateLatencyMetrics.MAP_STATE_ENTRIES_INIT_LATENCY);
+                    (latency) -> latencyTrackingStateMetric.updateEntriesInitLatency(latency));
         } else {
             return new IterableWrapper<>(original.entries());
         }
@@ -120,7 +125,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
         if (latencyTrackingStateMetric.trackLatencyOnKeysInit()) {
             return trackLatencyWithException(
                     () -> new IterableWrapper<>(original.keys()),
-                    MapStateLatencyMetrics.MAP_STATE_KEYS_INIT_LATENCY);
+                    (latency) -> latencyTrackingStateMetric.updateKeysInitLatency(latency));
         } else {
             return new IterableWrapper<>(original.keys());
         }
@@ -131,7 +136,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
         if (latencyTrackingStateMetric.trackLatencyOnValuesInit()) {
             return trackLatencyWithException(
                     () -> new IterableWrapper<>(original.values()),
-                    MapStateLatencyMetrics.MAP_STATE_VALUES_INIT_LATENCY);
+                    (latency) -> latencyTrackingStateMetric.updateValuesInitLatency(latency));
         } else {
             return new IterableWrapper<>(original.values());
         }
@@ -142,7 +147,7 @@ class LatencyTrackingMapState<K, N, UK, UV>
         if (latencyTrackingStateMetric.trackLatencyOnIteratorInit()) {
             return trackLatencyWithException(
                     () -> new IteratorWrapper<>(original.iterator()),
-                    MapStateLatencyMetrics.MAP_STATE_ITERATOR_INIT_LATENCY);
+                    (latency) -> latencyTrackingStateMetric.updateIteratorInitLatency(latency));
         } else {
             return new IteratorWrapper<>(original.iterator());
         }
@@ -152,7 +157,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
     public boolean isEmpty() throws Exception {
         if (latencyTrackingStateMetric.trackLatencyOnIsEmpty()) {
             return trackLatencyWithException(
-                    () -> original.isEmpty(), MapStateLatencyMetrics.MAP_STATE_IS_EMPTY_LATENCY);
+                    () -> original.isEmpty(),
+                    (latency) -> latencyTrackingStateMetric.updateIsEmptyLatency(latency));
         } else {
             return original.isEmpty();
         }
@@ -183,7 +189,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
             if (latencyTrackingStateMetric.trackLatencyOnIteratorHasNext()) {
                 return trackLatency(
                         iterator::hasNext,
-                        MapStateLatencyMetrics.MAP_STATE_ITERATOR_HAS_NEXT_LATENCY);
+                        (latency) ->
+                                latencyTrackingStateMetric.updateIteratorHasNextLatency(latency));
             } else {
                 return iterator.hasNext();
             }
@@ -193,7 +200,8 @@ class LatencyTrackingMapState<K, N, UK, UV>
         public E next() {
             if (latencyTrackingStateMetric.trackLatencyOnIteratorNext()) {
                 return trackLatency(
-                        iterator::next, MapStateLatencyMetrics.MAP_STATE_ITERATOR_NEXT_LATENCY);
+                        iterator::next,
+                        (latency) -> latencyTrackingStateMetric.updateIteratorNextLatency(latency));
             } else {
                 return iterator.next();
             }
@@ -203,7 +211,9 @@ class LatencyTrackingMapState<K, N, UK, UV>
         public void remove() {
             if (latencyTrackingStateMetric.trackLatencyOnIteratorRemove()) {
                 trackLatency(
-                        iterator::remove, MapStateLatencyMetrics.MAP_STATE_ITERATOR_REMOVE_LATENCY);
+                        iterator::remove,
+                        (latency) ->
+                                latencyTrackingStateMetric.updateIteratorRemoveLatency(latency));
             } else {
                 iterator.remove();
             }
@@ -226,22 +236,43 @@ class LatencyTrackingMapState<K, N, UK, UV>
         static final String MAP_STATE_ITERATOR_REMOVE_LATENCY = "mapStateIteratorRemoveLatency";
 
         private int getCount = 0;
+        private Histogram getOperationHistogram;
         private int iteratorRemoveCount = 0;
+        private Histogram iteratorRemoveOperationHistogram;
         private int putCount = 0;
+        private Histogram putOperationHistogram;
         private int putAllCount = 0;
+        private Histogram putAllOperationHistogram;
         private int removeCount = 0;
+        private Histogram removeOperationHistogram;
         private int containsCount = 0;
+        private Histogram containsOperationHistogram;
         private int entriesInitCount = 0;
+        private Histogram entriesInitOperationHistogram;
         private int keysInitCount = 0;
+        private Histogram keysInitOperationHistogram;
         private int valuesInitCount = 0;
+        private Histogram valuesInitOperationHistogram;
         private int isEmptyCount = 0;
+        private Histogram isEmptyOperationHistogram;
         private int iteratorInitCount = 0;
+        private Histogram iteratorInitOperationHistogram;
         private int iteratorHasNextCount = 0;
+        private Histogram iteratorHasNextOperationHistogram;
         private int iteratorNextCount = 0;
+        private Histogram iteratorNextOperationHistogram;
 
         MapStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
             super(stateName, metricGroup, sampleInterval, historySize);
+        }
+
+        protected void updateGetLatency(final long durationNanoTime) {
+            if (getOperationHistogram == null) {
+                getOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_GET_LATENCY, getOperationHistogram);
+            }
+            getOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnGet() {
@@ -249,9 +280,25 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return getCount == 1;
         }
 
+        void updatePutLatency(final long durationNanoTime) {
+            if (putOperationHistogram == null) {
+                putOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_PUT_LATENCY, putOperationHistogram);
+            }
+            putOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnPut() {
             putCount = loopUpdateCounter(putCount);
             return putCount == 1;
+        }
+
+        void updatePutAllLatency(final long durationNanoTime) {
+            if (putAllOperationHistogram == null) {
+                putAllOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_PUT_ALL_LATENCY, putAllOperationHistogram);
+            }
+            putAllOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnPutAll() {
@@ -259,9 +306,25 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return putAllCount == 1;
         }
 
+        void updateRemoveLatency(final long durationNanoTime) {
+            if (removeOperationHistogram == null) {
+                removeOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_REMOVE_LATENCY, removeOperationHistogram);
+            }
+            removeOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnRemove() {
             removeCount = loopUpdateCounter(removeCount);
             return removeCount == 1;
+        }
+
+        void updateContainsLatency(final long durationNanoTime) {
+            if (containsOperationHistogram == null) {
+                containsOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_CONTAINS_LATENCY, containsOperationHistogram);
+            }
+            containsOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnContains() {
@@ -269,9 +332,26 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return containsCount == 1;
         }
 
+        void updateEntriesInitLatency(final long durationNanoTime) {
+            if (entriesInitOperationHistogram == null) {
+                entriesInitOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(
+                        MAP_STATE_ENTRIES_INIT_LATENCY, entriesInitOperationHistogram);
+            }
+            entriesInitOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnEntriesInit() {
             entriesInitCount = loopUpdateCounter(entriesInitCount);
             return entriesInitCount == 1;
+        }
+
+        void updateKeysInitLatency(final long durationNanoTime) {
+            if (keysInitOperationHistogram == null) {
+                keysInitOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_KEYS_INIT_LATENCY, keysInitOperationHistogram);
+            }
+            keysInitOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnKeysInit() {
@@ -279,9 +359,26 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return keysInitCount == 1;
         }
 
+        void updateValuesInitLatency(final long durationNanoTime) {
+            if (valuesInitOperationHistogram == null) {
+                valuesInitOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_VALUES_INIT_LATENCY, valuesInitOperationHistogram);
+            }
+            valuesInitOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnValuesInit() {
             valuesInitCount = loopUpdateCounter(valuesInitCount);
             return valuesInitCount == 1;
+        }
+
+        void updateIteratorInitLatency(final long durationNanoTime) {
+            if (iteratorInitOperationHistogram == null) {
+                iteratorInitOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(
+                        MAP_STATE_ITERATOR_INIT_LATENCY, iteratorInitOperationHistogram);
+            }
+            iteratorInitOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnIteratorInit() {
@@ -289,9 +386,26 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return iteratorInitCount == 1;
         }
 
+        void updateIsEmptyLatency(final long durationNanoTime) {
+            if (isEmptyOperationHistogram == null) {
+                isEmptyOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(MAP_STATE_IS_EMPTY_LATENCY, isEmptyOperationHistogram);
+            }
+            isEmptyOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnIsEmpty() {
             isEmptyCount = loopUpdateCounter(isEmptyCount);
             return isEmptyCount == 1;
+        }
+
+        void updateIteratorHasNextLatency(final long durationNanoTime) {
+            if (iteratorHasNextOperationHistogram == null) {
+                iteratorHasNextOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(
+                        MAP_STATE_ITERATOR_HAS_NEXT_LATENCY, iteratorHasNextOperationHistogram);
+            }
+            iteratorHasNextOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnIteratorHasNext() {
@@ -299,9 +413,27 @@ class LatencyTrackingMapState<K, N, UK, UV>
             return iteratorHasNextCount == 1;
         }
 
+        void updateIteratorNextLatency(final long durationNanoTime) {
+            if (iteratorNextOperationHistogram == null) {
+                iteratorNextOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(
+                        MAP_STATE_ITERATOR_NEXT_LATENCY, iteratorNextOperationHistogram);
+            }
+            iteratorNextOperationHistogram.update(durationNanoTime);
+        }
+
         boolean trackLatencyOnIteratorNext() {
             iteratorNextCount = loopUpdateCounter(iteratorNextCount);
             return iteratorNextCount == 1;
+        }
+
+        void updateIteratorRemoveLatency(final long durationNanoTime) {
+            if (iteratorRemoveOperationHistogram == null) {
+                iteratorRemoveOperationHistogram = histogramSupplier.get();
+                metricGroup.histogram(
+                        MAP_STATE_ITERATOR_REMOVE_LATENCY, iteratorRemoveOperationHistogram);
+            }
+            iteratorRemoveOperationHistogram.update(durationNanoTime);
         }
 
         boolean trackLatencyOnIteratorRemove() {
