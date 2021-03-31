@@ -54,18 +54,23 @@ class LatencyTrackingReducingState<K, N, T>
 
     @Override
     public T get() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkGetCounter,
-                () -> original.get(),
-                latencyTrackingStateMetric::updateGetLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnGet()) {
+            return trackLatencyWithException(
+                    () -> original.get(), ReducingStateLatencyMetrics.REDUCING_STATE_GET_LATENCY);
+        } else {
+            return original.get();
+        }
     }
 
     @Override
     public void add(T value) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkAddCounter,
-                () -> original.add(value),
-                latencyTrackingStateMetric::updateAddLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnAdd()) {
+            trackLatencyWithException(
+                    () -> original.add(value),
+                    ReducingStateLatencyMetrics.REDUCING_STATE_ADD_LATENCY);
+        } else {
+            original.add(value);
+        }
     }
 
     @Override
@@ -80,45 +85,55 @@ class LatencyTrackingReducingState<K, N, T>
 
     @Override
     public void mergeNamespaces(N target, Collection<N> sources) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkMergeNamespacesCounter,
-                () -> original.mergeNamespaces(target, sources),
-                latencyTrackingStateMetric::updateMergeNamespacesLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnMergeNamespace()) {
+            trackLatencyWithException(
+                    () -> original.mergeNamespaces(target, sources),
+                    ReducingStateLatencyMetrics.REDUCING_STATE_MERGE_NAMESPACES_LATENCY);
+        } else {
+            original.mergeNamespaces(target, sources);
+        }
     }
 
     protected static class ReducingStateLatencyMetrics extends StateLatencyMetricBase {
-        static final String REDUCING_STATE_GET_LATENCY = "reducingStateGetLatency";
-        static final String REDUCING_STATE_ADD_LATENCY = "reducingStateAddLatency";
-        static final String REDUCING_STATE_MERGE_NAMESPACES_LATENCY =
+        private static final String REDUCING_STATE_GET_LATENCY = "reducingStateGetLatency";
+        private static final String REDUCING_STATE_ADD_LATENCY = "reducingStateAddLatency";
+        private static final String REDUCING_STATE_MERGE_NAMESPACES_LATENCY =
                 "reducingStateMergeNamespacesLatency";
+
+        private int getCount = 0;
+        private int addCount = 0;
+        private int mergeNamespaceCount = 0;
 
         ReducingStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
             super(stateName, metricGroup, sampleInterval, historySize);
         }
 
-        boolean checkGetCounter() {
-            return checkCounter(REDUCING_STATE_GET_LATENCY);
+        int getGetCount() {
+            return getCount;
         }
 
-        boolean checkAddCounter() {
-            return checkCounter(REDUCING_STATE_ADD_LATENCY);
+        int getAddCount() {
+            return addCount;
         }
 
-        boolean checkMergeNamespacesCounter() {
-            return checkCounter(REDUCING_STATE_MERGE_NAMESPACES_LATENCY);
+        int getMergeNamespaceCount() {
+            return mergeNamespaceCount;
         }
 
-        void updateGetLatency(long duration) {
-            updateHistogram(REDUCING_STATE_GET_LATENCY, duration);
+        private boolean trackLatencyOnGet() {
+            getCount = loopUpdateCounter(getCount);
+            return getCount == 1;
         }
 
-        void updateAddLatency(long duration) {
-            updateHistogram(REDUCING_STATE_ADD_LATENCY, duration);
+        private boolean trackLatencyOnAdd() {
+            addCount = loopUpdateCounter(addCount);
+            return addCount == 1;
         }
 
-        void updateMergeNamespacesLatency(long duration) {
-            updateHistogram(REDUCING_STATE_MERGE_NAMESPACES_LATENCY, duration);
+        private boolean trackLatencyOnMergeNamespace() {
+            mergeNamespaceCount = loopUpdateCounter(mergeNamespaceCount);
+            return mergeNamespaceCount == 1;
         }
     }
 }

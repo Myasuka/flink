@@ -39,14 +39,11 @@ import org.apache.flink.runtime.state.internal.InternalKvState;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
 import org.apache.flink.util.Preconditions;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
-import java.util.Map;
 
-import static org.apache.flink.runtime.state.metrics.StateLatencyMetricBase.STATE_CLEAR_LATENCY;
-import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.assertEquals;
 
 /** Test base for latency tracking state. */
 public abstract class LatencyTrackingStateTestBase<K> {
@@ -117,15 +114,14 @@ public abstract class LatencyTrackingStateTestBase<K> {
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
             StateLatencyMetricBase latencyTrackingStateMetric =
                     latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
-                    latencyTrackingStateMetric.getCountersPerMetric();
-            Assert.assertThat(countersPerMetric.isEmpty(), is(true));
+
+            assertEquals(0, latencyTrackingStateMetric.getClearCount());
+
             setCurrentKey(keyedBackend);
             for (int index = 1; index <= SAMPLE_INTERVAL; index++) {
                 int expectedResult = index == SAMPLE_INTERVAL ? 0 : index;
                 latencyTrackingState.clear();
-                Assert.assertEquals(
-                        expectedResult, countersPerMetric.get(STATE_CLEAR_LATENCY).getCounter());
+                assertEquals(expectedResult, latencyTrackingStateMetric.getClearCount());
             }
         } finally {
             if (keyedBackend != null) {

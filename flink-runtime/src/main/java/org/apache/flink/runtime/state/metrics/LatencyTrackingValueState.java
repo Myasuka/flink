@@ -54,43 +54,53 @@ class LatencyTrackingValueState<K, N, T>
 
     @Override
     public T value() throws IOException {
-        return trackLatencyWithIOException(
-                latencyTrackingStateMetric::checkValueCounter,
-                () -> original.value(),
-                latencyTrackingStateMetric::updateGetLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnGet()) {
+            return trackLatencyWithIOException(
+                    () -> original.value(), ValueStateLatencyMetrics.VALUE_STATE_GET_LATENCY);
+        } else {
+            return original.value();
+        }
     }
 
     @Override
     public void update(T value) throws IOException {
-        trackLatencyWithIOException(
-                latencyTrackingStateMetric::checkUpdateCounter,
-                () -> original.update(value),
-                latencyTrackingStateMetric::updatePutLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnUpdate()) {
+            trackLatencyWithIOException(
+                    () -> original.update(value),
+                    ValueStateLatencyMetrics.VALUE_STATE_UPDATE_LATENCY);
+        } else {
+            original.update(value);
+        }
     }
 
-    protected static class ValueStateLatencyMetrics extends StateLatencyMetricBase {
-        static final String VALUE_STATE_GET_LATENCY = "valueStateGetLatency";
-        static final String VALUE_STATE_UPDATE_LATENCY = "valueStateUpdateLatency";
+    static class ValueStateLatencyMetrics extends StateLatencyMetricBase {
+        private static final String VALUE_STATE_GET_LATENCY = "valueStateGetLatency";
+        private static final String VALUE_STATE_UPDATE_LATENCY = "valueStateUpdateLatency";
 
-        ValueStateLatencyMetrics(
+        private int getCount = 0;
+        private int updateCount = 0;
+
+        private ValueStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
             super(stateName, metricGroup, sampleInterval, historySize);
         }
 
-        boolean checkValueCounter() {
-            return checkCounter(VALUE_STATE_GET_LATENCY);
+        int getGetCount() {
+            return getCount;
         }
 
-        boolean checkUpdateCounter() {
-            return checkCounter(VALUE_STATE_UPDATE_LATENCY);
+        int getUpdateCount() {
+            return updateCount;
         }
 
-        void updateGetLatency(long duration) {
-            updateHistogram(VALUE_STATE_GET_LATENCY, duration);
+        private boolean trackLatencyOnGet() {
+            getCount = loopUpdateCounter(getCount);
+            return getCount == 1;
         }
 
-        void updatePutLatency(long duration) {
-            updateHistogram(VALUE_STATE_UPDATE_LATENCY, duration);
+        private boolean trackLatencyOnUpdate() {
+            updateCount = loopUpdateCounter(updateCount);
+            return updateCount == 1;
         }
     }
 }

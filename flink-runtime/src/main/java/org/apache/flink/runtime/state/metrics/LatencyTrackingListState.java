@@ -55,18 +55,22 @@ class LatencyTrackingListState<K, N, T>
 
     @Override
     public Iterable<T> get() throws Exception {
-        return trackLatencyWithException(
-                latencyTrackingStateMetric::checkGetCounter,
-                () -> original.get(),
-                latencyTrackingStateMetric::updateGetLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnGet()) {
+            return trackLatencyWithException(
+                    () -> original.get(), ListStateLatencyMetrics.LIST_STATE_GET_LATENCY);
+        } else {
+            return original.get();
+        }
     }
 
     @Override
     public void add(T value) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkAddCounter,
-                () -> original.add(value),
-                latencyTrackingStateMetric::updateAddLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnAdd()) {
+            trackLatencyWithException(
+                    () -> original.add(value), ListStateLatencyMetrics.LIST_STATE_ADD_LATENCY);
+        } else {
+            original.add(value);
+        }
     }
 
     @Override
@@ -81,78 +85,99 @@ class LatencyTrackingListState<K, N, T>
 
     @Override
     public void update(List<T> values) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkUpdateCounter,
-                () -> original.update(values),
-                latencyTrackingStateMetric::updateUpdateLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnUpdate()) {
+            trackLatencyWithException(
+                    () -> original.update(values),
+                    ListStateLatencyMetrics.LIST_STATE_UPDATE_LATENCY);
+        } else {
+            original.update(values);
+        }
     }
 
     @Override
     public void addAll(List<T> values) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkAddAllCounter,
-                () -> original.addAll(values),
-                latencyTrackingStateMetric::updateAddAllLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnAddAll()) {
+            trackLatencyWithException(
+                    () -> original.addAll(values),
+                    ListStateLatencyMetrics.LIST_STATE_ADD_ALL_LATENCY);
+        } else {
+            original.addAll(values);
+        }
     }
 
     @Override
     public void mergeNamespaces(N target, Collection<N> sources) throws Exception {
-        trackLatencyWithException(
-                latencyTrackingStateMetric::checkMergeNamespacesCounter,
-                () -> original.mergeNamespaces(target, sources),
-                latencyTrackingStateMetric::updateMergeNamespacesLatency);
+        if (latencyTrackingStateMetric.trackLatencyOnMergeNamespace()) {
+            trackLatencyWithException(
+                    () -> original.mergeNamespaces(target, sources),
+                    ListStateLatencyMetrics.LIST_STATE_MERGE_NAMESPACES_LATENCY);
+        } else {
+            original.mergeNamespaces(target, sources);
+        }
     }
 
-    protected static class ListStateLatencyMetrics extends StateLatencyMetricBase {
-        static final String LIST_STATE_GET_LATENCY = "listStateGetLatency";
-        static final String LIST_STATE_ADD_LATENCY = "listStateAddLatency";
-        static final String LIST_STATE_ADD_ALL_LATENCY = "listStateAddAllLatency";
-        static final String LIST_STATE_UPDATE_LATENCY = "listStateUpdateLatency";
-        static final String LIST_STATE_MERGE_NAMESPACES_LATENCY = "listStateMergeNamespacesLatency";
+    static class ListStateLatencyMetrics extends StateLatencyMetricBase {
+        private static final String LIST_STATE_GET_LATENCY = "listStateGetLatency";
+        private static final String LIST_STATE_ADD_LATENCY = "listStateAddLatency";
+        private static final String LIST_STATE_ADD_ALL_LATENCY = "listStateAddAllLatency";
+        private static final String LIST_STATE_UPDATE_LATENCY = "listStateUpdateLatency";
+        private static final String LIST_STATE_MERGE_NAMESPACES_LATENCY =
+                "listStateMergeNamespacesLatency";
 
-        ListStateLatencyMetrics(
+        private int getCount = 0;
+        private int addCount = 0;
+        private int addAllCount = 0;
+        private int updateCount = 0;
+        private int mergeNamespaceCount = 0;
+
+        private ListStateLatencyMetrics(
                 String stateName, MetricGroup metricGroup, int sampleInterval, int historySize) {
             super(stateName, metricGroup, sampleInterval, historySize);
         }
 
-        boolean checkGetCounter() {
-            return checkCounter(LIST_STATE_GET_LATENCY);
+        int getGetCount() {
+            return getCount;
         }
 
-        boolean checkAddCounter() {
-            return checkCounter(LIST_STATE_ADD_LATENCY);
+        int getAddCount() {
+            return addCount;
         }
 
-        boolean checkAddAllCounter() {
-            return checkCounter(LIST_STATE_ADD_ALL_LATENCY);
+        int getAddAllCount() {
+            return addAllCount;
         }
 
-        boolean checkUpdateCounter() {
-            return checkCounter(LIST_STATE_UPDATE_LATENCY);
+        int getUpdateCount() {
+            return updateCount;
         }
 
-        boolean checkMergeNamespacesCounter() {
-            return checkCounter(LIST_STATE_MERGE_NAMESPACES_LATENCY);
+        int getMergeNamespaceCount() {
+            return mergeNamespaceCount;
         }
 
-        void updateGetLatency(long duration) {
-            updateHistogram(LIST_STATE_GET_LATENCY, duration);
+        private boolean trackLatencyOnGet() {
+            getCount = loopUpdateCounter(getCount);
+            return getCount == 1;
         }
 
-        void updateAddLatency(long duration) {
-            updateHistogram(LIST_STATE_ADD_LATENCY, duration);
+        private boolean trackLatencyOnAdd() {
+            addCount = loopUpdateCounter(addCount);
+            return addCount == 1;
         }
 
-        void updateAddAllLatency(long duration) {
-            updateHistogram(LIST_STATE_ADD_ALL_LATENCY, duration);
+        private boolean trackLatencyOnAddAll() {
+            addAllCount = loopUpdateCounter(addAllCount);
+            return addAllCount == 1;
         }
 
-        void updateUpdateLatency(long duration) {
-            updateHistogram(LIST_STATE_UPDATE_LATENCY, duration);
+        private boolean trackLatencyOnUpdate() {
+            updateCount = loopUpdateCounter(updateCount);
+            return updateCount == 1;
         }
 
-        void updateMergeNamespacesLatency(long duration) {
-            updateHistogram(LIST_STATE_MERGE_NAMESPACES_LATENCY, duration);
+        private boolean trackLatencyOnMergeNamespace() {
+            mergeNamespaceCount = loopUpdateCounter(mergeNamespaceCount);
+            return mergeNamespaceCount == 1;
         }
     }
 }

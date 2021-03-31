@@ -27,17 +27,12 @@ import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.VoidNamespace;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
-import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingAggregatingState.AggregatingStateLatencyMetrics.AGGREGATING_STATE_ADD_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingAggregatingState.AggregatingStateLatencyMetrics.AGGREGATING_STATE_GET_LATENCY;
-import static org.apache.flink.runtime.state.metrics.LatencyTrackingAggregatingState.AggregatingStateLatencyMetrics.AGGREGATING_STATE_MERGE_NAMESPACES_LATENCY;
-import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.assertEquals;
 
 /** Tests for {@link LatencyTrackingAggregatingState}. */
 public class LatencyTrackingAggregatingStateTest extends LatencyTrackingStateTestBase<Integer> {
@@ -92,30 +87,27 @@ public class LatencyTrackingAggregatingStateTest extends LatencyTrackingStateTes
                             (LatencyTrackingAggregatingState)
                                     createLatencyTrackingState(keyedBackend, getStateDescriptor());
             latencyTrackingState.setCurrentNamespace(VoidNamespace.INSTANCE);
-            StateLatencyMetricBase latencyTrackingStateMetric =
-                    latencyTrackingState.getLatencyTrackingStateMetric();
-            Map<String, StateLatencyMetricBase.Counter> countersPerMetric =
-                    latencyTrackingStateMetric.getCountersPerMetric();
-            Assert.assertThat(countersPerMetric.isEmpty(), is(true));
+            LatencyTrackingAggregatingState.AggregatingStateLatencyMetrics
+                    latencyTrackingStateMetric =
+                            latencyTrackingState.getLatencyTrackingStateMetric();
+
+            assertEquals(0, latencyTrackingStateMetric.getAddCount());
+            assertEquals(0, latencyTrackingStateMetric.getGetCount());
+            assertEquals(0, latencyTrackingStateMetric.getMergeNamespaceCount());
+
             setCurrentKey(keyedBackend);
             ThreadLocalRandom random = ThreadLocalRandom.current();
             for (int index = 1; index <= SAMPLE_INTERVAL; index++) {
                 int expectedResult = index == SAMPLE_INTERVAL ? 0 : index;
                 latencyTrackingState.add(random.nextLong());
-                Assert.assertEquals(
-                        expectedResult,
-                        countersPerMetric.get(AGGREGATING_STATE_ADD_LATENCY).getCounter());
+                assertEquals(expectedResult, latencyTrackingStateMetric.getAddCount());
+
                 latencyTrackingState.get();
-                Assert.assertEquals(
-                        expectedResult,
-                        countersPerMetric.get(AGGREGATING_STATE_GET_LATENCY).getCounter());
+                assertEquals(expectedResult, latencyTrackingStateMetric.getGetCount());
+
                 latencyTrackingState.mergeNamespaces(
                         VoidNamespace.INSTANCE, Collections.emptyList());
-                Assert.assertEquals(
-                        expectedResult,
-                        countersPerMetric
-                                .get(AGGREGATING_STATE_MERGE_NAMESPACES_LATENCY)
-                                .getCounter());
+                assertEquals(expectedResult, latencyTrackingStateMetric.getMergeNamespaceCount());
             }
         } finally {
             if (keyedBackend != null) {
